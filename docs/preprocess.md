@@ -332,21 +332,6 @@ Solution: Enable auto-detection or verify CSV grid indices are consistent
 4. **Validate Input Data**: Use built-in validation functions
 5. **Monitor Memory Usage**: For large datasets, consider processing in chunks
 
-## Migration from Original Scripts
-
-If migrating from standalone scripts, the functional equivalents are:
-
-| Original Script | LATTE Function |
-|----------------|----------------|
-| `spherical_to_cartesian_exact.py` | `coordinate_transform` (exact method) |
-| `spherical_to_cartesian_flattening.py` | `coordinate_transform` (flattening method) |
-| `create_3d_init_vel_model.py` | `initial_3d_model` |
-| `create_geometry_and_traveltime_files.py` | `geometry_traveltime` |
-| `create_velocity_bin.py` | `velocity_binary` |
-| `visualize_*.py` | `visualization` |
-
-The LATTE functions preserve all original logic while adding configuration management, error handling, and integration capabilities.
-
 ## Examples
 
 ### Example 1: Basic Workflow
