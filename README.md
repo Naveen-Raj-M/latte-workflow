@@ -8,7 +8,7 @@ This repository contains a complete toolkit for seismic tomography workflows, fr
 
 ## Related Publications
 
-- **LATTE Framework**: [Travel time tomography with adaptive dictionaries](https://academic.oup.com/gji/article/241/2/1275/8046728) - Geophysical Journal International, 2025
+- **LATTE Framework**: [LATTE: open-source, high-performance traveltime computation, tomography and source location in acoustic and elastic media](https://academic.oup.com/gji/article/241/2/1275/8046728) - Geophysical Journal International, 2025
 - **Original LATTE Code**: [LANL LATTE Repository](https://github.com/lanl/latte_traveltime)
 - **Data Source**: [Mapping the 3-D Lithospheric Structure of the Greater Permian Basin in West Texas and Southeast New Mexico for Earthquake Monitoring](https://agupubs.onlinelibrary.wiley.com/doi/full/10.1029/2019JB018351) - Huang et al., Journal of Geophysical Research: Solid Earth, 2019
 
