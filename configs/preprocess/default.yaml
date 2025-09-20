@@ -25,7 +25,7 @@ coordinate_transform:
   velocity_file: "${data.base_dir}/vmodel-PB3D.txt"
   
   # Output directory
-  output_dir: "/home/rajmanoharann/dino_latte_comparison/flattened_transformation/input_files"
+  output_dir: "/path/to/output"
   
   # Transformation settings
   transformation_method: "flattening"  # "exact" or "flattening"
