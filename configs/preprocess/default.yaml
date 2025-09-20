@@ -1,0 +1,132 @@
+# configs/preprocess/default.yaml
+# Main preprocessing configuration for LATTE tomography package
+
+defaults:
+  - _self_
+
+# General preprocessing settings
+preprocessing:
+  output_dir: "/home/rajmanoharann/dino_latte_comparison/test/flattened_transformation/input_files"
+  log_level: INFO
+  
+# Data paths configuration
+data:
+  base_dir: "/home/rajmanoharann/dino_latte_comparison/dino_data"
+  output_base_dir: "/home/rajmanoharann/dino_latte_comparison/test/flattened_transformation/input_files_corrected"
+
+# Coordinate transformation configuration
+coordinate_transform:
+  enabled: false
+  
+  # Input files
+  station_file: "${data.base_dir}/stacoords.txt"
+  event_file: "${data.base_dir}/phasePickings.txt"
+  corrected_event_file: "${data.base_dir}/sphfdloc.dat"
+  velocity_file: "${data.base_dir}/vmodel-PB3D.txt"
+  
+  # Output directory
+  output_dir: "/home/rajmanoharann/dino_latte_comparison/flattened_transformation/input_files"
+  
+  # Transformation settings
+  transformation_method: "flattening"  # "exact" or "flattening"
+  use_chapman_flattening: false
+  use_corrected_phase_pickings: false
+  
+  # Origin coordinates
+  origin_lon: -108.0
+  origin_lat: 34.5
+  origin_depth_km: -4.0
+  
+  # Grid spacing
+  grid_spacing_km: [20.0, 20.0, 2.0]  # dx, dy, dz
+  
+  # Exact transformation settings (when transformation_method == "exact")
+  exact_transform:
+    rotate_to_enu: true
+    align_to_geocentric_normal: false
+
+# Initial 3D velocity model configuration
+initial_3d_model:
+  enabled: false
+  model_1d_file: "${data.base_dir}/vmodel-PB1D.txt"
+  template_3d_file: "${data.base_dir}/vmodel-PB3D.txt"
+  output_file: "${data.output_base_dir}/initial_3d_model_generated.txt"
+  
+  # Formatting settings (preserved from original)
+  precision:
+    longitude: 6
+    latitude: 7
+    depth: 8
+    vp: 8
+    vs: 8
+  field_width: 11
+
+# Geometry and travel time file generation
+geometry_traveltime:
+  enabled: true
+  
+  # Input files
+  phase_file: "${data.base_dir}/phasePickings.txt"
+  corrected_phase_file: "${data.base_dir}/sphfdloc.dat"
+  station_csv: "${coordinate_transform.output_dir}/stations_cartesian.csv"
+  event_csv: "${coordinate_transform.output_dir}/events_cartesian_corrected.csv"
+  
+  # Output directories
+  geometry_dir: "${data.output_base_dir}/geometry"
+  traveltime_dir: "${data.output_base_dir}/ground_truth_traveltimes"
+  source_dir: "${data.output_base_dir}/model"
+  
+  # Processing options
+  use_corrected_phase_pickings: true
+  generate_source_binaries: true
+  zero_origin_time: true
+  source_binary_format: "travel_time"  # "travel_time" or "fortran"
+  
+  # Velocity filtering
+  p_velocity_range_m_s: [500, 10000]
+  s_velocity_range_m_s: [500, 6000]
+  
+  # Event and station filtering
+  filter_events: false
+  events_to_discard_file: "${data.base_dir}/events_to_discard.txt"
+  filter_stations: false
+  stations_to_discard_file: "${data.base_dir}/stations_to_discard.txt"
+
+# Velocity binary file generation
+velocity_binary:
+  enabled: false
+  
+  # Input/output
+  input_csv: "${coordinate_transform.output_dir}/velocity_cartesian.csv"
+  vp_output: "${data.output_base_dir}/vp_init.bin"
+  vs_output: "${data.output_base_dir}/vs_init.bin"
+  
+  # Processing options
+  use_chapman_velocities: true
+  interpolate: true
+  neighbor_threshold: 5
+
+# Visualization settings
+visualization:
+  enabled: false
+  
+  # Station and event visualization
+  station_event_vis:
+    station_file: "${coordinate_transform.output_dir}/stations_cartesian.csv"
+    event_file: "${coordinate_transform.output_dir}/events_cartesian.csv"
+    output_image: "${data.output_base_dir}/visualization_station_events.pdf"
+    view_from_direction: "southeast"
+    view_elevation: 20
+  
+  # Velocity model visualization
+  velocity_vis:
+    csv_file: "${coordinate_transform.output_dir}/velocity_cartesian.csv"
+    bin_file: "${data.output_base_dir}/vp_init.bin"
+    coord_system: "flattened"  # "flattened" or "enu"
+    
+  # Animated visualization
+  velocity_animation:
+    bin_file: "${data.output_base_dir}/vp_init.bin"
+    output_gif: "${data.output_base_dir}/velocity_animation.gif"
+    rotation_frames: 120
+    frame_duration: 0.05
