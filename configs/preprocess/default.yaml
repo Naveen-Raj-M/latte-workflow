@@ -6,17 +6,17 @@ defaults:
 
 # General preprocessing settings
 preprocessing:
-  output_dir: "/home/rajmanoharann/dino_latte_comparison/test/flattened_transformation/input_files"
+  output_dir: "/path/to/output/files"
   log_level: INFO
   
 # Data paths configuration
 data:
-  base_dir: "/home/rajmanoharann/dino_latte_comparison/dino_data"
-  output_base_dir: "/home/rajmanoharann/dino_latte_comparison/test/flattened_transformation/input_files_corrected"
+  base_dir: "/path/to/input/data"
+  output_base_dir: "/path/to/output"
 
 # Coordinate transformation configuration
 coordinate_transform:
-  enabled: false
+  enabled: true
   
   # Input files
   station_file: "${data.base_dir}/stacoords.txt"
@@ -47,7 +47,7 @@ coordinate_transform:
 
 # Initial 3D velocity model configuration
 initial_3d_model:
-  enabled: false
+  enabled: true
   model_1d_file: "${data.base_dir}/vmodel-PB1D.txt"
   template_3d_file: "${data.base_dir}/vmodel-PB3D.txt"
   output_file: "${data.output_base_dir}/initial_3d_model_generated.txt"
@@ -69,7 +69,7 @@ geometry_traveltime:
   phase_file: "${data.base_dir}/phasePickings.txt"
   corrected_phase_file: "${data.base_dir}/sphfdloc.dat"
   station_csv: "${coordinate_transform.output_dir}/stations_cartesian.csv"
-  event_csv: "${coordinate_transform.output_dir}/events_cartesian_corrected.csv"
+  event_csv: "${coordinate_transform.output_dir}/events_cartesian.csv"
   
   # Output directories
   geometry_dir: "${data.output_base_dir}/geometry"
@@ -94,7 +94,7 @@ geometry_traveltime:
 
 # Velocity binary file generation
 velocity_binary:
-  enabled: false
+  enabled: true
   
   # Input/output
   input_csv: "${coordinate_transform.output_dir}/velocity_cartesian.csv"
@@ -108,7 +108,7 @@ velocity_binary:
 
 # Visualization settings
 visualization:
-  enabled: false
+  enabled: true
   
   # Station and event visualization
   station_event_vis:
