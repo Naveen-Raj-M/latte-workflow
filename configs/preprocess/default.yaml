@@ -75,6 +75,10 @@ geometry_traveltime:
   geometry_dir: "${data.output_base_dir}/geometry"
   traveltime_dir: "${data.output_base_dir}/ground_truth_traveltimes"
   source_dir: "${data.output_base_dir}/model"
+
+  # Travel time CSV export
+  generate_travel_time_csv: true
+  csv_output_dir: "${data.output_base_dir}/geometry_csv"
   
   # Processing options
   use_corrected_phase_pickings: true

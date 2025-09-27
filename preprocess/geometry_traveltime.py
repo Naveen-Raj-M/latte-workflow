@@ -562,6 +562,161 @@ def write_output_files(events: Dict, event_map: Dict, config: DictConfig) -> Non
     print(f"\nIMPORTANT: You must update the 'ns' parameter in your Fortran input to {len(shot_files)}")
 
 
+def write_travel_time_csv(events: Dict, event_map: Dict, config: DictConfig) -> None:
+    """
+    Write comprehensive travel time data to CSV file with all metadata.
+    Creates a CSV with original coordinates, transformed coordinates, and travel time data.
+    Shot ID is included to eliminate need for separate mapping files.
+    """
+    if not config.generate_travel_time_csv:
+        return
+        
+    ensure_directory_exists(config.csv_output_dir)
+    
+    print(f"\nWriting comprehensive travel time CSV to: {config.csv_output_dir}")
+    
+    # Load original coordinate data for lat/lon/depth information
+    station_df = pd.read_csv(config.station_csv)
+    event_df = pd.read_csv(config.event_csv)
+    
+    # Create lookup dictionaries for original coordinates
+    station_original_coords = {}
+    if 'longitude' in station_df.columns and 'latitude' in station_df.columns and 'depth_km' in station_df.columns:
+        station_original_coords = {
+            row.station: (row.longitude, row.latitude, row.depth_km) 
+            for row in station_df.itertuples()
+        }
+    
+    event_original_coords = {}
+    if 'longitude' in event_df.columns and 'latitude' in event_df.columns and 'depth_km' in event_df.columns:
+        event_original_coords = {
+            str(row.event_id): (row.longitude, row.latitude, row.depth_km) 
+            for row in event_df.itertuples()
+        }
+    
+    # Prepare data for CSV export
+    csv_data = []
+    
+    # Sort events to maintain consistent ordering (same as in geometry files)
+    sorted_events = sorted(events.items(), key=lambda item: item[0])
+    
+    for idx, (eid, data) in enumerate(sorted_events, start=1):
+        shot_id = idx
+        
+        # Get transformed event coordinates
+        ex_transformed, ey_transformed, ez_transformed = event_map.get(eid, (None, None, None))
+        if ex_transformed is None:
+            print(f"Warning: Event {eid} coordinates not found in event_map, skipping from CSV")
+            continue
+        
+        # Get original event coordinates
+        event_lon, event_lat, event_depth_km = event_original_coords.get(eid, (np.nan, np.nan, np.nan))
+        
+        # Get event metadata
+        origin_time_s = data.get('origin_time_s', 0.0)
+        weighted_rms = data.get('weighted_rms', 0.0)  # Available for corrected data
+        
+        # Get P-wave and S-wave picks
+        p_picks = data['p_picks']
+        s_picks = data['s_picks']
+        
+        # Process both P and S waves
+        for phase, picks in [('P', p_picks), ('S', s_picks)]:
+            for pick in picks:
+                station = pick['station']
+                travel_time = pick['travel_time']
+                weight = pick['weight']
+                sx_transformed, sy_transformed, sz_transformed = pick['coords']
+                residual = pick.get('residual', 0.0)  # Available for corrected data
+                
+                # Get original station coordinates
+                station_lon, station_lat, station_depth_km = station_original_coords.get(station, (np.nan, np.nan, np.nan))
+                
+                # Calculate distance using transformed coordinates
+                distance_m = np.sqrt((ex_transformed - sx_transformed)**2 + 
+                                   (ey_transformed - sy_transformed)**2 + 
+                                   (ez_transformed - sz_transformed)**2)
+                
+                csv_data.append({
+                    # Identifiers
+                    'shot_id': shot_id,
+                    'event_id': eid,
+                    'station': station,
+                    'phase': phase,
+                    
+                    # Travel time data
+                    'observed_tt': travel_time,
+                    'weight': weight,
+                    'residual': residual,
+                    
+                    # Original coordinates (lat/lon/depth)
+                    'event_longitude': event_lon,
+                    'event_latitude': event_lat,
+                    'event_depth_km': event_depth_km,
+                    'station_longitude': station_lon,
+                    'station_latitude': station_lat,
+                    'station_depth_km': station_depth_km,
+                    
+                    # Transformed coordinates (cartesian)
+                    'event_x_transformed': ex_transformed,
+                    'event_y_transformed': ey_transformed,
+                    'event_z_transformed': ez_transformed,
+                    'station_x_transformed': sx_transformed,
+                    'station_y_transformed': sy_transformed,
+                    'station_z_transformed': sz_transformed,
+                    
+                    # Derived quantities
+                    'distance_m': distance_m,
+                    'origin_time_s': origin_time_s,
+                    'weighted_rms': weighted_rms
+                })
+    
+    # Convert to DataFrame and save
+    if csv_data:
+        df = pd.DataFrame(csv_data)
+        
+        # Determine filename based on input format
+        if config.use_corrected_phase_pickings:
+            csv_filename = "ground_truth_travel_times_corrected.csv"
+        else:
+            csv_filename = "ground_truth_travel_times.csv"
+        
+        csv_path = os.path.join(config.csv_output_dir, csv_filename)
+        df.to_csv(csv_path, index=False)
+        
+        print(f"Comprehensive travel time CSV written: {csv_filename}")
+        print(f"  Total records: {len(csv_data)}")
+        print(f"  Unique events: {df['event_id'].nunique()}")
+        print(f"  Unique stations: {df['station'].nunique()}")
+        print(f"  P-wave picks: {len(df[df['phase'] == 'P'])}")
+        print(f"  S-wave picks: {len(df[df['phase'] == 'S'])}")
+        
+        # Print sample statistics
+        p_data = df[df['phase'] == 'P']['observed_tt']
+        s_data = df[df['phase'] == 'S']['observed_tt']
+        
+        if not p_data.empty:
+            print(f"  P-wave travel times: {p_data.min():.3f} to {p_data.max():.3f} s (mean: {p_data.mean():.3f} s)")
+        if not s_data.empty:
+            print(f"  S-wave travel times: {s_data.min():.3f} to {s_data.max():.3f} s (mean: {s_data.mean():.3f} s)")
+            
+        # Print coordinate range information
+        if not df['distance_m'].isna().all():
+            print(f"  Distance range: {df['distance_m'].min():.1f} to {df['distance_m'].max():.1f} m")
+        
+        # Add additional metadata for corrected data
+        if config.use_corrected_phase_pickings:
+            print("  Note: Data from corrected phase pickings with post-correction event locations")
+            if weighted_rms > 0:
+                print(f"  Weighted RMS available for events")
+        
+        print(f"  CSV columns: {', '.join(df.columns)}")
+        print("  Note: Shot ID matches binary file numbering - no separate mapping file needed")
+            
+    else:
+        print("Warning: No travel time data to write to CSV")
+
+
 def create_geometry_and_traveltime_files(config: DictConfig) -> None:
     """
     Main function to create geometry and travel time files from phase picks.
@@ -622,6 +777,9 @@ def create_geometry_and_traveltime_files(config: DictConfig) -> None:
         
         # Write other output files
         write_output_files(valid_events, event_map, config)
+
+        # Write comprehensive travel time CSV
+        write_travel_time_csv(valid_events, event_map, config)
         
         print("\n--- Data Processing Summary ---")
         print(f"Input file format: {'Corrected (.dat)' if config.use_corrected_phase_pickings else 'Original (.txt)'}")
