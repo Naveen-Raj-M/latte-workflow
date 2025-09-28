@@ -1,0 +1,33 @@
+# Configuration for running only travel time analysis
+# Example usage: python -m analysis.main --config-name analysis/travel_time_only
+
+defaults:
+  - default
+
+# Run only travel time analysis
+single_function: travel_time_analysis
+
+analysis:
+  log_level: "INFO"
+  output_format: "png"
+
+travel_time_analysis:
+  enabled: true
+  input_csv: "data/processed/travel_time_residuals_corrected.csv"
+  output_dir: "results/analysis/travel_time"
+  
+  # Enable all optional features
+  enable_log_log_plots: true
+  enable_ln_ratio_analysis: true
+  enable_corrected_format: true
+  generate_summary_report: true
+
+# Disable other modules (optional, since single_function is set)
+velocity_analysis:
+  enabled: false
+
+distance_analysis:
+  enabled: false
+
+short_distance_analysis:
+  enabled: false

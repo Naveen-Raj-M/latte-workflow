@@ -1,0 +1,230 @@
+# Default configuration for LATTE analysis module
+# This file contains all detailed configuration options
+
+analysis:
+  # Global settings
+  log_level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  output_format: "png"  # png, pdf, svg
+  dpi: 300
+  save_intermediate_results: true
+  
+  # Plot styling
+  plot_style:
+    font_family: "sans-serif"
+    font_size: 14
+    title_size: 16
+    label_size: 14
+    tick_size: 12
+    legend_size: 12
+    figure_title_size: 18
+    line_width: 2
+    marker_size: 4
+    alpha: 0.7
+    grid_alpha: 0.3
+    
+    # Color schemes
+    colors:
+      p_wave_dark: "#1f4e79"
+      p_wave_light: "#5b9bd5"
+      s_wave_dark: "#2e7d32"
+      s_wave_light: "#66bb6a"
+      event_color: "#ff6b35"
+      station_color: "#4a4a4a"
+      neutral_color: "#d32f2f"
+      grid_color: "#cccccc"
+      positive_residual: "#ff4444"
+      negative_residual: "#4444ff"
+      zero_line: "#000000"
+
+# Travel time analysis configuration
+travel_time_analysis:
+  enabled: true
+  
+  # Input/Output
+  input_csv: null  # Will be set by config.yaml
+  output_dir: null # Will be set by config.yaml
+  
+  # Analysis options
+  enable_log_log_plots: true
+  enable_ln_ratio_analysis: true
+  enable_corrected_format: true
+  
+  # Statistical thresholds
+  outlier_threshold_sigma: 3.0
+  min_residual_threshold: -10.0
+  max_residual_threshold: 10.0
+  
+  # Plotting options
+  histogram_bins: 50
+  scatter_alpha: 0.6
+  scatter_size: 15
+  max_plot_points: 50000  # Subsample if more points
+  
+  # Report generation
+  generate_summary_report: true
+  include_mismatch_log: true
+  include_unrealistic_log: true
+
+# Velocity analysis configuration
+velocity_analysis:
+  enabled: true
+  
+  # Input/Output
+  model1_csv: null  # Initial model CSV
+  model2_csv: null  # Final/comparison model CSV
+  output_dir: null
+  
+  # Comparison modes: "initial_vs_final", "method_comparison", "custom"
+  comparison_mode: "initial_vs_final"
+  model1_name: "Initial Model"
+  model2_name: "Final Model"
+  
+  # Custom titles (used when comparison_mode = "custom")
+  custom_title1: "Model A"
+  custom_title2: "Model B"
+  
+  # Analysis options
+  compute_log_ratios: true
+  compute_geometric_mean_ratios: true
+  enable_spatial_projections: true
+  enable_profile_analysis: true
+  enable_slice_analysis: true
+  
+  # Spatial analysis
+  interpolation_method: "cubic"  # linear, cubic, nearest
+  grid_resolution: 100
+  
+  # Statistical thresholds
+  difference_threshold: 1e-6
+  ratio_threshold: 1e-6
+  
+  # Plotting options
+  contour_levels: 20
+  velocity_colormap: "viridis"
+  difference_colormap: "RdBu_r"
+  ratio_colormap: "RdBu_r"
+
+# Distance analysis configuration  
+distance_analysis:
+  enabled: true
+  
+  # Input/Output
+  travel_time_csv: null
+  station_csv: null
+  events_csv: null
+  output_dir: null
+  
+  # Coordinate system: "transformed" or "original"
+  coordinate_type: "transformed"
+  
+  # Analysis options
+  enable_ratio_analysis: true
+  enable_binned_analysis: true
+  enable_correlation_analysis: true
+  distance_bins: 20
+  
+  # Plotting options
+  enable_log_plots: true
+  max_distance_plot: null  # km, null for auto
+  min_distance_plot: 0.0   # km
+  
+  # Statistical analysis
+  correlation_method: "pearson"  # pearson, spearman
+  fit_polynomial_degree: 1
+
+# Short distance analysis configuration
+short_distance_analysis:
+  enabled: true
+  
+  # Input/Output  
+  travel_time_csv: null
+  station_csv: null
+  events_csv: null
+  output_dir: null
+  
+  # Distance cutoff
+  distance_cutoff_km: 20.0
+  coordinate_type: "transformed"  # "transformed" or "original"
+  
+  # Filtering options
+  phase_filter: null  # null for both P and S, or "P" or "S"
+  min_residual_threshold: -5.0
+  max_residual_threshold: 5.0
+  
+  # Display options
+  show_events: true
+  show_stations: true  
+  show_travel_paths: true
+  
+  # Analysis features
+  enable_detailed_stats: true
+  enable_residual_histograms: true
+  enable_zoom_clusters: true
+  
+  # Zoom cluster definitions
+  zoom_clusters:
+    - name: "Cluster_A"
+      x_min: 350.0
+      x_max: 450.0
+      y_min: 300.0
+      y_max: 400.0
+      description: "Dense cluster in central region"
+    - name: "Cluster_B"
+      x_min: 620.0
+      x_max: 700.0
+      y_min: 150.0
+      y_max: 200.0
+      description: "Northeastern region"
+    - name: "Cluster_C"
+      x_min: 0.0
+      x_max: 320.0
+      y_min: 0.0
+      y_max: 220.0
+      description: "Northwestern region"
+
+# File paths and naming
+paths:
+  # Base directories
+  input_dir: "data/processed"
+  output_base_dir: "results/analysis"
+  
+  # File naming patterns
+  travel_time_csv_pattern: "travel_time_residuals*.csv"
+  velocity_csv_pattern: "velocity_cartesian*.csv"
+  station_csv_name: "stations_cartesian.csv"
+  events_csv_name: "events_cartesian*.csv"
+  
+  # Output subdirectories
+  plots_subdir: "plots"
+  stats_subdir: "statistics"
+  reports_subdir: "reports"
+
+# Performance and memory management
+performance:
+  max_memory_gb: 8.0
+  subsample_large_datasets: true
+  subsample_threshold: 100000  # Number of points
+  parallel_processing: false   # Not implemented yet
+  n_jobs: 1
+
+# Logging and debugging
+logging:
+  log_to_file: true
+  log_file_prefix: "analysis"
+  detailed_progress: true
+  profile_memory: false
+  profile_timing: false
+
+# Quality control
+quality_control:
+  validate_input_data: true
+  check_coordinate_consistency: true
+  warn_missing_data: true
+  error_on_empty_results: true
+  
+  # Data validation thresholds
+  max_velocity_km_s: 15.0
+  min_velocity_km_s: 0.5
+  max_travel_time_s: 1000.0
+  min_travel_time_s: 0.0
+  max_distance_km: 2000.0

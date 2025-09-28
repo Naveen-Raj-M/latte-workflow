@@ -1,0 +1,43 @@
+# Configuration for running only velocity analysis
+# Example usage: python -m analysis.main --config-name analysis/velocity_only
+
+defaults:
+  - default
+
+# Run only velocity analysis
+single_function: velocity_analysis
+
+analysis:
+  log_level: "INFO"
+  output_format: "png"
+  dpi: 300
+
+velocity_analysis:
+  enabled: true
+  model1_csv: "data/processed/velocity_cartesian_initial.csv"
+  model2_csv: "data/processed/velocity_cartesian_updated.csv"
+  output_dir: "results/analysis/velocity"
+  
+  # Comparison modes: "initial_vs_final", "method_comparison", "custom"
+  comparison_mode: "initial_vs_final"
+  
+  # Analysis options
+  compute_log_ratios: true
+  compute_geometric_mean_ratios: true
+  enable_spatial_projections: true
+  enable_profile_analysis: true
+  enable_slice_analysis: true
+  
+  # High quality spatial analysis
+  interpolation_method: "cubic"
+  grid_resolution: 150
+
+# Disable other modules
+travel_time_analysis:
+  enabled: false
+
+distance_analysis:
+  enabled: false
+
+short_distance_analysis:
+  enabled: false

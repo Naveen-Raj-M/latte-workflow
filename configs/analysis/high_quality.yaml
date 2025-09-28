@@ -1,0 +1,60 @@
+# High-quality analysis configuration for publication-ready outputs
+# Example usage: python -m analysis.main --config-name analysis/high_quality
+
+defaults:
+  - default
+
+analysis:
+  log_level: "INFO"
+  output_format: "pdf"  # High-quality PDF output
+  dpi: 600              # Publication quality
+  
+  plot_style:
+    font_size: 16
+    title_size: 18
+    label_size: 16
+    tick_size: 14
+    legend_size: 14
+    figure_title_size: 20
+
+travel_time_analysis:
+  enabled: true
+  input_csv: "data/processed/travel_time_residuals_corrected.csv"
+  output_dir: "results/analysis/travel_time"
+  
+  # High-quality options
+  histogram_bins: 100
+  scatter_alpha: 0.8
+  max_plot_points: 100000  # More points for publication
+
+velocity_analysis:
+  enabled: true
+  model1_csv: "data/processed/velocity_cartesian_initial.csv"
+  model2_csv: "data/processed/velocity_cartesian_updated.csv"
+  output_dir: "results/analysis/velocity"
+  comparison_mode: "initial_vs_final"
+  
+  # High-resolution spatial analysis
+  interpolation_method: "cubic"
+  grid_resolution: 200
+  contour_levels: 30
+
+distance_analysis:
+  enabled: true
+  travel_time_csv: "data/processed/travel_time_residuals_corrected.csv"
+  station_csv: "data/processed/stations_cartesian.csv"
+  events_csv: "data/processed/events_cartesian_corrected.csv"
+  output_dir: "results/analysis/distance"
+  coordinate_type: "transformed"
+  
+  # More detailed binning
+  distance_bins: 30
+
+short_distance_analysis:
+  enabled: true
+  travel_time_csv: "data/processed/travel_time_residuals_corrected.csv"
+  station_csv: "data/processed/stations_cartesian.csv"
+  events_csv: "data/processed/events_cartesian_corrected.csv"
+  output_dir: "results/analysis/short_distance"
+  distance_cutoff_km: 20.0
+  coordinate_type: "transformed"
