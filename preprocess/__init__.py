@@ -3,6 +3,9 @@ LATTE Preprocessing Module
 Handles all data preprocessing for tomographic inversion.
 """
 
+__version__ = "1.0.0"
+__author__ = "Naveen Raj Manoharan"
+
 from .main import main, run_single_function, run_preprocessing_pipeline
 from .coordinate_transformation import transform_coordinates
 from .initial_velocity_model import create_initial_3d_model, validate_velocity_model
