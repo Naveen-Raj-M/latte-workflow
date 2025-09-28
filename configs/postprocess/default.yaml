@@ -1,0 +1,45 @@
+
+# configs/postprocess/default.yaml
+# Post-processing configuration for LATTE tomography outputs
+# Converts binary files to CSV format for analysis
+
+# General settings
+general:
+  strict_mode: true  # Stop on first error if true, continue if false
+  log_level: INFO
+
+# Data paths
+data:
+  base_dir: "/path/to/latte/output"
+  analysis_output_dir: "/path/to/analysis/output"
+
+# Velocity processing configuration
+velocity_processing:
+  enabled: true
+  
+  # Input files (full paths)
+  original_velocity_csv: "/full/path/to/velocity_cartesian_final.csv"
+  vp_binary: "${data.base_dir}/model/updated_vp.bin"
+  vs_binary: "${data.base_dir}/model/updated_vs.bin"
+  
+  # Output file
+  velocity_output_csv: "${data.analysis_output_dir}/velocity_cartesian_latte_output.csv"
+  
+  # Processing options
+  use_chapman_inverse: false  # Set to true if velocities need Chapman inverse transform
+  earth_radius_km: 6371.0    # Earth radius for Chapman transformation
+
+# Travel time processing configuration
+travel_time_processing:
+  enabled: true
+  
+  # Input files (full paths)
+  ground_truth_csv: "/full/path/to/ground_truth_travel_times_corrected.csv"
+  synthetic_tt_dir: "${data.base_dir}/synthetic_traveltimes"
+  shot_map_file: "/full/path/to/shot_to_source_id_map.txt"
+  
+  # Output file
+  synthetic_tt_output_csv: "${data.analysis_output_dir}/synthetic_travel_times_latte_output.csv"
+
+# Strict mode setting (global)
+strict_mode: true
