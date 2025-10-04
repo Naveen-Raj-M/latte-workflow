@@ -152,6 +152,33 @@ def load_velocity_data(file_path: str) -> pd.DataFrame:
     return pd.DataFrame(grids)
 
 
+def load_final_velocity_data(file_path: str) -> pd.DataFrame:
+    """Load final velocity grid coordinates from a final velocity file (5 cols)."""
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"Final velocity data file not found at: {file_path}")
+
+    grids = []
+    with open(file_path, "r") as f:
+        for ln, line in enumerate(f, 1):
+            parts = line.strip().split()
+            if len(parts) == 5:
+                try:
+                    grids.append({
+                        "lon": float(parts[0]),
+                        "lat": float(parts[1]),
+                        "depth": float(parts[2]),
+                        "vp": float(parts[3]),
+                        "vs": float(parts[4])
+                    })
+                except ValueError:
+                    print(f"[final velocity] Skipping line {ln}: parse error.")
+                    continue
+            else:
+                print(f"[final velocity] Skipping line {ln}: expected 5 columns, got {len(parts)}")
+                continue
+    return pd.DataFrame(grids)
+
+
 # ============================================================================
 # Exact Transformation Functions (your spherical_to_cartesian_exact.py)
 # ============================================================================
@@ -432,11 +459,18 @@ def transform_coordinates(config: DictConfig) -> None:
     if config.use_corrected_phase_pickings:
         print(f"Loading corrected event data from: {config.corrected_event_file}")
         events_df = load_corrected_event_data(config.corrected_event_file)
-        event_file_suffix = "_corrected"
+        event_file_suffix = ""
     else:
         print(f"Loading original event data from: {config.event_file}")
         events_df = load_event_data(config.event_file)
         event_file_suffix = ""
+
+    # Load final velocity data if enabled
+    final_velocity_df = None
+    if config.process_final_velocity:
+        print(f"Loading final velocity data from: {config.final_velocity_file}")
+        final_velocity_df = load_final_velocity_data(config.final_velocity_file)
+        print(f"Loaded {len(final_velocity_df)} final velocity points")
     
     print(f"Loading velocity data from: {config.velocity_file}")
     velocity_df = load_velocity_data(config.velocity_file)
@@ -480,6 +514,11 @@ def transform_coordinates(config: DictConfig) -> None:
         stations_tf = exact_geodetic_to_local_cartesian(df=stations_df, **common_kwargs)
         events_tf = exact_geodetic_to_local_cartesian(df=events_df, **common_kwargs)
         velocity_tf = exact_geodetic_to_local_cartesian(df=velocity_df, **common_kwargs)
+
+        # Transform final velocity if enabled
+        final_velocity_tf = None
+        if config.process_final_velocity:
+            final_velocity_tf = exact_geodetic_to_local_cartesian(df=final_velocity_df, **common_kwargs)
         
         # Find global minima and process for grid
         transformed_dfs = [stations_tf, events_tf, velocity_tf]
@@ -497,6 +536,13 @@ def transform_coordinates(config: DictConfig) -> None:
         velocity_processed_df = process_dataframe_for_exact_grid(
             velocity_tf, global_origin_mins, grid_spacing_km, config.exact_transform.align_to_geocentric_normal
         )
+
+        # Process final velocity for grid if enabled
+        final_velocity_processed_df = None
+        if config.process_final_velocity:
+            final_velocity_processed_df = process_dataframe_for_exact_grid(
+                final_velocity_tf, global_origin_mins, grid_spacing_km, config.exact_transform.align_to_geocentric_normal
+            )
         
         method_suffix = "_exact"
         
@@ -510,12 +556,22 @@ def transform_coordinates(config: DictConfig) -> None:
         stations_tf = flattening_conversion(stations_df, config.origin_lon, config.origin_lat, config.origin_depth_km, config.use_chapman_flattening)
         events_tf = flattening_conversion(events_df, config.origin_lon, config.origin_lat, config.origin_depth_km, config.use_chapman_flattening)
         velocity_tf = flattening_conversion(velocity_df, config.origin_lon, config.origin_lat, config.origin_depth_km, config.use_chapman_flattening)
+
+         # Transform final velocity if enabled
+        final_velocity_tf = None
+        if config.process_final_velocity:
+            final_velocity_tf = flattening_conversion(final_velocity_df, config.origin_lon, config.origin_lat, config.origin_depth_km, config.use_chapman_flattening)
         
         # Process for grid
         grid_spacing_km = tuple(config.grid_spacing_km)
         stations_processed_df = process_dataframe_for_flattening_grid(stations_tf, grid_spacing_km)
         events_processed_df = process_dataframe_for_flattening_grid(events_tf, grid_spacing_km)
         velocity_processed_df = process_dataframe_for_flattening_grid(velocity_tf, grid_spacing_km)
+
+        # Process final velocity for grid if enabled
+        final_velocity_processed_df = None
+        if config.process_final_velocity:
+            final_velocity_processed_df = process_dataframe_for_flattening_grid(final_velocity_tf, grid_spacing_km)
         
         method_suffix = "_chapman" if config.use_chapman_flattening else ""
         
@@ -524,6 +580,8 @@ def transform_coordinates(config: DictConfig) -> None:
     
     # Calculate final grid dimensions
     processed_dfs = [stations_processed_df, events_processed_df, velocity_processed_df]
+    if config.process_final_velocity and final_velocity_processed_df is not None:
+        processed_dfs.append(final_velocity_processed_df)
     nx, ny, nz = _grid_extents_and_dims(processed_dfs)
     
     # Report results
@@ -560,6 +618,11 @@ def transform_coordinates(config: DictConfig) -> None:
     stations_processed_df.to_csv(os.path.join(config.output_dir, f"stations_cartesian{method_suffix}.csv"), index=False)
     events_processed_df.to_csv(os.path.join(config.output_dir, f"events_cartesian{method_suffix}{event_file_suffix}.csv"), index=False)
     velocity_processed_df.to_csv(os.path.join(config.output_dir, f"velocity_cartesian{method_suffix}.csv"), index=False)
+
+    # Save final velocity if processed
+    if config.process_final_velocity and final_velocity_processed_df is not None:
+        final_velocity_processed_df.to_csv(os.path.join(config.output_dir, f"velocity_final_cartesian{method_suffix}.csv"), index=False)
+        print(f"  - velocity_final_cartesian{method_suffix}.csv")
     
     print(f"  - stations_cartesian{method_suffix}.csv")
     print(f"  - events_cartesian{method_suffix}{event_file_suffix}.csv")

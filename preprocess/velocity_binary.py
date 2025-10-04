@@ -190,6 +190,7 @@ def populate_grid_and_write_bins(df: pd.DataFrame, config: DictConfig, nx: int, 
 def create_velocity_binary_files(config: DictConfig) -> None:
     """
     Main function to create velocity binary files from CSV data.
+    Can process both initial and final velocity models.
     """
     print("--- Starting CSV to 3D Binary Velocity Model Conversion (Chapman Workflow) ---")
     print("Binary format: Fortran stream access (no record markers)")
@@ -200,10 +201,35 @@ def create_velocity_binary_files(config: DictConfig) -> None:
     print(f"Velocity type: {velocity_type}")
     
     try:
+        # Process initial velocity model
+        print("\n=== Processing Initial Velocity Model ===")
         transformed_df = load_transformed_data(config)
         nx, ny, nz = get_grid_dimensions_from_csv(transformed_df)
-        print(f"Final grid dimensions: NX={nx}, NY={ny}, NZ={nz}")
-        populate_grid_and_write_bins(df=transformed_df, config=config, nx=nx, ny=ny, nz=nz)
+        print(f"Initial model grid dimensions: NX={nx}, NY={ny}, NZ={nz}")
+        
+        # Create temporary config for initial model
+        initial_config = config.copy()
+        initial_config.vp_output = config.vp_output
+        initial_config.vs_output = config.vs_output
+        populate_grid_and_write_bins(df=transformed_df, config=initial_config, nx=nx, ny=ny, nz=nz)
+        
+        # Process final velocity model if enabled
+        if config.create_final_binaries:
+            print("\n=== Processing Final Velocity Model ===")
+            if not os.path.exists(config.final_input_csv):
+                raise FileNotFoundError(f"Final velocity CSV not found: {config.final_input_csv}")
+            
+            # Create temporary config for final model
+            final_config = config.copy()
+            final_config.input_csv = config.final_input_csv
+            final_config.vp_output = config.vp_final_output
+            final_config.vs_output = config.vs_final_output
+            
+            final_df = load_transformed_data(final_config)
+            final_nx, final_ny, final_nz = get_grid_dimensions_from_csv(final_df)
+            print(f"Final model grid dimensions: NX={final_nx}, NY={final_ny}, NZ={final_nz}")
+            populate_grid_and_write_bins(df=final_df, config=final_config, nx=final_nx, ny=final_ny, nz=final_nz)
+            
     except Exception as e:
         print(f"\nAn unexpected error occurred: {e}")
         raise

@@ -150,12 +150,16 @@ def print_configuration_summary(config: DictConfig) -> None:
     print("\nEnabled processing steps:")
     if config.coordinate_transform.enabled:
         print(f"  ✓ Coordinate transformation ({config.coordinate_transform.transformation_method})")
+        if config.coordinate_transform.process_final_velocity:
+            print(f"    + Final velocity text to CSV conversion")
     if config.initial_3d_model.enabled:
         print("  ✓ Initial 3D velocity model creation")
     if config.geometry_traveltime.enabled:
         print("  ✓ Geometry and travel time file creation")
     if config.velocity_binary.enabled:
         print("  ✓ Velocity binary file creation")
+        if config.velocity_binary.create_final_binaries:
+            print("    + Final velocity binary files (vp_final.bin, vs_final.bin)")
     if config.visualization.enabled:
         print("  ✓ Visualization generation")
     
@@ -177,6 +181,10 @@ def print_configuration_summary(config: DictConfig) -> None:
         print(f"  - Events CSV: {config.geometry_traveltime.event_csv}")
     if config.velocity_binary.enabled:
         print(f"  - Velocity CSV: {config.velocity_binary.input_csv}")
+    if config.coordinate_transform.enabled and config.coordinate_transform.process_final_velocity:
+        print(f"  - Final velocity model: {config.coordinate_transform.final_velocity_file}")
+    if config.velocity_binary.enabled and config.velocity_binary.create_final_binaries:
+        print(f"  - Final velocity CSV: {config.velocity_binary.final_input_csv}")
 
 
 def run_preprocessing_pipeline(config: DictConfig) -> None:
@@ -269,7 +277,7 @@ def run_single_function(config: DictConfig, function_name: str) -> None:
         raise
 
 
-@hydra.main(version_base=None, config_path="../configs", config_name="preprocess/default")
+@hydra.main(version_base=None, config_path="../configs/preprocess", config_name="default")
 def main(cfg: DictConfig) -> None:
     """
     Main entry point for preprocessing with Hydra.
