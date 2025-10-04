@@ -21,6 +21,9 @@ velocity_processing:
   original_velocity_csv: "/full/path/to/velocity_cartesian_final.csv"
   vp_binary: "${data.base_dir}/model/updated_vp.bin"
   vs_binary: "${data.base_dir}/model/updated_vs.bin"
+
+  # Grid dimensions (nx, ny, nz)
+  grid_dimensions: [401, 361, 43]
   
   # Output file
   velocity_output_csv: "${data.analysis_output_dir}/velocity_cartesian_latte_output.csv"
@@ -37,9 +40,35 @@ travel_time_processing:
   ground_truth_csv: "/full/path/to/ground_truth_travel_times_corrected.csv"
   synthetic_tt_dir: "${data.base_dir}/synthetic_traveltimes"
   shot_map_file: "/full/path/to/shot_to_source_id_map.txt"
+
+  # reciprocity-based inversion
+  source_receiver_exchange: false
+  exchange_mapping_file: ${data.base_dir}/exchange_mapping.txt  # required if source_receiver_exchange=true
+  exchange_geometry_file: ${data.base_dir}/exchange_geometry.txt
+  virtual_shot_mapping_file: ${data.base_dir}/shot_mapping.txt  # OPTIONAL
+
+  # source correction
+  source_correction: false
+  source_correction_file: ${data.base_dir}/model/updated_st0.bin
   
   # Output file
   synthetic_tt_output_csv: "${data.analysis_output_dir}/synthetic_travel_times_latte_output.csv"
+
+# Source parameter processing
+source_processing:
+  enabled: true
+  
+  # Input files
+  sx_file: "${data.base_dir}/model/updated_sx.bin"
+  sy_file: "${data.base_dir}/model/updated_sy.bin"
+  sz_file: "${data.base_dir}/model/updated_sz.bin"
+  st0_file: "${data.base_dir}/model/updated_st0.bin"
+
+  # Grid dimensions (number of sources)
+  grid_dimensions: [4495]
+
+  # Output file
+  output_csv: "${data.analysis_output_dir}/synthetic_travel_times_latte_output.csv"
 
 # Strict mode setting (global)
 strict_mode: true
