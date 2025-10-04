@@ -2,221 +2,343 @@
 
 ## Overview
 
-The LATTE post-processing module converts binary outputs from LATTE tomography inversions into CSV format for downstream analysis. This ensures compatibility with existing analysis workflows while maintaining data consistency with preprocessing outputs.
+The post-processing module converts LATTE tomography binary outputs into analysis-ready CSV files. It bridges the gap between inversion results and downstream analysis workflows while maintaining consistency with preprocessing outputs.
+
+---
 
 ## Features
 
-- **Velocity Model Conversion**: Converts `updated_vp.bin` and `updated_vs.bin` to structured CSV format
-- **Synthetic Travel Time Processing**: Combines synthetic travel time binaries with ground truth metadata
-- **Coordinate Transformation Support**: Optional Chapman inverse transformation for velocity coordinates
-- **Self-Contained Outputs**: Creates standalone CSV files requiring no additional mapping files
-- **Hydra Configuration**: Integrated configuration management with logging support
+### Core Capabilities
 
-## Module Structure
+- **Velocity Model Conversion**: Transforms `updated_vp.bin` and `updated_vs.bin` into structured CSV format
+- **Synthetic Travel Time Processing**: Merges synthetic travel time binaries with ground truth metadata
+- **Source Parameter Updates**: Processes updated source locations and origin times
+- **Source-Receiver Exchange**: Handles reciprocity-based inversion outputs
+- **Coordinate Transformations**: Optional Chapman inverse transformation for spherical coordinates
 
+### Output Characteristics
+
+- Self-contained CSV files requiring no external mapping files
+- Automatic residual calculation (observed - synthetic)
+- Complete metadata preservation from preprocessing
+- Consistent structure with ground truth data
+
+---
+
+## Getting Started
+
+### Quick Start
+
+```bash
+# Run with default configuration
+python -m postprocess.main
+
+# View available options
+python -m postprocess.main --help
 ```
-latte_postprocess/
-├── __init__.py                    # Package initialization and exports
-├── postprocess_functions.py      # Core processing functions
-├── main.py                       # Main execution script with Hydra integration
-└── docs/
-    └── postprocess.md            # This documentation
-```
 
-## Configuration
+### Configuration
 
-### File Location
-```
-configs/postprocess/default.yaml
-```
+Configuration file location: `configs/postprocess/default.yaml`
 
-### Configuration Structure
+#### Required Path Updates
+
+Before running, update these paths to match your directory structure:
 
 ```yaml
-# General settings
-general:
-  strict_mode: true        # Stop on first error vs. continue processing
-  log_level: INFO         # DEBUG, INFO, WARNING, ERROR
-
-# Data paths
 data:
   base_dir: "/path/to/latte/output"
   analysis_output_dir: "/path/to/analysis/output"
 
-# Velocity processing
 velocity_processing:
-  enabled: true
   original_velocity_csv: "/full/path/to/velocity_cartesian_final.csv"
-  vp_binary: "${data.base_dir}/model/updated_vp.bin"
-  vs_binary: "${data.base_dir}/model/updated_vs.bin"
-  velocity_output_csv: "${data.analysis_output_dir}/velocity_cartesian_latte_output.csv"
-  use_chapman_inverse: false
-  earth_radius_km: 6371.0
 
-# Travel time processing
 travel_time_processing:
-  enabled: true
   ground_truth_csv: "/full/path/to/ground_truth_travel_times_corrected.csv"
-  synthetic_tt_dir: "${data.base_dir}/synthetic_traveltimes"
   shot_map_file: "/full/path/to/shot_to_source_id_map.txt"
-  synthetic_tt_output_csv: "${data.analysis_output_dir}/synthetic_travel_times_latte_output.csv"
 ```
 
-### Required Path Updates
+---
 
-Update these paths to match your directory structure:
+## Configuration Reference
+
+### General Settings
+
+```yaml
+general:
+  strict_mode: true        # Stop on first error (true) vs. continue (false)
+  log_level: INFO          # DEBUG | INFO | WARNING | ERROR
+```
+
+### Velocity Processing
 
 ```yaml
 velocity_processing:
-  original_velocity_csv: "/home/user/project/preprocessing/velocity_cartesian_final.csv"
+  enabled: true
+  original_velocity_csv: "/path/to/velocity_cartesian_final.csv"
+  vp_binary: "${data.base_dir}/model/updated_vp.bin"
+  vs_binary: "${data.base_dir}/model/updated_vs.bin"
+  grid_dimensions: [401, 361, 43]  # [nx, ny, nz]; auto-detected if null
+  velocity_output_csv: "${data.analysis_output_dir}/velocity_cartesian_latte_output.csv"
+  use_chapman_inverse: false       # Apply Chapman transformation
+  earth_radius_km: 6371.0
+```
 
+### Travel Time Processing
+
+```yaml
 travel_time_processing:
-  ground_truth_csv: "/home/user/project/preprocessing/ground_truth_travel_times_corrected.csv"
-  shot_map_file: "/home/user/project/preprocessing/shot_to_source_id_map.txt"
+  enabled: true
+  ground_truth_csv: "/path/to/ground_truth_travel_times_corrected.csv"
+  synthetic_tt_dir: "${data.base_dir}/synthetic_traveltimes"
+  shot_map_file: "/path/to/shot_to_source_id_map.txt"
+  synthetic_tt_output_csv: "${data.analysis_output_dir}/synthetic_travel_times_latte_output.csv"
+  
+  # Reciprocity-based inversion
+  source_receiver_exchange: false
+  exchange_mapping_file: "${data.base_dir}/exchange_mapping.txt"
+  exchange_geometry_file: "${data.base_dir}/exchange_geometry.txt"
+  virtual_shot_mapping_file: "${data.base_dir}/shot_mapping.txt"  # Optional
+  coordinate_tolerance: 1.0  # meters
+  
+  # Source correction
+  source_correction: false
+  source_correction_file: "${data.base_dir}/model/updated_st0.bin"
 ```
 
-## Usage
+### Source Processing
 
-### Basic Execution
-
-```bash
-python main.py
+```yaml
+source_processing:
+  enabled: true
+  sx_file: "${data.base_dir}/model/updated_sx.bin"
+  sy_file: "${data.base_dir}/model/updated_sy.bin"
+  sz_file: "${data.base_dir}/model/updated_sz.bin"
+  st0_file: "${data.base_dir}/model/updated_st0.bin"
+  grid_dimensions: [4495]  # Number of sources
+  output_csv: "${data.analysis_output_dir}/source_updated_travel_times.csv"
 ```
 
-The script automatically loads configuration from `../configs/postprocess/default.yaml`.
+---
 
-### Hydra Overrides
+## Usage Examples
 
-Override configuration parameters from command line:
+### Standard Processing
 
 ```bash
-# Enable only velocity processing
-python main.py travel_time_processing.enabled=false
+python -m postprocess.main
+```
+
+### Command-Line Overrides
+
+```bash
+# Disable travel time processing
+python -m postprocess.main travel_time_processing.enabled=false
 
 # Change output directory
-python main.py data.analysis_output_dir="/new/output/path"
+python -m postprocess.main data.analysis_output_dir="/new/output/path"
 
 # Enable Chapman transformation
-python main.py velocity_processing.use_chapman_inverse=true
+python -m postprocess.main velocity_processing.use_chapman_inverse=true
 
-# Set debug logging
-python main.py general.log_level=DEBUG
+# Enable debug logging
+python -m postprocess.main general.log_level=DEBUG
 ```
 
-### Alternative Configurations
+### Custom Configuration File
 
 ```bash
-# Use different config file
-python main.py --config-name=postprocess/production
+# Use alternative config
+python -m postprocess.main --config-name=production
 
-# Specify config directory
-python main.py --config-path=/custom/config/path
+# Specify custom config path
+python -m postprocess.main --config-path=/custom/config/path
 ```
 
-## Outputs
+### Advanced Workflows
 
-### Velocity CSV (`velocity_cartesian_latte_output.csv`)
+#### Source-Receiver Exchange Mode
 
-Contains updated velocity model with original structure preserved:
+```bash
+python -m postprocess.main \
+  travel_time_processing.source_receiver_exchange=true \
+  travel_time_processing.exchange_geometry_file="/path/to/exchange_geometry.txt" \
+  travel_time_processing.exchange_mapping_file="/path/to/exchange_mapping.txt"
+```
 
-| Column | Description |
-|--------|-------------|
-| `lon`, `lat`, `depth` | Original geographic coordinates |
-| `vp`, `vs` | **Updated** velocity values from inversion |
-| `x_km`, `y_km`, `z_km` | Cartesian coordinates |
-| `X_grid_km`, `Y_grid_km`, `Z_grid_km` | Grid coordinates |
-| `i_raw`, `j_raw`, `k_raw` | Raw grid indices |
-| `i`, `j`, `k` | Final grid indices |
+#### Source Correction
 
-**Key Features:**
-- Maintains exact same structure as original velocity CSV
-- Converts velocities from m/s to km/s
+```bash
+python -m postprocess.main \
+  travel_time_processing.source_correction=true \
+  travel_time_processing.source_correction_file="/path/to/updated_st0.bin"
+```
+
+#### Combined Source Updates
+
+```bash
+python -m postprocess.main \
+  source_processing.enabled=true \
+  travel_time_processing.source_correction=true
+```
+
+---
+
+## Output Files
+
+### Velocity CSV
+
+**File**: `velocity_cartesian_latte_output.csv`
+
+**Structure**: Preserves original velocity CSV format with updated Vp and Vs values.
+
+**Key Columns**:
+- `lon`, `lat`, `depth`: Geographic coordinates
+- `vp`, `vs`: Updated velocity values (km/s)
+- `x_km`, `y_km`, `z_km`: Cartesian coordinates
+- `X_grid_km`, `Y_grid_km`, `Z_grid_km`: Grid coordinates
+- `i`, `j`, `k`: Grid indices
+
+**Features**:
+- Automatic conversion from m/s to km/s
 - Optional Chapman inverse transformation
-- Preserves all coordinate systems and indexing
+- Preserves all coordinate systems
 
-### Travel Time CSV (`synthetic_travel_times_latte_output.csv`)
+### Travel Time CSV
 
-Combines observed and synthetic travel times with comprehensive metadata:
+**File**: `synthetic_travel_times_latte_output.csv`
 
-| Column Group | Columns | Description |
-|--------------|---------|-------------|
-| **Identifiers** | `shot_id`, `event_id`, `station`, `phase` | Event and station identification |
-| **Travel Times** | `observed_tt`, `synthetic_tt`, `residual_s` | Time measurements and residuals |
-| **Metadata** | `weight`, `origin_time_s`, `weighted_rms` | Pick weights and timing |
-| **Original Coordinates** | `event_longitude`, `event_latitude`, `event_depth_km` | Geographic event location |
-| | `station_longitude`, `station_latitude`, `station_depth_km` | Geographic station location |
-| **Transformed Coordinates** | `event_x_transformed`, `event_y_transformed`, `event_z_transformed` | Cartesian event coordinates |
-| | `station_x_transformed`, `station_y_transformed`, `station_z_transformed` | Cartesian station coordinates |
-| **Derived** | `distance_m` | Source-receiver distance |
+**Structure**: Combines observed and synthetic travel times with comprehensive metadata.
 
-**Key Features:**
-- Self-contained: no external mapping files required
-- Consistent ordering with ground truth data
-- Automatic residual calculation (observed - synthetic)
-- Complete coordinate information for spatial analysis
+**Key Columns**:
+
+| Column Group | Description |
+|--------------|-------------|
+| **Identifiers** | `shot_id`, `event_id`, `station`, `phase` |
+| **Travel Times** | `observed_tt`, `synthetic_tt`, `residual_s` |
+| **Metadata** | `weight`, `origin_time_s`, `weighted_rms` |
+| **Event Coordinates** | Geographic: `event_longitude`, `event_latitude`, `event_depth_km` |
+|  | Cartesian: `event_x_transformed`, `event_y_transformed`, `event_z_transformed` |
+| **Station Coordinates** | Geographic: `station_longitude`, `station_latitude`, `station_depth_km` |
+|  | Cartesian: `station_x_transformed`, `station_y_transformed`, `station_z_transformed` |
+| **Derived** | `distance_m` |
+
+**Optional Columns** (when source correction enabled):
+- `corrected_origin_time_s`: Updated origin time
+
+**Features**:
+- Self-contained with complete metadata
+- Residuals calculated as: observed - synthetic
+- Consistent ordering with ground truth
+
+### Source Updates CSV
+
+**File**: `source_updated_travel_times.csv`
+
+**Additional Columns** (beyond travel time CSV):
+- `corrected_event_x_transformed`: Updated event X coordinate (m)
+- `corrected_event_y_transformed`: Updated event Y coordinate (m)
+- `corrected_event_z_transformed`: Updated event Z coordinate (m)
+- `corrected_origin_time_s`: Updated origin time (s)
+
+---
 
 ## Processing Details
 
 ### Velocity Processing
 
-1. **Load Original Structure**: Reads original velocity CSV to preserve grid dimensions and coordinate systems
-2. **Binary Loading**: Reads LATTE velocity binaries using little-endian 32-bit floats
-3. **Grid Matching**: Maps binary array indices to CSV grid coordinates using `(i-1, j-1, k-1)` indexing
-4. **Unit Conversion**: Converts velocities from m/s to km/s
-5. **Coordinate Transformation**: Applies Chapman inverse transformation if enabled
-6. **Output Generation**: Creates CSV with updated velocities preserving original structure
+**Workflow**:
+1. Load original velocity CSV to preserve structure
+2. Read binary files (`updated_vp.bin`, `updated_vs.bin`)
+3. Match binary indices to CSV grid using `(i-1, j-1, k-1)` mapping
+4. Convert velocities from m/s to km/s
+5. Apply Chapman transformation (if enabled)
+6. Generate output CSV with preserved structure
 
-### Travel Time Processing
-
-1. **Template Loading**: Uses ground truth CSV as template for structure and metadata
-2. **Shot Mapping**: Loads shot ID to event ID mapping from preprocessing
-3. **Binary Processing**: Reads synthetic travel time binaries for each shot and phase
-4. **Station Matching**: Ensures consistent station ordering between ground truth and synthetic data
-5. **Quality Control**: Filters unrealistic synthetic times (>1e10 seconds)
-6. **Residual Calculation**: Computes residuals as observed - synthetic
-7. **Metadata Preservation**: Transfers all coordinates and metadata from ground truth
-
-### Chapman Transformation
-
-When `use_chapman_inverse: true`:
-
+**Chapman Transformation**:
 ```
 v_spherical = exp(-depth/R) * v_flattened
 ```
+Where `R = 6371.0 km` (Earth radius), depth in km (positive downward)
 
-Where:
-- `R = 6371.0 km` (Earth radius)
-- `depth` in km (positive downward)
-- Handles negative depths (above sea level) gracefully
+**Binary Format**: Little-endian 32-bit float, C-order (row-major)
+
+### Travel Time Processing
+
+#### Standard Mode
+
+**Workflow**:
+1. Load ground truth CSV as template
+2. Load shot ID to event ID mapping
+3. Process each shot and phase:
+   - Read synthetic travel time binary
+   - Match stations with ground truth ordering
+   - Apply source correction (if enabled)
+   - Calculate residuals
+4. Generate output CSV with preserved metadata
+
+**Binary Naming**: `shot_{shot_id}_traveltime_{p|s}.bin`
+
+#### Source-Receiver Exchange Mode
+
+**Workflow**:
+1. Load virtual station geometry and match to actual stations
+2. For each virtual station (one binary file per station per phase):
+   - Read travel time array (indexed by shot_id)
+   - Apply source correction per shot
+   - Match with ground truth records
+3. Generate output CSV
+
+**Binary Naming**: `shot_{virtual_id}_traveltime_{p|s}.bin`  
+**Array Structure**: Index = shot_id - 1 (0-based)
+
+### Source Parameter Processing
+
+**Workflow**:
+1. Read binary files: `updated_sx.bin`, `updated_sy.bin`, `updated_sz.bin`, `updated_st0.bin`
+2. Create corrections lookup (1-based shot_id → corrections)
+3. Load travel time CSV
+4. Apply corrections to each record
+5. Calculate correction magnitudes
+6. Generate output CSV with corrected parameters
+
+**Binary Format**: One value per source, 1-based indexing
+
+---
 
 ## Error Handling
 
 ### Strict Mode (`strict_mode: true`)
 - Stops processing on first error
-- Recommended for production workflows
+- Recommended for production
+- Ensures data consistency
 
 ### Permissive Mode (`strict_mode: false`)
-- Continues processing despite errors
+- Continues despite errors
 - Logs warnings for failed components
-- Useful for debugging and partial processing
+- Useful for debugging
 
 ### Common Issues
 
-1. **File Not Found**: Check paths in configuration
-2. **Grid Dimension Mismatch**: Verify binary file matches original CSV grid
-3. **Station Ordering Mismatch**: Ensure ground truth CSV has consistent station ordering
-4. **Binary Format Issues**: Confirm LATTE outputs use little-endian 32-bit floats
+| Issue | Solution |
+|-------|----------|
+| **File Not Found** | Check all paths in configuration |
+| **Grid Dimension Mismatch** | Verify binary dimensions match velocity CSV grid |
+| **Station Ordering Mismatch** | Ensure consistent station sorting in ground truth |
+| **Binary Format Issues** | Confirm little-endian 32-bit float format |
+| **Virtual Station Mismatch** | Adjust `coordinate_tolerance` parameter |
+
+---
 
 ## Integration Workflow
 
-### Complete Processing Pipeline
+### Complete Pipeline
 
-1. **Preprocessing**: Generate ground truth CSV and coordinate mappings
-2. **LATTE Inversion**: Run tomography to produce binary outputs
-3. **Post-processing**: Convert binaries to CSV format (this module)
-4. **Analysis**: Use CSV files for comparison and visualization
+```
+Preprocessing → LATTE Inversion → Post-Processing → Analysis
+```
 
-### Directory Structure Example
+**Directory Structure Example**:
 
 ```
 project/
@@ -227,95 +349,122 @@ project/
 ├── latte_run/
 │   ├── model/
 │   │   ├── updated_vp.bin
-│   │   └── updated_vs.bin
+│   │   ├── updated_vs.bin
+│   │   ├── updated_sx.bin
+│   │   ├── updated_sy.bin
+│   │   ├── updated_sz.bin
+│   │   └── updated_st0.bin
 │   └── synthetic_traveltimes/
 │       ├── shot_1_traveltime_p.bin
 │       ├── shot_1_traveltime_s.bin
 │       └── ...
 └── analysis/
     ├── velocity_cartesian_latte_output.csv
-    └── synthetic_travel_times_latte_output.csv
+    ├── synthetic_travel_times_latte_output.csv
+    └── source_updated_travel_times.csv
 ```
+
+---
 
 ## API Reference
 
-### Core Functions
-
-#### `create_velocity_csv_from_binaries(config: DictConfig)`
-Converts velocity binary files to CSV format.
-
-**Parameters:**
-- `config`: Configuration containing file paths and processing options
-
-**Outputs:**
-- CSV file with updated velocity values
-
-#### `create_synthetic_travel_time_csv(config: DictConfig)`
-Combines synthetic travel time binaries with ground truth metadata.
-
-**Parameters:**
-- `config`: Configuration containing file paths
-
-**Outputs:**
-- CSV file with observed and synthetic travel times
+### Main Functions
 
 #### `postprocess_latte_outputs(config: DictConfig)`
-Main processing function that orchestrates velocity and travel time processing.
+Orchestrates all post-processing operations.
 
-**Parameters:**
-- `config`: Complete configuration object
+**Parameters**: Configuration object  
+**Outputs**: CSV files as specified in config
 
-### Utility Functions
+#### `create_velocity_csv_from_binaries(config: DictConfig)`
+Converts velocity binaries to CSV.
 
-#### `get_grid_dimensions_from_csv(df: DataFrame) -> Tuple[int, int, int]`
-Extracts grid dimensions from velocity CSV.
+**Outputs**: Velocity CSV with updated Vp/Vs values
 
-#### `load_velocity_binary(bin_file: str, shape: Tuple, velocity_type: str) -> ndarray`
-Loads and validates velocity binary files.
+#### `create_synthetic_travel_time_csv(config: DictConfig)`
+Standard travel time processing.
 
-#### `apply_chapman_inverse_transform(velocity: float, depth: float, radius: float) -> float`
-Applies Chapman inverse coordinate transformation.
+**Outputs**: Travel time CSV with residuals
 
-## Performance Considerations
+#### `create_synthetic_travel_time_csv_with_exchange(config: DictConfig)`
+Exchange mode travel time processing.
 
-- **Memory Usage**: Velocity binaries are loaded entirely into memory
-- **Processing Time**: Scales with number of shots and stations
-- **Disk I/O**: Sequential binary file reading optimized for SSD storage
+**Outputs**: Travel time CSV using reciprocity
+
+#### `process_source_updates(config: DictConfig)`
+Processes source parameter updates.
+
+**Outputs**: Travel time CSV with corrected source parameters
+
+---
 
 ## Logging
 
 ### Log Levels
 
-- **DEBUG**: Full configuration dump, detailed processing steps
-- **INFO**: Major processing stages, file counts, basic statistics
-- **WARNING**: Non-fatal issues, missing files, mismatched counts
+- **DEBUG**: Detailed processing steps, configuration dump
+- **INFO**: Major stages, file counts, statistics
+- **WARNING**: Non-fatal issues, missing files
 - **ERROR**: Fatal errors requiring intervention
 
-### Log Output Example
+### Example Output
 
 ```
-2024-01-15 14:30:15 - __main__ - INFO - Starting LATTE post-processing
-2024-01-15 14:30:15 - __main__ - INFO - Velocity processing: ENABLED
-2024-01-15 14:30:16 - __main__ - INFO - Grid dimensions detected: NX=100, NY=80, NZ=40
-2024-01-15 14:30:17 - __main__ - INFO - Updated Vp: 32000 points
-2024-01-15 14:30:17 - __main__ - INFO - Travel time processing: ENABLED
-2024-01-15 14:30:20 - __main__ - INFO - Synthetic travel time CSV written: 15420 records
-2024-01-15 14:30:20 - __main__ - INFO - Post-processing completed successfully!
+2024-01-15 14:30:15 - INFO - Starting LATTE post-processing
+2024-01-15 14:30:15 - INFO - Velocity processing: ENABLED
+2024-01-15 14:30:16 - INFO - Grid dimensions: NX=401, NY=361, NZ=43
+2024-01-15 14:30:17 - INFO - Updated Vp: 6253440 points
+2024-01-15 14:30:17 - INFO - Travel time processing: ENABLED
+2024-01-15 14:30:20 - INFO - Total records: 15420
+2024-01-15 14:30:20 - INFO - RMS residual: 0.0847 s
+2024-01-15 14:30:20 - INFO - Post-processing completed successfully
 ```
+
+---
 
 ## Troubleshooting
 
 ### Configuration Issues
-- Verify all file paths exist and are accessible
-- Check YAML syntax with proper indentation
-- Ensure variable substitutions (`${data.base_dir}`) resolve correctly
+- Verify YAML syntax and indentation
+- Check that all file paths exist
+- Ensure variable substitutions resolve correctly (`${data.base_dir}`)
 
 ### Data Issues
-- Confirm binary files are from same LATTE run as ground truth
-- Verify grid dimensions match between velocity CSV and binaries
-- Check that shot numbering is consistent across files
+- Confirm binary files match ground truth versions
+- Verify grid dimensions consistency
+- Check shot numbering alignment across files
 
 ### Performance Issues
-- Monitor memory usage for large velocity models
-- Consider processing subsets for very large datasets
-- Verify sufficient disk space for output files
+- Monitor memory usage for large models
+- Consider processing subsets for testing
+- Verify sufficient disk space
+
+### Exchange Mode Issues
+- Adjust `coordinate_tolerance` if stations don't match
+- Verify exchange geometry file format
+- Check virtual station ID ranges
+
+---
+
+## Performance Notes
+
+- **Memory**: Velocity binaries loaded entirely into memory
+- **Processing Time**: Scales with number of shots × stations
+- **Disk I/O**: Optimized for SSD storage
+- **Typical Runtime**: Minutes for thousands of shots
+
+---
+
+## Best Practices
+
+1. **Always validate configuration** before running on production data
+2. **Use strict mode** for final processing runs
+3. **Check output statistics** to verify reasonable residuals
+4. **Preserve original files** - post-processing creates new files
+5. **Document processing parameters** used for each inversion
+6. **Review log files** for warnings or errors
+
+---
+
+**Version:** 1.0.0  
+**Last Updated:** 2025

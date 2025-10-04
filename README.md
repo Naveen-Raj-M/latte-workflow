@@ -12,20 +12,13 @@ This toolkit provides end-to-end capabilities for regional and local-scale seism
 - **Original LATTE Code**: [LANL LATTE Repository](https://github.com/lanl/latte_traveltime)
 - **Data Source**: [Mapping the 3-D Lithospheric Structure of the Greater Permian Basin in West Texas and Southeast New Mexico for Earthquake Monitoring](https://agupubs.onlinelibrary.wiley.com/doi/full/10.1029/2019JB018351) - Huang et al., Journal of Geophysical Research: Solid Earth, 2019
 
-**Key Features:**
-- Multiple coordinate transformation methods (exact ECEF and Earth-flattening)
-- Automated velocity model generation from 1D to 3D
-- Phase pick processing with quality control filtering
-- LATTE-compatible binary file generation
-- Comprehensive visualization tools
-
 ## Quick Start
 
 ### Installation
 
 ```bash
 # Clone the repository
-git clone <repository-url>
+git clone 
 cd latte_toolkit
 
 # Install dependencies
@@ -42,14 +35,14 @@ pip install -r requirements.txt
 ### Basic Usage
 
 ```bash
-# Run complete preprocessing pipeline
+# Run preprocessing pipeline
 python -m preprocess.main
 
-# Run with custom configuration
-python -m preprocess.main --config-path=/path/to/configs --config-name=my_config
+# Run post-processing pipeline
+python -m postprocess.main
 
-# Run individual modules
-python -m preprocess.main single_function=coordinate_transform
+# Override configuration parameters
+python -m postprocess.main velocity_processing.enabled=false
 ```
 
 ## Toolkit Components
@@ -64,149 +57,146 @@ Complete data preparation pipeline for tomographic inversion:
 - **Binary File Generation** - Convert velocity models to Fortran-compatible binary format
 - **Visualization** - Generate quality control plots and animations
 
-### Configuration System
+For detailed preprocessing documentation, see [Preprocessing Guide](docs/preprocess.md).
+
+### Post-Processing Module
+
+Converts LATTE tomography binary outputs to analysis-ready CSV format:
+
+- **Velocity Model Conversion** - Extract updated Vp and Vs models from binary outputs
+- **Synthetic Travel Time Processing** - Combine synthetic travel times with ground truth metadata
+- **Source Parameter Updates** - Process updated source locations and origin times
+- **Coordinate Transformation Support** - Optional Chapman inverse transformation for spherical coordinates
+- **Source-Receiver Exchange** - Support for reciprocity-based inversions
+
+**Key Features:**
+- Self-contained CSV outputs requiring no additional mapping files
+- Automatic residual calculation (observed - synthetic)
+- Support for source correction and location updates
+- Comprehensive metadata preservation
+- Hydra-based configuration with command-line overrides
+
+For detailed post-processing documentation, see [Post-Processing Guide](docs/postprocess.md).
+
+## Configuration System
 
 Uses [Hydra](https://hydra.cc/) for flexible YAML-based configuration:
 
 ```yaml
-coordinate_transform:
-  transformation_method: "flattening"  # or "exact"
-  origin_lon: -108.0
-  origin_lat: 34.5
-  grid_spacing_km: [20.0, 20.0, 2.0]
+# Post-processing example configuration
+velocity_processing:
+  enabled: true
+  original_velocity_csv: "/path/to/velocity_cartesian_final.csv"
+  vp_binary: "${data.base_dir}/model/updated_vp.bin"
+  vs_binary: "${data.base_dir}/model/updated_vs.bin"
+  velocity_output_csv: "${data.analysis_output_dir}/velocity_cartesian_latte_output.csv"
+  use_chapman_inverse: false
 
-geometry_traveltime:
-  p_velocity_range_m_s: [500, 10000]
-  s_velocity_range_m_s: [500, 6000]
+travel_time_processing:
+  enabled: true
+  ground_truth_csv: "/path/to/ground_truth_travel_times_corrected.csv"
+  synthetic_tt_dir: "${data.base_dir}/synthetic_traveltimes"
+  synthetic_tt_output_csv: "${data.analysis_output_dir}/synthetic_travel_times_latte_output.csv"
+  source_receiver_exchange: false
+  source_correction: false
 ```
 
-Override any parameter from the command line:
-
-```bash
-python -m preprocess.main coordinate_transform.transformation_method=exact
-```
-
-## Data Flow
+## Complete Workflow
 
 ```
-Input Data                 Preprocessing              Output (LATTE-ready)
-├─ stacoords.txt          ├─ Coordinate Transform   ├─ Cartesian CSVs
-├─ phasePickings.txt      ├─ Velocity Model         ├─ Geometry files
-├─ vmodel-PB1D.txt        ├─ Phase Processing       ├─ Travel time binaries
-└─ vmodel-PB3D.txt        └─ Binary Conversion      └─ Velocity binaries
+1. Preprocessing          2. LATTE Inversion       3. Post-Processing
+   ↓                         ↓                        ↓
+Input Data              Binary Outputs           Analysis-Ready CSVs
+├─ stacoords.txt        ├─ updated_vp.bin        ├─ velocity_cartesian_latte_output.csv
+├─ phasePickings.txt    ├─ updated_vs.bin        ├─ synthetic_travel_times_latte_output.csv
+├─ vmodel-PB1D.txt      ├─ updated_sx.bin        └─ [Optional source corrections]
+└─ vmodel-PB3D.txt      ├─ updated_sy.bin
+                        ├─ updated_sz.bin
+                        ├─ updated_st0.bin
+                        └─ synthetic_traveltimes/
 ```
-
-## Key Capabilities
-
-### Coordinate Transformation
-
-**Exact Transformation:**
-- Precise ECEF (Earth-Centered Earth-Fixed) to local ENU conversion
-- Accounts for Earth's curvature
-- Requires `pyproj`
-
-**Flattening Transformation:**
-- Simple geometric projection for regional studies
-- Optional Chapman (1973) transformation for seismic wave corrections
-- Fast and lightweight
-
-### Quality Control
-
-- Velocity range validation for P and S waves
-- Travel time consistency checks
-- Automatic filtering of unrealistic picks
-- Station-event pair validation
-- Comprehensive visualization for inspection
-
-### LATTE Compatibility
-
-Generates all files required by LATTE:
-- Source and receiver geometry files
-- P and S wave travel time binaries
-- Initial velocity model binaries
-- Source location files (sx, sy, sz, st0)
-
-## File Formats
-
-### Input Requirements
-
-- **Stations:** 6-column format with elevation, latitude, longitude
-- **Events:** 9-column phasePickings.txt or 10-column corrected .dat format
-- **Velocity Models:** 1D (depth, Vp, Vs) and 3D (lon, lat, depth, Vp, Vs)
-
-### Output Files
-
-- **CSV:** Transformed coordinates with grid indices
-- **Binary:** Fortran-compatible 32-bit float, column-major order
-- **Geometry:** Text files describing source-receiver pairs
-- **Visualizations:** PDF plots and GIF animations
-
-## Documentation
-
-- **[Preprocessing Guide](docs/preprocess.md)** - Detailed preprocessing documentation
-- **Configuration Examples** - See `configs/preprocess/` directory
-- **API Reference** - See docstrings in source files
 
 ## Repository Structure
 
 ```
 latte_toolkit/
 ├── preprocess/              # Preprocessing pipeline
-│   ├── main.py             # Pipeline orchestration
+│   ├── main.py
 │   ├── coordinate_transformation.py
 │   ├── initial_velocity_model.py
 │   ├── geometry_traveltime.py
 │   ├── velocity_binary.py
 │   └── visualization.py
+├── postprocess/             # Post-processing pipeline
+│   ├── main.py
+│   ├── postprocess_velocity.py
+│   ├── postprocess_traveltime.py
+│   └── postprocess_source.py
 ├── utils/                   # Shared utilities
 │   ├── io_utils.py
 │   └── logging_utils.py
 ├── configs/                 # Configuration files
-│   └── preprocess/
+│   ├── preprocess/
+│   │   └── default.yaml
+│   └── postprocess/
 │       └── default.yaml
 └── docs/                    # Documentation
-    └── preprocess.md
+    ├── preprocess.md
+    └── postprocess.md
 ```
 
-## Related Resources
-
-- **LATTE Framework:** [Geophysical Journal International (2025)](https://academic.oup.com/gji/article/241/2/1275/8046728)
-- **LATTE Code:** [LANL Repository](https://github.com/lanl/latte_traveltime)
-- **Reference Dataset:** [Huang et al., JGR (2019)](https://agupubs.onlinelibrary.wiley.com/doi/full/10.1029/2019JB018351)
-
-## Examples
+## Post-Processing Quick Examples
 
 ### Standard Workflow
 
 ```bash
-# 1. Configure your data paths
-cp configs/preprocess/default.yaml my_study.yaml
-# Edit my_study.yaml with your file paths
-
-# 2. Run preprocessing
-python -m preprocess.main --config-name=my_study
+# 1. Configure paths in configs/postprocess/default.yaml
+# 2. Run post-processing
+python -m postprocess.main
 
 # 3. Check outputs
-ls outputs/
+ls outputs/analysis/
 ```
 
-### Chapman Workflow
-
-For studies requiring Earth-flattening corrections:
+### Enable Source Correction
 
 ```bash
-python -m preprocess.main \
-  coordinate_transform.use_chapman_flattening=true \
-  velocity_binary.use_chapman_velocities=true
+python -m postprocess.main \
+  travel_time_processing.source_correction=true
 ```
 
-### Using Corrected Phase Picks
+### Use Source-Receiver Exchange
 
 ```bash
-python -m preprocess.main \
-  coordinate_transform.use_corrected_phase_pickings=true \
-  geometry_traveltime.use_corrected_phase_pickings=true
+python -m postprocess.main \
+  travel_time_processing.source_receiver_exchange=true
 ```
+
+### Enable Chapman Transformation
+
+```bash
+python -m postprocess.main \
+  velocity_processing.use_chapman_inverse=true
+```
+
+### Process Only Velocity Data
+
+```bash
+python -m postprocess.main \
+  travel_time_processing.enabled=false \
+  source_processing.enabled=false
+```
+
+## Output Files
+
+### Velocity CSV
+Contains updated velocity models with preserved coordinate systems and grid structure. Includes Vp, Vs values in km/s with optional Chapman inverse transformation.
+
+### Travel Time CSV
+Comprehensive dataset combining observed and synthetic travel times with complete metadata including event/station coordinates, residuals, and weights.
+
+### Source Updates CSV (Optional)
+Enhanced travel time CSV with corrected source locations (x, y, z) and origin times when source parameter inversion is enabled.
 
 ## Troubleshooting
 
