@@ -1,4 +1,3 @@
-
 # configs/postprocess/default.yaml
 # Post-processing configuration for LATTE tomography outputs
 # Converts binary files to CSV format for analysis
@@ -32,6 +31,19 @@ velocity_processing:
   use_chapman_inverse: false  # Set to true if velocities need Chapman inverse transform
   earth_radius_km: 6371.0    # Earth radius for Chapman transformation
 
+  # Optional: Gradient and search direction files
+  # Set parameters_to_process to include gradients/search directions for specific parameters
+  # Options: ["vp", "vs"] or empty list [] to skip
+  parameters_to_process: ["vp", "vs"]  # Process gradients/search for vp and vs
+  
+  # Gradient files (optional - only processed if parameter is in parameters_to_process)
+  grad_vp_binary: "${data.base_dir}/model/grad_vp.bin"
+  grad_vs_binary: "${data.base_dir}/model/grad_vs.bin"
+  
+  # Search direction files (optional - only processed if parameter is in parameters_to_process)
+  srch_vp_binary: "${data.base_dir}/model/srch_vp.bin"
+  srch_vs_binary: "${data.base_dir}/model/srch_vs.bin"
+
 # Travel time processing configuration
 travel_time_processing:
   enabled: true
@@ -58,7 +70,7 @@ travel_time_processing:
 source_processing:
   enabled: true
   
-  # Input files
+  # Input files for updated parameters
   sx_file: "${data.base_dir}/model/updated_sx.bin"
   sy_file: "${data.base_dir}/model/updated_sy.bin"
   sz_file: "${data.base_dir}/model/updated_sz.bin"
@@ -68,7 +80,25 @@ source_processing:
   grid_dimensions: [4495]
 
   # Output file
-  output_csv: "${data.analysis_output_dir}/synthetic_travel_times_latte_output.csv"
+  output_csv: "${data.analysis_output_dir}/source_parameters_latte_output.csv"
+
+  # Optional: Gradient and search direction files
+  # Set parameters_to_process to include gradients/search directions for specific parameters
+  # Options: ["sx", "sy", "sz", "st0"] or empty list [] to skip
+  # Example: ["sz", "st0"] to only process depth and origin time
+  parameters_to_process: ["sx", "sy", "sz", "st0"]  # Process all source parameters
+  
+  # Gradient files (optional - only processed if parameter is in parameters_to_process)
+  grad_sx_file: "${data.base_dir}/model/grad_sx.bin"
+  grad_sy_file: "${data.base_dir}/model/grad_sy.bin"
+  grad_sz_file: "${data.base_dir}/model/grad_sz.bin"
+  grad_st0_file: "${data.base_dir}/model/grad_st0.bin"
+  
+  # Search direction files (optional - only processed if parameter is in parameters_to_process)
+  srch_sx_file: "${data.base_dir}/model/srch_sx.bin"
+  srch_sy_file: "${data.base_dir}/model/srch_sy.bin"
+  srch_sz_file: "${data.base_dir}/model/srch_sz.bin"
+  srch_st0_file: "${data.base_dir}/model/srch_st0.bin"
 
 # Strict mode setting (global)
 strict_mode: true

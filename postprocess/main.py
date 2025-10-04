@@ -45,7 +45,8 @@ def postprocess_latte_outputs(config: DictConfig) -> None:
     if config.velocity_processing.enabled:
         print(f"\nVelocity processing: ENABLED")
         try:
-            velocity_config = OmegaConf.create({
+            # Base configuration
+            velocity_config_dict = {
                 'original_velocity_csv': config.velocity_processing.original_velocity_csv,
                 'vp_binary': config.velocity_processing.vp_binary,
                 'vs_binary': config.velocity_processing.vs_binary,
@@ -53,7 +54,23 @@ def postprocess_latte_outputs(config: DictConfig) -> None:
                 'velocity_output_csv': config.velocity_processing.velocity_output_csv,
                 'use_chapman_inverse': config.velocity_processing.use_chapman_inverse,
                 'earth_radius_km': config.velocity_processing.earth_radius_km
-            })
+            }
+            
+            # Add optional gradient/search configuration
+            if hasattr(config.velocity_processing, 'parameters_to_process'):
+                velocity_config_dict['parameters_to_process'] = config.velocity_processing.parameters_to_process
+                
+                # Add gradient files if specified
+                for param in ['vp', 'vs']:
+                    grad_key = f'grad_{param}_binary'
+                    if hasattr(config.velocity_processing, grad_key):
+                        velocity_config_dict[grad_key] = getattr(config.velocity_processing, grad_key)
+                    
+                    srch_key = f'srch_{param}_binary'
+                    if hasattr(config.velocity_processing, srch_key):
+                        velocity_config_dict[srch_key] = getattr(config.velocity_processing, srch_key)
+            
+            velocity_config = OmegaConf.create(velocity_config_dict)
             create_velocity_csv_from_binaries(velocity_config)
         except Exception as e:
             print(f"Error in velocity processing: {e}")
@@ -99,7 +116,8 @@ def postprocess_latte_outputs(config: DictConfig) -> None:
     if hasattr(config, "source_processing") and config.source_processing.enabled:
         print(f"\nSource parameter processing: ENABLED")
         try:
-            source_cfg = OmegaConf.create({
+            # Base configuration
+            source_cfg_dict = {
                 "sx_file": config.source_processing.sx_file,
                 "sy_file": config.source_processing.sy_file,
                 "sz_file": config.source_processing.sz_file,
@@ -108,7 +126,23 @@ def postprocess_latte_outputs(config: DictConfig) -> None:
                 "travel_time_csv": config.travel_time_processing.synthetic_tt_output_csv,
                 "output_csv": config.source_processing.output_csv,
                 "enabled": True
-            })
+            }
+            
+            # Add optional gradient/search configuration
+            if hasattr(config.source_processing, 'parameters_to_process'):
+                source_cfg_dict['parameters_to_process'] = config.source_processing.parameters_to_process
+                
+                # Add gradient and search files if specified
+                for param in ['sx', 'sy', 'sz', 'st0']:
+                    grad_key = f'grad_{param}_file'
+                    if hasattr(config.source_processing, grad_key):
+                        source_cfg_dict[grad_key] = getattr(config.source_processing, grad_key)
+                    
+                    srch_key = f'srch_{param}_file'
+                    if hasattr(config.source_processing, srch_key):
+                        source_cfg_dict[srch_key] = getattr(config.source_processing, srch_key)
+            
+            source_cfg = OmegaConf.create(source_cfg_dict)
             process_source_updates(source_cfg)
         except Exception as e:
             print(f"Error in source parameter processing: {e}")
