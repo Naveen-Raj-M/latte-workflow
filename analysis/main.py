@@ -20,6 +20,7 @@ from .velocity_analysis import analyze_velocity_models
 from .distance_analysis import analyze_distance_dependent_residuals
 from .short_distance_analysis import analyze_short_distance_residuals
 from .source_analysis import analyze_source_corrections
+from .gradient_analysis import analyze_gradients_and_search
 
 logger = logging.getLogger(__name__)
 
@@ -129,6 +130,27 @@ def run_source_analysis(cfg: DictConfig) -> None:
             raise
 
 
+def run_gradient_analysis(cfg: DictConfig) -> None:
+    """Run gradient and search direction analysis."""
+    if not cfg.gradient_analysis.get('enabled', False):
+        logger.info("Gradient and search direction analysis disabled, skipping")
+        return
+    
+    logger.info("=" * 60)
+    logger.info("STARTING GRADIENT AND SEARCH DIRECTION ANALYSIS")
+    logger.info("=" * 60)
+    
+    with ProcessTimer("Gradient analysis"):
+        try:
+            ensure_directory_exists(cfg.gradient_analysis.output_dir)
+            results = analyze_gradients_and_search(OmegaConf.to_container(cfg, resolve=True))
+            logger.info("Gradient analysis completed successfully")
+            logger.info(f"Results saved to: {cfg.gradient_analysis.output_dir}")
+        except Exception as e:
+            logger.error(f"Gradient analysis failed: {e}")
+            raise
+
+
 def run_single_function(cfg: DictConfig, function_name: str) -> None:
     """
     Run a single analysis function.
@@ -143,6 +165,7 @@ def run_single_function(cfg: DictConfig, function_name: str) -> None:
         'distance_analysis': run_distance_analysis,
         'short_distance_analysis': run_short_distance_analysis,
         'source_analysis': run_source_analysis,
+        'gradient_analysis': run_gradient_analysis,
     }
     
     if function_name not in function_map:
@@ -171,6 +194,7 @@ def run_analysis_pipeline(cfg: DictConfig) -> None:
             ('Distance Analysis', run_distance_analysis),
             ('Short Distance Analysis', run_short_distance_analysis),
             ('Source Correction Analysis', run_source_analysis),
+            ('Gradient Analysis', run_gradient_analysis),
         ]
         
         completed_analyses = []
@@ -233,6 +257,8 @@ def validate_configuration(cfg: DictConfig) -> None:
         enabled_analyses.append('short_distance_analysis')
     if cfg.source_analysis.get('enabled', False):
         enabled_analyses.append('source_analysis')
+    if cfg.gradient_analysis.get('enabled', False):
+        enabled_analyses.append('gradient_analysis')
     
     if not enabled_analyses:
         logger.error("No analysis modules are enabled!")
@@ -289,6 +315,12 @@ def validate_configuration(cfg: DictConfig) -> None:
             source_csv = cfg.source_analysis.get('input_csv')
             if source_csv and not Path(source_csv).exists():
                 missing_files.append(f"Source correction CSV: {source_csv}")
+        
+        # Check gradient analysis files
+        if cfg.gradient_analysis.get('enabled', False):
+            gradient_csv = cfg.gradient_analysis.get('input_csv')
+            if gradient_csv and not Path(gradient_csv).exists():
+                missing_files.append(f"Gradient analysis CSV: {gradient_csv}")
         
         if missing_files:
             logger.error("Missing input files:")

@@ -1,7 +1,8 @@
 """
 Analysis module for LATTE tomography results.
 This module provides comprehensive analysis tools for travel time residuals,
-velocity model comparisons, distance-dependent analysis, and source corrections.
+velocity model comparisons, distance-dependent analysis, source corrections,
+and gradient/search direction analysis.
 """
 
 __version__ = "1.0.0"
@@ -35,6 +36,11 @@ __all__ = [
     'compute_source_corrections',
     'compute_source_statistics',
     'create_source_plots',
+    
+    # Gradient and search direction analysis
+    'analyze_gradients_and_search',
+    'analyze_velocity_gradients',
+    'analyze_source_gradients',
 ]
 
 # Import main analysis functions
@@ -108,3 +114,25 @@ try:
 except ImportError as e:
     import logging
     logging.debug(f"Source correction analysis module import warning: {e}")
+
+# Gradient and search direction analysis imports
+try:
+    from .gradient_analysis import (
+        analyze_gradients_and_search,
+        analyze_velocity_gradients,
+        analyze_source_gradients
+    )
+    from .gradient_plots import (
+        create_velocity_gradient_plots,
+        create_source_gradient_plots,
+        create_gradient_histograms,
+        create_search_histograms,
+        create_alignment_plots
+    )
+    from .gradient_reports import (
+        generate_velocity_gradient_report,
+        generate_source_gradient_report
+    )
+except ImportError as e:
+    import logging
+    logging.debug(f"Gradient analysis module import warning: {e}")

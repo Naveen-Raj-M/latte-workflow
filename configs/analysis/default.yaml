@@ -36,6 +36,31 @@ analysis:
       negative_residual: "#4444ff"
       zero_line: "#000000"
 
+# Gradient and search direction analysis configuration
+gradient_analysis:
+  enabled: false  # Set to true to enable gradient analysis
+  
+  # Analysis type: "velocity" or "source"
+  analysis_type: "velocity"  # or "source"
+  
+  # Input/Output
+  input_csv: null  # CSV file with gradient and/or search direction columns
+  output_dir: "results/analysis/gradient_analysis"
+  
+  # Analysis options
+  histogram_bins: 50
+  depth_bins: 10  # For velocity analysis
+  min_points_per_bin: 10
+  
+  # Report generation
+  generate_report: true
+  
+  # Plotting options
+  create_histograms: true
+  create_alignment_plots: true
+  create_spatial_plots: true
+  create_depth_profiles: true  # For velocity only
+
 # Travel time analysis configuration
 travel_time_analysis:
   enabled: true
