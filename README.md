@@ -1,10 +1,10 @@
 # LATTE Tomography Toolkit
 
-A comprehensive Python toolkit for seismic tomography data processing, analysis, and visualization using the [LATTE (Los Alamos Travel Time Estimation)](https://academic.oup.com/gji/article/241/2/1275/8046728) methodology.
+A comprehensive Python toolkit for seismic tomography data processing, analysis, and visualization using the [LATTE (Los Alamos Travel Time Estimation)](https://academic.oup.com/gji/article/241/2/1275/8046728) framework.
 
 ## Overview
 
-This repository contains a complete toolkit for seismic tomography workflows, from raw data preprocessing through tomographic inversion to results analysis and visualization. The toolkit is designed to work with the LATTE framework and provides end-to-end capabilities for regional and local-scale seismic tomography studies.
+This toolkit provides end-to-end capabilities for regional and local-scale seismic tomography studies, from raw data preprocessing through tomographic inversion to results analysis and visualization.
 
 ## Related Publications
 
@@ -12,225 +12,218 @@ This repository contains a complete toolkit for seismic tomography workflows, fr
 - **Original LATTE Code**: [LANL LATTE Repository](https://github.com/lanl/latte_traveltime)
 - **Data Source**: [Mapping the 3-D Lithospheric Structure of the Greater Permian Basin in West Texas and Southeast New Mexico for Earthquake Monitoring](https://agupubs.onlinelibrary.wiley.com/doi/full/10.1029/2019JB018351) - Huang et al., Journal of Geophysical Research: Solid Earth, 2019
 
-## Toolkit Components
+**Key Features:**
+- Multiple coordinate transformation methods (exact ECEF and Earth-flattening)
+- Automated velocity model generation from 1D to 3D
+- Phase pick processing with quality control filtering
+- LATTE-compatible binary file generation
+- Comprehensive visualization tools
 
-### 1. Preprocessing Module (`preprocessing/`)
+## Quick Start
 
-Comprehensive data preparation pipeline for tomographic inversion:
+### Installation
 
-- **Coordinate Transformation** (`coordinate_transformation.py`)
-  - Geodetic to Cartesian coordinate conversion
-  - Support for exact transformations (using pyproj/ECEF) and Earth-flattening methods
-  - Chapman (1973) flattening transformation for seismic studies
-  - Grid mapping with configurable spacing
+```bash
+# Clone the repository
+git clone <repository-url>
+cd latte_toolkit
 
-- **Initial Velocity Model Creation** (`initial_velocity_model.py`)
-  - Convert 1D velocity models to 3D initial models
-  - Depth-based velocity assignment with extrapolation
-  - Validation and quality checking
-
-- **Geometry and Travel Time Processing** (`geometry_traveltime.py`)
-  - Phase pick parsing and filtering
-  - Travel time calculation and validation
-  - Geometry file generation for LATTE
-  - Binary travel time file creation
-  - Support for both original and corrected phase data
-
-- **Velocity Binary File Creation** (`velocity_binary.py`)
-  - CSV to binary conversion for velocity models
-  - Fortran-compatible binary format
-  - Gap interpolation and grid completion
-  - Support for Chapman-transformed velocities
-
-- **Visualization** (`visualization.py`)
-  - 3D station and event plotting
-  - Velocity model visualization
-  - Animated model rotation
-  - Comparison plots for quality assurance
-
-### 2. Postprocessing Module (`postprocessing/`) *[Planned]*
-
-Interpretation of tomographic inversion results:
-
-### 3. Analysis Module (`analysis/`) *[Planned]*
-
-Advanced analysis tools for seismic tomography research:
-
-### Utility Modules (`utils/`)
-
-- **I/O Utilities** (`io_utils.py`): File operations, CSV handling, data validation
-- **Logging Utilities** (`logging_utils.py`): Process timing, progress tracking, debug logging
-- **Plotting Utilities** (`plot_utils.py`): *[Planned]* Standardized visualization functions
-
-### Repository Structure
-
-```
-latte_toolkit/
-├── preprocessing/
-│   ├── __init__.py
-│   ├── main.py                      # Main pipeline orchestration
-│   ├── coordinate_transformation.py  # Coordinate conversion
-│   ├── initial_velocity_model.py    # 1D to 3D model creation
-│   ├── geometry_traveltime.py       # Phase processing
-│   ├── velocity_binary.py           # Binary file creation
-│   ├── visualization.py             # Plotting and visualization
-│   └── utils/
-│       ├── __init__.py
-│       ├── io_utils.py              # I/O utilities
-│       └── logging_utils.py         # Logging utilities
-├── postprocessing/                  # [Planned] Results analysis
-├── analysis/                        # [Planned] Advanced analysis
-├── utils/                           # Shared utilities
-│   ├── __init__.py
-│   ├── io_utils.py
-│   ├── logging_utils.py
-│   ├── plot_utils.py               # [Planned]
-├── configs/                        # Hydra configuration files
-├── examples/                       # Example workflows and tutorials
-├── tests/                          # Unit and integration tests
-└── README.md
+# Install dependencies
+pip install -r requirements.txt
 ```
 
-## Usage
+**Required Dependencies:**
+- Python 3.8+
+- NumPy, Pandas, SciPy
+- Matplotlib, imageio
+- Hydra, OmegaConf
+- pyproj (optional, for exact transformations)
 
-### Configuration-Based Processing
-
-The toolkit uses [Hydra](https://hydra.cc/) for configuration management. Create configuration files in YAML format to specify input files, processing parameters, and output locations.
-
-### Running the Preprocessing Pipeline
+### Basic Usage
 
 ```bash
 # Run complete preprocessing pipeline
-python -m latte_toolkit.preprocessing.main
+python -m preprocess.main
 
 # Run with custom configuration
-python -m latte_toolkit.preprocessing.main --config-path=/path/to/configs --config-name=my_config
+python -m preprocess.main --config-path=/path/to/configs --config-name=my_config
 
-# Run individual preprocessing modules
-python -m latte_toolkit.preprocessing.main single_function=coordinate_transform
+# Run individual modules
+python -m preprocess.main single_function=coordinate_transform
 ```
 
-### Future Usage (Postprocessing and Analysis)
+## Toolkit Components
 
-```bash
-# Planned postprocessing capabilities
-python -m latte_toolkit.postprocessing.main --config-name=postprocess_config
+### Preprocessing Module
 
-# Planned analysis workflows
-python -m latte_toolkit.analysis.main --config-name=analysis_config
-```
+Complete data preparation pipeline for tomographic inversion:
 
-## Data Requirements and Formats
+- **Coordinate Transformation** - Convert geodetic to Cartesian coordinates using exact ECEF or Earth-flattening methods
+- **Velocity Model Creation** - Generate 3D initial models from 1D reference models
+- **Geometry & Travel Time Processing** - Parse phase picks, validate data quality, and create LATTE-compatible files
+- **Binary File Generation** - Convert velocity models to Fortran-compatible binary format
+- **Visualization** - Generate quality control plots and animations
 
-### Input Data (Preprocessing)
+### Configuration System
 
-1. **Station Coordinates**: 6-column format (stacoords file)
-   ```
-   [unused] [unused] [unused] elevation(m) station_id latitude longitude
-   ```
-
-2. **Event Data**: 
-   - Original: 9-column phasePickings.txt format
-   - Corrected: 10-column .dat format with weighted RMS
-
-3. **Phase Picks**: 
-   - P and S wave arrival times
-   - Station and event associations
-   - Quality weights
-
-4. **Velocity Models**:
-   - 1D reference models (depth, Vp, Vs)
-   - 3D template grids
-
-### Output Data (LATTE-Compatible)
-
-- **Cartesian Coordinates**: CSV files with transformed coordinates and grid indices
-- **Geometry Files**: Text files describing source-receiver geometry
-- **Travel Time Binaries**: Binary files with P and S wave travel times
-- **Velocity Binaries**: Fortran-compatible binary velocity models
-- **Visualizations**: 3D plots and animations for quality control
-
-## Coordinate Transformation Methods
-
-### Exact Transformation
-Uses precise geodetic-to-ECEF-to-local conversions with pyproj:
-- ECEF (Earth-Centered Earth-Fixed) coordinate system
-- ENU (East-North-Up) local coordinates
-- Optional geocentric normal alignment
-
-### Earth Flattening Transformation
-Implements spherical Earth approximations:
-- **Simple Geometric**: Basic latitude/longitude to Cartesian
-- **Chapman (1973)**: Earth-flattening transformation with velocity corrections
-
-## Quality Control Features
-
-- Velocity range validation for P and S waves
-- Travel time sanity checks
-- Coordinate boundary validation
-- Grid completeness verification
-- Comprehensive visualization tools for data inspection
-- Automated quality reports
-
-## Configuration Example
+Uses [Hydra](https://hydra.cc/) for flexible YAML-based configuration:
 
 ```yaml
-preprocessing:
-  coordinate_transform:
-    enabled: true
-    transformation_method: "exact"  # or "flattening"
-    origin_lon: -118.0
-    origin_lat: 34.0
-    origin_depth_km: 0.0
-    grid_spacing_km: [1.0, 1.0, 1.0]
-    
-  geometry_traveltime:
-    enabled: true
-    use_corrected_phase_pickings: false
-    p_velocity_range_m_s: [4000, 9000]
-    s_velocity_range_m_s: [2000, 5500]
-    
-  visualization:
-    enabled: true
-    view_elevation: 30
-    view_from_direction: "southeast"
+coordinate_transform:
+  transformation_method: "flattening"  # or "exact"
+  origin_lon: -108.0
+  origin_lat: 34.5
+  grid_spacing_km: [20.0, 20.0, 2.0]
 
-# Planned configurations
-postprocessing:
-
-analysis:
+geometry_traveltime:
+  p_velocity_range_m_s: [500, 10000]
+  s_velocity_range_m_s: [500, 6000]
 ```
 
-## Complete Workflow
+Override any parameter from the command line:
 
-### 1. Data Preparation (Preprocessing)
-- Load and validate input data
-- Transform coordinates to local Cartesian system
-- Create initial velocity models
-- Process phase picks and generate geometry files
-- Create binary files for LATTE
+```bash
+python -m preprocess.main coordinate_transform.transformation_method=exact
+```
 
-### 2. Tomographic Inversion (External - LATTE)
-- Run LATTE tomographic inversion
-- Generate velocity models and resolution matrices
+## Data Flow
 
-### 3. Results Analysis (Postprocessing)
+```
+Input Data                 Preprocessing              Output (LATTE-ready)
+├─ stacoords.txt          ├─ Coordinate Transform   ├─ Cartesian CSVs
+├─ phasePickings.txt      ├─ Velocity Model         ├─ Geometry files
+├─ vmodel-PB1D.txt        ├─ Phase Processing       ├─ Travel time binaries
+└─ vmodel-PB3D.txt        └─ Binary Conversion      └─ Velocity binaries
+```
 
-### 4. Scientific Interpretation (Analysis)
+## Key Capabilities
 
-## Development Roadmap
+### Coordinate Transformation
 
-### Current Status
-- ✅ Complete preprocessing pipeline
-- ✅ Coordinate transformation modules
-- ✅ Basic visualization capabilities
-- ✅ Configuration management system
+**Exact Transformation:**
+- Precise ECEF (Earth-Centered Earth-Fixed) to local ENU conversion
+- Accounts for Earth's curvature
+- Requires `pyproj`
 
-### Phase 1 (Next)
-- 🔄 Postprocessing module framework
-- 🔄 Model validation tools
-- 🔄 Enhanced visualization capabilities
-- 🔄 Format conversion utilities
+**Flattening Transformation:**
+- Simple geometric projection for regional studies
+- Optional Chapman (1973) transformation for seismic wave corrections
+- Fast and lightweight
+
+### Quality Control
+
+- Velocity range validation for P and S waves
+- Travel time consistency checks
+- Automatic filtering of unrealistic picks
+- Station-event pair validation
+- Comprehensive visualization for inspection
+
+### LATTE Compatibility
+
+Generates all files required by LATTE:
+- Source and receiver geometry files
+- P and S wave travel time binaries
+- Initial velocity model binaries
+- Source location files (sx, sy, sz, st0)
+
+## File Formats
+
+### Input Requirements
+
+- **Stations:** 6-column format with elevation, latitude, longitude
+- **Events:** 9-column phasePickings.txt or 10-column corrected .dat format
+- **Velocity Models:** 1D (depth, Vp, Vs) and 3D (lon, lat, depth, Vp, Vs)
+
+### Output Files
+
+- **CSV:** Transformed coordinates with grid indices
+- **Binary:** Fortran-compatible 32-bit float, column-major order
+- **Geometry:** Text files describing source-receiver pairs
+- **Visualizations:** PDF plots and GIF animations
+
+## Documentation
+
+- **[Preprocessing Guide](docs/preprocess.md)** - Detailed preprocessing documentation
+- **Configuration Examples** - See `configs/preprocess/` directory
+- **API Reference** - See docstrings in source files
+
+## Repository Structure
+
+```
+latte_toolkit/
+├── preprocess/              # Preprocessing pipeline
+│   ├── main.py             # Pipeline orchestration
+│   ├── coordinate_transformation.py
+│   ├── initial_velocity_model.py
+│   ├── geometry_traveltime.py
+│   ├── velocity_binary.py
+│   └── visualization.py
+├── utils/                   # Shared utilities
+│   ├── io_utils.py
+│   └── logging_utils.py
+├── configs/                 # Configuration files
+│   └── preprocess/
+│       └── default.yaml
+└── docs/                    # Documentation
+    └── preprocess.md
+```
+
+## Related Resources
+
+- **LATTE Framework:** [Geophysical Journal International (2025)](https://academic.oup.com/gji/article/241/2/1275/8046728)
+- **LATTE Code:** [LANL Repository](https://github.com/lanl/latte_traveltime)
+- **Reference Dataset:** [Huang et al., JGR (2019)](https://agupubs.onlinelibrary.wiley.com/doi/full/10.1029/2019JB018351)
+
+## Examples
+
+### Standard Workflow
+
+```bash
+# 1. Configure your data paths
+cp configs/preprocess/default.yaml my_study.yaml
+# Edit my_study.yaml with your file paths
+
+# 2. Run preprocessing
+python -m preprocess.main --config-name=my_study
+
+# 3. Check outputs
+ls outputs/
+```
+
+### Chapman Workflow
+
+For studies requiring Earth-flattening corrections:
+
+```bash
+python -m preprocess.main \
+  coordinate_transform.use_chapman_flattening=true \
+  velocity_binary.use_chapman_velocities=true
+```
+
+### Using Corrected Phase Picks
+
+```bash
+python -m preprocess.main \
+  coordinate_transform.use_corrected_phase_pickings=true \
+  geometry_traveltime.use_corrected_phase_pickings=true
+```
+
+## Troubleshooting
+
+**Module Import Errors:**
+Run from the parent directory: `python -m preprocess.main`
+
+**Missing pyproj:**
+Install for exact transformations: `pip install pyproj`
+
+**Configuration Not Found:**
+Verify file is at `configs/preprocess/default.yaml`
+
+**Grid Dimension Warnings:**
+The toolkit auto-detects dimensions from your data
+
+For detailed troubleshooting, see the [preprocessing guide](docs/preprocess.md).
+
 
 ## Compatibility
 

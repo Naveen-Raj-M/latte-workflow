@@ -1,379 +1,557 @@
-# LATTE Preprocessing
+# LATTE Preprocessing Guide
 
-The LATTE preprocessing module handles all data preparation tasks required for seismic tomography inversion. It provides a comprehensive suite of tools for coordinate transformation, velocity model creation, geometry file generation, and data visualization.
+Comprehensive guide for the LATTE preprocessing module, which handles all data preparation for seismic tomography inversion.
+
+## Table of Contents
+
+1. [Overview](#overview)
+2. [Quick Start](#quick-start)
+3. [Configuration](#configuration)
+4. [Coordinate Transformation](#coordinate-transformation)
+5. [Initial Velocity Model](#initial-velocity-model)
+6. [Geometry & Travel Time Processing](#geometry--travel-time-processing)
+7. [Velocity Binary Files](#velocity-binary-files)
+8. [Visualization](#visualization)
+9. [File Formats](#file-formats)
+10. [Troubleshooting](#troubleshooting)
 
 ## Overview
 
-The preprocessing pipeline consists of five main components that can be run individually or as a complete workflow:
+The preprocessing pipeline consists of five components that can run individually or as a complete workflow:
 
-1. **Coordinate Transformation** - Convert geodetic coordinates to Cartesian grid coordinates
-2. **Initial 3D Model Creation** - Generate 3D velocity models from 1D reference models
-3. **Geometry & Travel Time Processing** - Create geometry files and travel time data from phase picks
-4. **Velocity Binary Generation** - Convert velocity models to binary format for inversion
-5. **Visualization** - Generate plots and animations for quality control
+| Component | Purpose | Input | Output |
+|-----------|---------|-------|--------|
+| Coordinate Transform | Convert geodetic to Cartesian | Station/event/velocity text files | Cartesian CSVs with grid indices |
+| Initial 3D Model | Generate 3D from 1D model | 1D velocity model, 3D template | 3D initial velocity model |
+| Geometry & Travel Time | Process phase picks | Phase pickings, Cartesian CSVs | Geometry files, travel time binaries |
+| Velocity Binary | Create binary files | Velocity CSV | Fortran-compatible binaries |
+| Visualization | Generate QC plots | Cartesian CSVs, binaries | PDF plots, GIF animations |
 
 ## Quick Start
 
 ### Complete Pipeline
 
-Run the entire preprocessing workflow:
-
 ```bash
-cd /path/to/latte-workflow
-python -m preprocess.main --config-path=configs --config-name=preprocess/default
+python -m preprocess.main
 ```
 
 ### Individual Functions
 
-Run specific preprocessing steps:
-
 ```bash
-# Coordinate transformation only
+# Coordinate transformation
 python -m preprocess.main single_function=coordinate_transform
 
-# Initial 3D model creation only
+# Velocity model creation
 python -m preprocess.main single_function=initial_3d_model
 
-# Geometry and travel time processing only
+# Geometry and travel times
 python -m preprocess.main single_function=geometry_traveltime
 
-# Velocity binary creation only
+# Binary conversion
 python -m preprocess.main single_function=velocity_binary
 
-# Visualization only
+# Visualization
 python -m preprocess.main single_function=visualization
 ```
 
 ## Configuration
 
-### Basic Configuration
+### Configuration File
 
-All preprocessing is controlled through a YAML configuration file. Create your configuration by copying and modifying the default:
+All preprocessing is controlled through `configs/preprocess/default.yaml`. Create custom configurations by copying and modifying:
 
 ```yaml
-# configs/preprocess/default.yaml
 data:
   base_dir: "/path/to/your/data"
   output_base_dir: "./outputs"
 
 coordinate_transform:
   enabled: true
-  transformation_method: "flattening"  # or "exact"
+  transformation_method: "flattening"
   origin_lon: -108.0
   origin_lat: 34.5
   origin_depth_km: -4.0
+  grid_spacing_km: [20.0, 20.0, 2.0]
 ```
 
-### Custom Configuration
-
-Override settings for your specific dataset:
+### Command Line Overrides
 
 ```bash
-# Use custom data directory
+# Override data directory
 python -m preprocess.main data.base_dir=/path/to/my/data
 
-# Use exact coordinate transformation
+# Change transformation method
 python -m preprocess.main coordinate_transform.transformation_method=exact
 
-# Use corrected phase pickings
+# Use corrected phase picks
 python -m preprocess.main geometry_traveltime.use_corrected_phase_pickings=true
 ```
 
-## Detailed Component Guide
+## Coordinate Transformation
 
-### 1. Coordinate Transformation
+Converts geographic coordinates (longitude, latitude, depth) to local Cartesian grid coordinates.
 
-Converts geographic coordinates (longitude, latitude, depth) to local Cartesian coordinates suitable for tomographic inversion.
+### Transformation Methods
 
-#### Transformation Methods
+#### Flattening (Default)
 
-**Flattening Transformation** (Default)
-- Simple geometric projection onto a flat Earth
-- Optional Chapman (1973) Earth-flattening for seismic waves
-- Fast and suitable for regional studies
-
-**Exact Transformation**
-- ECEF (Earth-Centered Earth-Fixed) to local ENU (East-North-Up)
-- Accounts for Earth's curvature precisely
-- Requires `pyproj` library
-
-#### Input Files
-- `stacoords.txt` - Station coordinates (6 columns)
-- `phasePickings.txt` - Event data (9 columns) or `sphfdloc.dat` (corrected events)
-- `vmodel-PB3D.txt` - 3D velocity model template (5 columns)
-
-#### Output Files
-- `stations_cartesian.csv` - Station coordinates in Cartesian grid
-- `events_cartesian.csv` - Event coordinates in Cartesian grid  
-- `velocity_cartesian.csv` - Velocity model in Cartesian grid
-
-#### Configuration Options
+Fast geometric projection suitable for regional studies:
 
 ```yaml
 coordinate_transform:
-  transformation_method: "flattening"  # "exact" or "flattening"
-  use_chapman_flattening: false        # Apply Chapman transformation
-  use_corrected_phase_pickings: false  # Use corrected event data
-  origin_lon: -108.0                   # Origin longitude
-  origin_lat: 34.5                     # Origin latitude
-  origin_depth_km: -4.0                # Origin depth (km)
-  grid_spacing_km: [20.0, 20.0, 2.0]  # Grid spacing [dx, dy, dz]
+  transformation_method: "flattening"
+  use_chapman_flattening: false  # Enable Chapman (1973) correction
 ```
 
-### 2. Initial 3D Model Creation
+**Chapman Flattening:**
+- Applies Earth-flattening transformation for seismic studies
+- Corrects both depths and velocities
+- Preserves original values in separate columns
 
-Creates a 3D initial velocity model by mapping velocities from a 1D reference model onto a 3D spatial grid.
+#### Exact Transformation
 
-#### Input Files
-- `vmodel-PB1D.txt` - 1D velocity model (depth, vp, vs)
-- `vmodel-PB3D.txt` - 3D template grid (lon, lat, depth, vp, vs)
+Precise ECEF to local ENU conversion:
 
-#### Output Files
-- `initial_3d_model_generated.txt` - 3D initial velocity model
+```yaml
+coordinate_transform:
+  transformation_method: "exact"
+  exact_transform:
+    rotate_to_enu: true
+    align_to_geocentric_normal: false
+```
 
-#### Velocity Mapping Logic
-- Finds the deepest 1D layer at or above each 3D grid point depth
-- Uses first layer velocities for shallow extrapolation
-- Uses deepest layer velocities for deep extrapolation
+Requires `pyproj`: `pip install pyproj`
 
-#### Configuration Options
+### Input Files
+
+```yaml
+station_file: "${data.base_dir}/stacoords.txt"           # 6 columns
+event_file: "${data.base_dir}/phasePickings.txt"         # 9 columns
+corrected_event_file: "${data.base_dir}/sphfdloc.dat"   # 10 columns (optional)
+velocity_file: "${data.base_dir}/vmodel-PB3D.txt"        # 5 columns
+final_velocity_file: "${data.base_dir}/vmodel-final.txt" # 5 columns (optional)
+```
+
+### Output Files
+
+- `stations_cartesian.csv` - Station coordinates in Cartesian grid
+- `events_cartesian.csv` - Event coordinates in Cartesian grid
+- `velocity_cartesian.csv` - Velocity model in Cartesian grid
+- `velocity_final_cartesian.csv` - Final velocity model (if enabled)
+
+### Key Options
+
+```yaml
+use_corrected_phase_pickings: false  # Use corrected event data
+process_final_velocity: false        # Process final velocity model
+grid_spacing_km: [20.0, 20.0, 2.0]  # Grid spacing [dx, dy, dz]
+```
+
+Grid indices (i, j, k) are 1-based for Fortran compatibility.
+
+## Initial Velocity Model
+
+Creates a 3D initial velocity model by mapping a 1D reference model onto a 3D spatial grid.
+
+### Configuration
 
 ```yaml
 initial_3d_model:
+  enabled: true
   model_1d_file: "${data.base_dir}/vmodel-PB1D.txt"
   template_3d_file: "${data.base_dir}/vmodel-PB3D.txt"
   output_file: "${data.output_base_dir}/initial_3d_model_generated.txt"
+  
   precision:
-    longitude: 6    # Decimal places for longitude
-    latitude: 7     # Decimal places for latitude
-    depth: 8        # Decimal places for depth
-    vp: 8          # Decimal places for Vp
-    vs: 8          # Decimal places for Vs
-  field_width: 11   # Field width for formatting
+    longitude: 6
+    latitude: 7
+    depth: 8
+    vp: 8
+    vs: 8
+  field_width: 11
 ```
 
-### 3. Geometry & Travel Time Processing
+### Velocity Mapping
 
-Processes seismic phase picks to create geometry files and travel time data required for tomographic inversion.
+For each 3D grid point:
+1. Find the deepest 1D layer at or above the grid point depth
+2. Assign that layer's velocities
+3. For shallow points: use first layer
+4. For deep points: use deepest layer
 
-#### Input Files
-- `phasePickings.txt` or `sphfdloc.dat` - Phase pick data
-- `stations_cartesian.csv` - Station coordinates from coordinate transformation
-- `events_cartesian.csv` - Event coordinates from coordinate transformation
+### Input Format
 
-#### Output Files
-- `geometry/shot_N_geometry.txt` - Geometry files for each event
-- `geometry/geometry.txt` - Index of geometry files
-- `geometry/shot_to_source_id_map.txt` - Event ID mapping
-- `ground_truth_traveltimes/shot_N_traveltime_p.bin` - P-wave travel times
-- `ground_truth_traveltimes/shot_N_traveltime_s.bin` - S-wave travel times
-- `model/sx.bin`, `sy.bin`, `sz.bin`, `st0.bin` - Source coordinates and origin times
+**1D Model (3 columns):**
+```
+# depth(km)  vp(km/s)  vs(km/s)
+0.0          5.0       2.9
+1.0          5.5       3.2
+2.0          6.0       3.5
+```
 
-#### Quality Control Filters
-- Velocity range filtering for realistic apparent velocities
-- Station/event filtering based on coordinate availability
-- Travel time validation (removes negative times)
-- Requires both P and S picks for each station-event pair
+**3D Template (5 columns):**
+```
+# lon    lat    depth   vp    vs
+-108.0  34.5   0.0     0.0   0.0
+-108.0  34.5   2.0     0.0   0.0
+```
 
-#### Configuration Options
+## Geometry & Travel Time Processing
+
+Processes seismic phase picks to create geometry files and travel time data for LATTE.
+
+### Configuration
 
 ```yaml
 geometry_traveltime:
+  enabled: true
   use_corrected_phase_pickings: false
   generate_source_binaries: true
   zero_origin_time: true
-  source_binary_format: "travel_time"  # "travel_time" or "fortran"
-  p_velocity_range_m_s: [500, 10000]   # P-wave velocity filter (m/s)
-  s_velocity_range_m_s: [500, 6000]    # S-wave velocity filter (m/s)
-  filter_events: false                 # Enable event filtering
-  filter_stations: false               # Enable station filtering
+  source_binary_format: "travel_time"
+  
+  # Velocity filtering
+  p_velocity_range_m_s: [500, 10000]
+  s_velocity_range_m_s: [500, 6000]
+  
+  # Event/station filtering
+  filter_events: false
+  events_to_discard_file: "${data.base_dir}/events_to_discard.txt"
+  filter_stations: false
+  stations_to_discard_file: "${data.base_dir}/stations_to_discard.txt"
 ```
 
-### 4. Velocity Binary Generation
+### Quality Control Filters
 
-Converts velocity models from CSV format to binary format required by the tomographic inversion code.
+**Automatic Filtering:**
+- Stations must exist in station CSV
+- Events must exist in event CSV
+- Coordinates must be non-negative
+- Travel times must be positive
+- Apparent velocities must be within specified ranges
+- Both P and S picks required for each station-event pair
 
-#### Input Files
-- `velocity_cartesian.csv` - Velocity model from coordinate transformation
+**Manual Filtering:**
+- Discard specific events by ID
+- Discard specific stations by name
 
-#### Output Files
-- `vp_init.bin` - P-wave velocity model (binary)
-- `vs_init.bin` - S-wave velocity model (binary)
+### Output Files
 
-#### Processing Features
-- Auto-detection of grid dimensions from CSV data
-- Chapman velocity handling (uses flattened or original velocities)
-- Internal gap interpolation using nearest-neighbor method
-- Fortran-compatible binary format (stream access, column-major order)
+**Geometry Files:**
+- `geometry/shot_N_geometry.txt` - One per event
+- `geometry/geometry.txt` - Index file
+- `geometry/shot_to_source_id_map.txt` - Event ID mapping
 
-#### Configuration Options
+**Travel Time Binaries:**
+- `ground_truth_traveltimes/shot_N_traveltime_p.bin` - P-wave times
+- `ground_truth_traveltimes/shot_N_traveltime_s.bin` - S-wave times
+
+**Source Files (optional):**
+- `model/sx.bin`, `sy.bin`, `sz.bin` - Source coordinates
+- `model/st0.bin` - Origin times
+
+**CSV Export (optional):**
+- `geometry_csv/ground_truth_travel_times.csv` - Comprehensive data with metadata
+
+### CSV Export
+
+Enable comprehensive CSV output:
+
+```yaml
+generate_travel_time_csv: true
+csv_output_dir: "${data.output_base_dir}/geometry_csv"
+```
+
+Includes: original coordinates, transformed coordinates, travel times, distances, weights, residuals (for corrected data).
+
+### Phase Pick Formats
+
+**Original (phasePickings.txt):**
+```
+# Event header (9 cols): year jday hour min sec lat lon depth event_id
+2023 100 10 30 45.123 34.5 -108.0 5.0 event001
+# Picks (7+ cols): station ? jday hour min sec phase [weight]
+STA1 ? 100 10 31 2.456 P 1.0
+```
+
+**Corrected (sphfdloc.dat):**
+```
+# Event (10 cols): year jday hour min sec lat lon depth event_id weighted_rms
+2023 100 10 30 45.123 34.5 -108.0 5.0 event001 0.25
+# Picks (9 cols): station year jday hour min sec phase uncertainty residual
+STA1 2023 100 10 31 2.456 P 0.05 -0.02
+```
+
+## Velocity Binary Files
+
+Converts velocity models from CSV to Fortran-compatible binary format.
+
+### Configuration
 
 ```yaml
 velocity_binary:
-  use_chapman_velocities: true    # Use Chapman-transformed velocities
-  interpolate: true               # Fill internal gaps
-  neighbor_threshold: 5           # Minimum neighbors for interpolation
+  enabled: true
+  input_csv: "${coordinate_transform.output_dir}/velocity_cartesian.csv"
+  vp_output: "${data.output_base_dir}/vp_init.bin"
+  vs_output: "${data.output_base_dir}/vs_init.bin"
+  
+  use_chapman_velocities: true
+  interpolate: true
+  neighbor_threshold: 5
+  
+  # Final velocity processing (optional)
+  create_final_binaries: false
+  final_input_csv: "${coordinate_transform.output_dir}/velocity_final_cartesian.csv"
+  vp_final_output: "${data.output_base_dir}/vp_final.bin"
+  vs_final_output: "${data.output_base_dir}/vs_final.bin"
 ```
 
-### 5. Visualization
+### Processing Features
 
-Creates quality control plots and animations for visual inspection of processed data.
+**Grid Dimensions:**
+- Auto-detected from CSV data
+- Uses maximum i, j, k values
+- Warns if dimensions differ from expected
 
-#### Station and Event Visualization
-- 3D scatter plots of station and event locations
-- Configurable viewing angles and perspectives
+**Chapman Velocities:**
+- Uses `vp_flat`/`vs_flat` if `use_chapman_velocities: true`
+- Uses `vp_original`/`vs_original` otherwise
+- Velocities converted from km/s to m/s
 
-#### Velocity Model Visualization
-- Comparison plots from CSV and binary data
-- 3D scatter plots with velocity color-coding
+**Gap Interpolation:**
+- Fills internal gaps using nearest-neighbor method
+- Only fills points with sufficient neighbors
+- Preserves boundary zeros
 
-#### Animated Visualization
-- Rotating 3D animations of velocity models
-- GIF output for presentations
+### Binary Format
 
-#### Configuration Options
+- **Data Type:** 32-bit float (np.float32)
+- **Byte Order:** Little-endian (native)
+- **Array Order:** Fortran column-major
+- **Access:** Direct stream (no record markers)
+- **Units:** m/s (converted from km/s)
+
+### Verification
+
+The module performs automatic verification:
+- Checks file size matches expected dimensions
+- Reads back data to verify integrity
+- Reports velocity ranges
+- Confirms array matching
+
+## Visualization
+
+Creates quality control plots and animations.
+
+### Station and Event Visualization
 
 ```yaml
 visualization:
   station_event_vis:
-    view_from_direction: "southeast"  # Viewing direction
-    view_elevation: 20                # Elevation angle
-  velocity_vis:
-    coord_system: "flattened"         # Coordinate system for plots
-  velocity_animation:
-    rotation_frames: 120              # Number of animation frames
-    frame_duration: 0.05              # Frame duration (seconds)
+    station_file: "${coordinate_transform.output_dir}/stations_cartesian.csv"
+    event_file: "${coordinate_transform.output_dir}/events_cartesian.csv"
+    output_image: "${data.output_base_dir}/visualization_station_events.pdf"
+    view_from_direction: "southeast"  # south, east, west, north, southeast
+    view_elevation: 20
 ```
+
+Creates 3D scatter plot showing spatial distribution.
+
+### Velocity Visualization
+
+```yaml
+velocity_vis:
+  csv_file: "${coordinate_transform.output_dir}/velocity_cartesian.csv"
+  bin_file: "${data.output_base_dir}/vp_init.bin"
+  coord_system: "flattened"  # or "enu"
+```
+
+Generates comparison plots from CSV and binary files.
+
+### Velocity Animation
+
+```yaml
+velocity_animation:
+  bin_file: "${data.output_base_dir}/vp_init.bin"
+  output_gif: "${data.output_base_dir}/velocity_animation.gif"
+  rotation_frames: 120
+  frame_duration: 0.05
+```
+
+Creates rotating 3D animation of velocity model.
 
 ## File Formats
 
 ### Input File Formats
 
-**Station Coordinates (`stacoords.txt`)**
+**Station Coordinates (6 columns):**
 ```
-# 6 columns: network station_code elevation latitude longitude depth_info
-XX STA1 1500.0 34.5 -108.0 0
-```
-
-**Phase Picks (`phasePickings.txt`)**
-```
-# Event header (9 columns): year julian_day hour minute second latitude longitude depth event_id
-2023 100 10 30 45.123 34.5 -108.0 5.0 event001
-# Pick lines (7+ columns): station ? julian_day hour minute second phase [weight]
-STA1 ? 100 10 31 2.456 P 1.0
+network station_code elevation(m) latitude longitude depth_info
+XX      STA1        1500.0       34.5     -108.0    0
 ```
 
-**1D Velocity Model (`vmodel-PB1D.txt`)**
+**1D Velocity Model (3 columns):**
 ```
-# 3 columns: depth(km) vp(km/s) vs(km/s)
-0.0 5.0 2.9
-1.0 5.5 3.2
+depth(km)  vp(km/s)  vs(km/s)
+0.0        5.0       2.9
 ```
 
-### Output File Formats
+**3D Velocity Model (5 columns):**
+```
+lon      lat    depth(km)  vp(km/s)  vs(km/s)
+-108.0   34.5   0.0        5.0       2.9
+```
 
-**Cartesian Coordinates CSV**
-- Contains original coordinates plus Cartesian grid coordinates
-- Includes grid indices (i, j, k) for Fortran compatibility
-- For Chapman transformation, includes both original and flattened velocities
+### Output CSV Columns
 
-**Binary Velocity Files**
-- 32-bit float, Fortran column-major order
-- Direct stream access (no record markers)
-- Units: m/s (converted from km/s in CSV)
+**Cartesian Coordinates:**
+- Original: `lon`, `lat`, `depth`, `station`/`event_id`
+- Grid: `X_grid_km`, `Y_grid_km`, `Z_grid_km`
+- Indices: `i`, `j`, `k` (1-based)
+- Chapman: `vp`, `vs`, `vp_original`, `vs_original`, `vp_flat`, `vs_flat`
 
-## Error Handling
-
-The preprocessing pipeline includes comprehensive error handling:
-
-- **File Validation**: Checks for file existence and format
-- **Coordinate Validation**: Verifies coordinate ranges and projections
-- **Velocity Validation**: Ensures Vp > Vs and positive values
-- **Travel Time Validation**: Removes unrealistic apparent velocities
-- **Grid Validation**: Checks for consistent grid dimensions
-
-## Performance Considerations
-
-- **Memory Usage**: Large velocity models may require significant RAM
-- **Processing Time**: Coordinate transformation scales with number of points
-- **Disk Space**: Binary files are typically smaller than text equivalents
-- **Parallel Processing**: Individual functions can be run in parallel for different datasets
+**Travel Time CSV:**
+- Identifiers: `shot_id`, `event_id`, `station`, `phase`
+- Times: `observed_tt`, `weight`, `residual`
+- Original coords: `event_longitude`, `station_latitude`, etc.
+- Transformed: `event_x_transformed`, `station_z_transformed`, etc.
+- Derived: `distance_m`, `origin_time_s`
 
 ## Troubleshooting
 
 ### Common Issues
 
-**Import Errors**
-```bash
+**Import Error:**
+```
 ImportError: attempted relative import beyond top-level package
 ```
-Solution: Run from the parent directory containing the package
+**Solution:** Run from parent directory: `python -m preprocess.main`
 
-**Config File Not Found**
-```bash
-Cannot find primary config 'default.yaml'
+**Missing pyproj:**
 ```
-Solution: Check config file path and name (should be `configs/preprocess/default.yaml`)
-
-**Missing Dependencies**
-```bash
 ImportError: No module named 'pyproj'
 ```
-Solution: Install required dependencies: `pip install pyproj imageio`
+**Solution:** `pip install pyproj` or use `transformation_method: "flattening"`
 
-**Grid Dimension Mismatches**
-Solution: Enable auto-detection or verify CSV grid indices are consistent
+**Config Not Found:**
+```
+Cannot find primary config 'default.yaml'
+```
+**Solution:** Check file exists at `configs/preprocess/default.yaml`
+
+**Grid Dimension Warning:**
+```
+Auto-detected dimensions: NX=45, NY=40, NZ=50
+Common/expected dimensions: NX=41, NY=37, NZ=41
+```
+**Solution:** This is informational. The toolkit auto-detects correct dimensions.
+
+**Negative Travel Times:**
+```
+Warning: Event X, station Y skipped (reason: negative travel time: -2.5s)
+```
+**Solution:** Check phase pick times and event origin times. May indicate data quality issues.
+
+**Unrealistic Velocities:**
+```
+Warning: Event X, station Y (P-phase) skipped (reason: unrealistic velocity: 15000 m/s)
+```
+**Solution:** Adjust `p_velocity_range_m_s` or investigate data quality.
 
 ### Debugging Tips
 
-1. **Enable Debug Logging**: Set `preprocessing.log_level: DEBUG`
-2. **Run Individual Functions**: Test each component separately
-3. **Check File Permissions**: Ensure write access to output directories
-4. **Validate Input Data**: Use built-in validation functions
-5. **Monitor Memory Usage**: For large datasets, consider processing in chunks
+1. **Enable Debug Logging:**
+   ```yaml
+   preprocessing:
+     log_level: DEBUG
+   ```
+
+2. **Test Individual Components:**
+   ```bash
+   python -m preprocess.main single_function=coordinate_transform
+   ```
+
+3. **Check File Permissions:**
+   Ensure write access to output directories
+
+4. **Validate Input Data:**
+   - Check file formats match specifications
+   - Verify coordinate ranges are reasonable
+   - Ensure no missing required columns
+
+5. **Monitor Output:**
+   - Check CSV files for expected columns
+   - Verify binary file sizes
+   - Review visualization plots
+
+### Performance Considerations
+
+- **Memory:** Large velocity models may require 4-8 GB RAM
+- **Processing Time:** Coordinate transformation: seconds to minutes depending on grid size
+- **Disk Space:** Binary files are typically 50-80% smaller than text files
 
 ## Examples
 
-### Example 1: Basic Workflow
+### Basic Workflow
 
 ```bash
 # 1. Set up configuration
 cp configs/preprocess/default.yaml my_config.yaml
 # Edit my_config.yaml with your paths
 
-# 2. Run complete pipeline
+# 2. Run preprocessing
 python -m preprocess.main --config-name=my_config
 
-# 3. Check outputs
-ls outputs/
+# 3. Verify outputs
+ls outputs/coordinate_transform/
+ls outputs/geometry/
+ls outputs/ground_truth_traveltimes/
 ```
 
-### Example 2: Chapman Workflow
+### Chapman Workflow
 
 ```bash
-# Enable Chapman flattening for velocity transformation
 python -m preprocess.main \
   coordinate_transform.use_chapman_flattening=true \
   velocity_binary.use_chapman_velocities=true
 ```
 
-### Example 3: Custom Origin
+### Exact Transformation
 
 ```bash
-# Set custom coordinate origin
 python -m preprocess.main \
-  coordinate_transform.origin_lon=-110.0 \
-  coordinate_transform.origin_lat=35.0 \
-  coordinate_transform.origin_depth_km=-2.0
+  coordinate_transform.transformation_method=exact \
+  coordinate_transform.exact_transform.rotate_to_enu=true
 ```
 
-### Example 4: Corrected Phase Picks
+### Custom Grid Spacing
 
 ```bash
-# Use corrected event locations and phase picks
+python -m preprocess.main \
+  coordinate_transform.grid_spacing_km=[10.0,10.0,1.0]
+```
+
+### Using Corrected Data
+
+```bash
 python -m preprocess.main \
   coordinate_transform.use_corrected_phase_pickings=true \
   geometry_traveltime.use_corrected_phase_pickings=true
 ```
 
-This documentation provides a complete reference for using the LATTE preprocessing module effectively and efficiently for seismic tomography data preparation.
+### Filtering Events
+
+```bash
+# Create events_to_discard.txt with:
+# Shot_ID    Original_Event_ID
+# 1          event001
+# 5          event005
+
+python -m preprocess.main \
+  geometry_traveltime.filter_events=true \
+  geometry_traveltime.events_to_discard_file=/path/to/events_to_discard.txt
+```
+
+---
+
+For additional help, open an issue in the repository or consult the main README.
