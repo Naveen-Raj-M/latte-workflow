@@ -290,12 +290,17 @@ def create_travel_path_maps(df: pd.DataFrame, station_df: pd.DataFrame,
     
     fig.suptitle(f'Short Distance Travel Paths ({coord_label} Coordinates)', fontsize=18)
     
+    # Ensure axes is always a list/array
+    if not isinstance(axes, np.ndarray):
+        axes = [axes]
+    axes_flat = axes.flatten() if isinstance(axes, np.ndarray) else axes
+    
     # Create individual plots
     for idx, (phase, plot_type) in enumerate(plot_configs):
-        if idx >= len(axes):
+        if idx >= len(axes_flat):
             break
             
-        ax = axes[idx] if isinstance(axes, np.ndarray) else axes
+        ax = axes_flat[idx]
         
         # Get phase data
         if phase == 'P':
@@ -440,76 +445,82 @@ def create_short_distance_histograms(df: pd.DataFrame, colors: Dict[str, str],
     fig, axes = create_multi_panel_figure(2, 3, figsize=(18, 12),
                                         title='Short Distance Residual Analysis')
     
+    # Ensure axes is always a flat array
+    if not isinstance(axes, np.ndarray):
+        axes = [axes]
+    axes_flat = axes.flatten() if isinstance(axes, np.ndarray) else axes
+    
     # Overall distribution
-    axes[0].hist(df['residual_s'], bins=30, alpha=0.7, 
+    axes_flat[0].hist(df['residual_s'], bins=30, alpha=0.7, 
                 color=colors['neutral_color'], edgecolor='black')
-    axes[0].axvline(0, color='black', linestyle='--', linewidth=2)
-    axes[0].axvline(df['residual_s'].mean(), color='red', linestyle='-', linewidth=2, label='Mean')
-    axes[0].set_xlabel('Residual [s]')
-    axes[0].set_ylabel('Frequency')
-    axes[0].set_title(f'Overall Distribution (N={len(df)})')
-    axes[0].grid(True, alpha=0.3)
-    axes[0].legend()
+    axes_flat[0].axvline(0, color='black', linestyle='--', linewidth=2)
+    axes_flat[0].axvline(df['residual_s'].mean(), color='red', linestyle='-', linewidth=2, label='Mean')
+    axes_flat[0].set_xlabel('Residual [s]')
+    axes_flat[0].set_ylabel('Frequency')
+    axes_flat[0].set_title(f'Overall Distribution (N={len(df)})')
+    axes_flat[0].grid(True, alpha=0.3)
+    axes_flat[0].legend()
     
     # P-wave vs S-wave comparison
     if not p_data.empty and not s_data.empty:
-        axes[1].hist(p_data['residual_s'], bins=20, alpha=0.6, 
+        axes_flat[1].hist(p_data['residual_s'], bins=20, alpha=0.6, 
                     color=colors['p_wave_light'], label=f'P-wave (N={len(p_data)})', edgecolor='black')
-        axes[1].hist(s_data['residual_s'], bins=20, alpha=0.6, 
+        axes_flat[1].hist(s_data['residual_s'], bins=20, alpha=0.6, 
                     color=colors['s_wave_light'], label=f'S-wave (N={len(s_data)})', edgecolor='black')
-        axes[1].axvline(0, color='black', linestyle='--', linewidth=2)
-        axes[1].set_xlabel('Residual [s]')
-        axes[1].set_ylabel('Frequency')
-        axes[1].set_title('P-wave vs S-wave Residuals')
-        axes[1].grid(True, alpha=0.3)
-        axes[1].legend()
+        axes_flat[1].axvline(0, color='black', linestyle='--', linewidth=2)
+        axes_flat[1].set_xlabel('Residual [s]')
+        axes_flat[1].set_ylabel('Frequency')
+        axes_flat[1].set_title('P-wave vs S-wave Residuals')
+        axes_flat[1].grid(True, alpha=0.3)
+        axes_flat[1].legend()
     
     # Distance vs residual scatter
     coordinate_type = config['short_distance_analysis']['coordinate_type']
     distance_col = f'distance_{coordinate_type}_km'
     
-    axes[2].scatter(df[distance_col], df['residual_s'], alpha=0.6, s=20, color=colors['neutral_color'])
-    axes[2].axhline(0, color='black', linestyle='--', linewidth=2)
-    axes[2].set_xlabel('Distance [km]')
-    axes[2].set_ylabel('Residual [s]')
-    axes[2].set_title('Residuals vs Distance')
-    axes[2].grid(True, alpha=0.3)
+    axes_flat[2].scatter(df[distance_col], df['residual_s'], alpha=0.6, s=20, color=colors['neutral_color'])
+    axes_flat[2].axhline(0, color='black', linestyle='--', linewidth=2)
+    axes_flat[2].set_xlabel('Distance [km]')
+    axes_flat[2].set_ylabel('Residual [s]')
+    axes_flat[2].set_title('Residuals vs Distance')
+    axes_flat[2].grid(True, alpha=0.3)
     
     # Cumulative distributions
     if not p_data.empty:
         p_sorted = np.sort(p_data['residual_s'])
         p_cumulative = np.arange(1, len(p_sorted) + 1) / len(p_sorted)
-        axes[3].plot(p_sorted, p_cumulative, color=colors['p_wave_dark'], linewidth=2, label='P-wave')
+        axes_flat[3].plot(p_sorted, p_cumulative, color=colors['p_wave_dark'], linewidth=2, label='P-wave')
     
     if not s_data.empty:
         s_sorted = np.sort(s_data['residual_s'])
         s_cumulative = np.arange(1, len(s_sorted) + 1) / len(s_sorted)
-        axes[3].plot(s_sorted, s_cumulative, color=colors['s_wave_dark'], linewidth=2, label='S-wave')
+        axes_flat[3].plot(s_sorted, s_cumulative, color=colors['s_wave_dark'], linewidth=2, label='S-wave')
     
-    axes[3].axvline(0, color='black', linestyle='--', linewidth=2)
-    axes[3].set_xlabel('Residual [s]')
-    axes[3].set_ylabel('Cumulative Probability')
-    axes[3].set_title('Cumulative Distributions')
-    axes[3].grid(True, alpha=0.3)
-    axes[3].legend()
+    axes_flat[3].axvline(0, color='black', linestyle='--', linewidth=2)
+    axes_flat[3].set_xlabel('Residual [s]')
+    axes_flat[3].set_ylabel('Cumulative Probability')
+    axes_flat[3].set_title('Cumulative Distributions')
+    axes_flat[3].grid(True, alpha=0.3)
+    axes_flat[3].legend()
     
     # Q-Q plot for normality
     try:
         from scipy import stats
-        stats.probplot(df['residual_s'], dist="norm", plot=axes[4])
-        axes[4].set_title('Q-Q Plot (Normal Distribution)')
-        axes[4].grid(True, alpha=0.3)
+        stats.probplot(df['residual_s'], dist="norm", plot=axes_flat[4])
+        axes_flat[4].set_title('Q-Q Plot (Normal Distribution)')
+        axes_flat[4].grid(True, alpha=0.3)
     except ImportError:
-        axes[4].text(0.5, 0.5, 'scipy not available\nfor Q-Q plot', 
-                    ha='center', va='center', transform=axes[4].transAxes)
+        axes_flat[4].text(0.5, 0.5, 'scipy not available\nfor Q-Q plot', 
+                    ha='center', va='center', transform=axes_flat[4].transAxes)
+        axes_flat[4].set_title('Q-Q Plot (Normal Distribution)')
     
     # Residual vs travel time
-    axes[5].scatter(df['observed_tt'], df['residual_s'], alpha=0.6, s=20, color=colors['neutral_color'])
-    axes[5].axhline(0, color='black', linestyle='--', linewidth=2)
-    axes[5].set_xlabel('Observed Travel Time [s]')
-    axes[5].set_ylabel('Residual [s]')
-    axes[5].set_title('Residual vs Travel Time')
-    axes[5].grid(True, alpha=0.3)
+    axes_flat[5].scatter(df['observed_tt'], df['residual_s'], alpha=0.6, s=20, color=colors['neutral_color'])
+    axes_flat[5].axhline(0, color='black', linestyle='--', linewidth=2)
+    axes_flat[5].set_xlabel('Observed Travel Time [s]')
+    axes_flat[5].set_ylabel('Residual [s]')
+    axes_flat[5].set_title('Residual vs Travel Time')
+    axes_flat[5].grid(True, alpha=0.3)
     
     plt.tight_layout()
     save_figure(fig, plots_dir / 'short_distance_histograms', output_format)
@@ -528,26 +539,31 @@ def create_short_distance_correlation_plots(df: pd.DataFrame, colors: Dict[str, 
     fig, axes = create_multi_panel_figure(2, 2, figsize=(16, 12),
                                         title='Short Distance Correlation Analysis')
     
+    # Ensure axes is always a flat array
+    if not isinstance(axes, np.ndarray):
+        axes = [axes]
+    axes_flat = axes.flatten() if isinstance(axes, np.ndarray) else axes
+    
     # Overall correlation
-    axes[0].scatter(df[distance_col], df['residual_s'], alpha=0.6, s=20, color=colors['neutral_color'])
-    axes[0].axhline(0, color='black', linestyle='--', linewidth=2)
+    axes_flat[0].scatter(df[distance_col], df['residual_s'], alpha=0.6, s=20, color=colors['neutral_color'])
+    axes_flat[0].axhline(0, color='black', linestyle='--', linewidth=2)
     
     # Add trend line
     if len(df) > 1:
         z = np.polyfit(df[distance_col], df['residual_s'], 1)
         p = np.poly1d(z)
         x_trend = np.linspace(df[distance_col].min(), df[distance_col].max(), 100)
-        axes[0].plot(x_trend, p(x_trend), "r--", alpha=0.8, linewidth=2)
+        axes_flat[0].plot(x_trend, p(x_trend), "r--", alpha=0.8, linewidth=2)
     
     corr = df[distance_col].corr(df['residual_s'])
-    axes[0].set_xlabel(f'Distance ({coordinate_type}) [km]')
-    axes[0].set_ylabel('Residual [s]')
-    axes[0].set_title(f'Distance vs Residual (r = {corr:.4f})')
-    axes[0].grid(True, alpha=0.3)
+    axes_flat[0].set_xlabel(f'Distance ({coordinate_type}) [km]')
+    axes_flat[0].set_ylabel('Residual [s]')
+    axes_flat[0].set_title(f'Distance vs Residual (r = {corr:.4f})')
+    axes_flat[0].grid(True, alpha=0.3)
     
     # Phase-specific correlations
     if not p_data.empty:
-        axes[1].scatter(p_data[distance_col], p_data['residual_s'], 
+        axes_flat[1].scatter(p_data[distance_col], p_data['residual_s'], 
                        alpha=0.6, s=20, color=colors['p_wave_dark'], label='P-wave')
         p_corr = p_data[distance_col].corr(p_data['residual_s'])
         
@@ -556,11 +572,11 @@ def create_short_distance_correlation_plots(df: pd.DataFrame, colors: Dict[str, 
             z_p = np.polyfit(p_data[distance_col], p_data['residual_s'], 1)
             p_p = np.poly1d(z_p)
             x_trend_p = np.linspace(p_data[distance_col].min(), p_data[distance_col].max(), 100)
-            axes[1].plot(x_trend_p, p_p(x_trend_p), color=colors['p_wave_light'], 
+            axes_flat[1].plot(x_trend_p, p_p(x_trend_p), color=colors['p_wave_light'], 
                         linestyle='--', alpha=0.8, linewidth=2)
     
     if not s_data.empty:
-        axes[1].scatter(s_data[distance_col], s_data['residual_s'], 
+        axes_flat[1].scatter(s_data[distance_col], s_data['residual_s'], 
                        alpha=0.6, s=20, color=colors['s_wave_dark'], label='S-wave')
         s_corr = s_data[distance_col].corr(s_data['residual_s'])
         
@@ -569,12 +585,12 @@ def create_short_distance_correlation_plots(df: pd.DataFrame, colors: Dict[str, 
             z_s = np.polyfit(s_data[distance_col], s_data['residual_s'], 1)
             p_s = np.poly1d(z_s)
             x_trend_s = np.linspace(s_data[distance_col].min(), s_data[distance_col].max(), 100)
-            axes[1].plot(x_trend_s, p_s(x_trend_s), color=colors['s_wave_light'], 
+            axes_flat[1].plot(x_trend_s, p_s(x_trend_s), color=colors['s_wave_light'], 
                         linestyle='--', alpha=0.8, linewidth=2)
     
-    axes[1].axhline(0, color='black', linestyle='--', linewidth=2)
-    axes[1].set_xlabel(f'Distance ({coordinate_type}) [km]')
-    axes[1].set_ylabel('Residual [s]')
+    axes_flat[1].axhline(0, color='black', linestyle='--', linewidth=2)
+    axes_flat[1].set_xlabel(f'Distance ({coordinate_type}) [km]')
+    axes_flat[1].set_ylabel('Residual [s]')
     
     title_text = 'Phase-specific Correlations'
     if not p_data.empty and not s_data.empty:
@@ -584,24 +600,24 @@ def create_short_distance_correlation_plots(df: pd.DataFrame, colors: Dict[str, 
     elif not s_data.empty:
         title_text += f'\nS: r={s_corr:.4f}'
     
-    axes[1].set_title(title_text)
-    axes[1].grid(True, alpha=0.3)
-    axes[1].legend()
+    axes_flat[1].set_title(title_text)
+    axes_flat[1].grid(True, alpha=0.3)
+    axes_flat[1].legend()
     
     # Absolute residuals vs distance
-    axes[2].scatter(df[distance_col], np.abs(df['residual_s']), 
+    axes_flat[2].scatter(df[distance_col], np.abs(df['residual_s']), 
                    alpha=0.6, s=20, color=colors['neutral_color'])
     
     abs_corr = df[distance_col].corr(np.abs(df['residual_s']))
-    axes[2].set_xlabel(f'Distance ({coordinate_type}) [km]')
-    axes[2].set_ylabel('|Residual| [s]')
-    axes[2].set_title(f'Distance vs |Residual| (r = {abs_corr:.4f})')
-    axes[2].grid(True, alpha=0.3)
+    axes_flat[2].set_xlabel(f'Distance ({coordinate_type}) [km]')
+    axes_flat[2].set_ylabel('|Residual| [s]')
+    axes_flat[2].set_title(f'Distance vs |Residual| (r = {abs_corr:.4f})')
+    axes_flat[2].grid(True, alpha=0.3)
     
     # Binned analysis
     df_copy = df.copy()
     df_copy['distance_bin'] = pd.cut(df_copy[distance_col], bins=8)
-    bin_stats = df_copy.groupby('distance_bin').agg({
+    bin_stats = df_copy.groupby('distance_bin', observed=True).agg({
         'residual_s': ['mean', 'std', 'count'],
         distance_col: 'mean'
     }).reset_index()
@@ -610,15 +626,18 @@ def create_short_distance_correlation_plots(df: pd.DataFrame, colors: Dict[str, 
     bin_stats = bin_stats.dropna()
     
     if not bin_stats.empty:
-        axes[3].errorbar(bin_stats['bin_center'], bin_stats[('residual_s', 'mean')], 
-                        yerr=bin_stats[('residual_s', 'std')], 
+        # Flatten multi-level column names
+        bin_stats.columns = ['distance_bin', 'mean_residual', 'std_residual', 'count', 'mean_distance', 'bin_center']
+        
+        axes_flat[3].errorbar(bin_stats['bin_center'], bin_stats['mean_residual'], 
+                        yerr=bin_stats['std_residual'], 
                         fmt='o-', capsize=5, linewidth=2, markersize=8, color=colors['neutral_color'])
-        axes[3].axhline(0, color='black', linestyle='--', linewidth=2)
+        axes_flat[3].axhline(0, color='black', linestyle='--', linewidth=2)
     
-    axes[3].set_xlabel(f'Distance ({coordinate_type}) [km]')
-    axes[3].set_ylabel('Mean Residual ± Std [s]')
-    axes[3].set_title('Binned Residual Statistics')
-    axes[3].grid(True, alpha=0.3)
+    axes_flat[3].set_xlabel(f'Distance ({coordinate_type}) [km]')
+    axes_flat[3].set_ylabel('Mean Residual ± Std [s]')
+    axes_flat[3].set_title('Binned Residual Statistics')
+    axes_flat[3].grid(True, alpha=0.3)
     
     plt.tight_layout()
     save_figure(fig, plots_dir / f'short_distance_correlation_{coordinate_type}', output_format)
@@ -686,12 +705,17 @@ def create_zoom_cluster_plots(df: pd.DataFrame, station_df: pd.DataFrame,
             fig, axes = create_multi_panel_figure(2, 2, figsize=(16, 12))
             plot_configs = [('P', 'paths'), ('S', 'paths'), ('P', 'residuals'), ('S', 'residuals')]
         
+        # Ensure axes is always a list/array
+        if not isinstance(axes, np.ndarray):
+            axes = [axes]
+        axes_flat = axes.flatten() if isinstance(axes, np.ndarray) else axes
+        
         # Create plots
         for plot_idx, (phase, plot_type) in enumerate(plot_configs):
-            if plot_idx >= len(axes):
+            if plot_idx >= len(axes_flat):
                 break
                 
-            ax = axes[plot_idx] if isinstance(axes, np.ndarray) else axes
+            ax = axes_flat[plot_idx]
             
             # Filter data for this phase
             phase_data = cluster_data[cluster_data['phase'] == phase]
@@ -878,5 +902,5 @@ def generate_short_distance_report(df: pd.DataFrame, stats: Dict[str, Any],
         ""
     ])
     
-    write_text_file(report_file, '\n'.join(report_lines))
+    write_text_file(report_file, report_lines)
     logger.info(f"Short distance analysis report saved to: {report_file}")

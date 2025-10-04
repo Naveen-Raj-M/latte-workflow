@@ -1,0 +1,197 @@
+"""
+Velocity model spatial analysis module.
+
+This module handles spatial analysis of velocity differences including
+finding extreme profiles and depth slices.
+"""
+
+import numpy as np
+import pandas as pd
+import logging
+from typing import Dict, Any, Tuple
+
+logger = logging.getLogger(__name__)
+
+
+def find_extreme_velocity_profiles(df: pd.DataFrame, differences: Dict[str, np.ndarray],
+                                  config: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Find locations with extreme velocity differences.
+    
+    Args:
+        df: Velocity dataframe (either model)
+        differences: Differences dictionary
+        config: Configuration dictionary
+        
+    Returns:
+        Dictionary with extreme profile information
+    """
+    logger.debug("Finding extreme velocity difference profiles")
+    
+    total_diff = differences['total_diff']
+    
+    # Add total difference to dataframe for grouping
+    df_with_diff = df.copy()
+    df_with_diff['total_diff'] = total_diff
+    
+    # Group by X,Y coordinates to get vertical profiles
+    profile_stats = df_with_diff.groupby(['X_grid_km', 'Y_grid_km']).agg({
+        'total_diff': ['mean', 'max', 'sum', 'std'],
+        'Z_grid_km': ['min', 'max', 'count']
+    }).round(3)
+    
+    # Flatten column names
+    profile_stats.columns = ['_'.join(col).strip() for col in profile_stats.columns]
+    
+    # Find profiles with maximum and minimum average differences
+    max_profile_coords = profile_stats['total_diff_mean'].idxmax()
+    min_profile_coords = profile_stats[profile_stats['total_diff_mean'] > 1e-6]['total_diff_mean'].idxmin()
+    
+    # Get profile masks
+    max_profile_mask = ((df['X_grid_km'] == max_profile_coords[0]) & 
+                       (df['Y_grid_km'] == max_profile_coords[1]))
+    min_profile_mask = ((df['X_grid_km'] == min_profile_coords[0]) & 
+                       (df['Y_grid_km'] == min_profile_coords[1]))
+    
+    # Get profile data
+    max_profile_data = df[max_profile_mask].copy().sort_values('Z_grid_km')
+    min_profile_data = df[min_profile_mask].copy().sort_values('Z_grid_km')
+    
+    # Find depth slices with extreme differences
+    depth_diff_stats = df_with_diff.groupby('Z_grid_km')['total_diff'].mean()
+    max_diff_depth = depth_diff_stats.idxmax()
+    min_diff_depth = depth_diff_stats[depth_diff_stats > 1e-6].idxmin()
+    
+    logger.debug(f"Max difference profile at ({max_profile_coords[0]:.1f}, {max_profile_coords[1]:.1f}) km")
+    logger.debug(f"Min difference profile at ({min_profile_coords[0]:.1f}, {min_profile_coords[1]:.1f}) km")
+    logger.debug(f"Max difference depth: {max_diff_depth:.1f} km")
+    logger.debug(f"Min difference depth: {min_diff_depth:.1f} km")
+    
+    return {
+        'max_profile_coords': max_profile_coords,
+        'min_profile_coords': min_profile_coords,
+        'max_profile_mask': max_profile_mask,
+        'min_profile_mask': min_profile_mask,
+        'max_profile_data': max_profile_data,
+        'min_profile_data': min_profile_data,
+        'profile_stats': profile_stats,
+        'max_diff_depth': max_diff_depth,
+        'min_diff_depth': min_diff_depth,
+        'total_diff': total_diff
+    }
+
+
+def find_max_min_ratio_change_depths(df1: pd.DataFrame, df2: pd.DataFrame) -> Dict[str, Any]:
+    """
+    Find the depth slices with maximum and minimum average ratio changes.
+    
+    Args:
+        df1: First velocity model dataframe
+        df2: Second velocity model dataframe
+        
+    Returns:
+        Dictionary with depth information
+    """
+    logger.debug("Finding depths with maximum and minimum average ratio changes")
+    
+    # Get all unique depths
+    depths = sorted(df1['Z_grid_km'].unique())
+    
+    depth_avg_changes = []
+    
+    for depth in depths:
+        depth_data1 = df1[df1['Z_grid_km'] == depth]
+        depth_data2 = df2[df2['Z_grid_km'] == depth]
+        
+        if len(depth_data1) > 0 and len(depth_data2) > 0:
+            # Calculate ratios
+            vp_ratios = depth_data2['vp'].values / depth_data1['vp'].values
+            vs_ratios = depth_data2['vs'].values / depth_data1['vs'].values
+            
+            # Calculate average absolute deviation from 1.0 for the entire slice
+            vp_avg_change = np.mean(np.abs(vp_ratios - 1.0))
+            vs_avg_change = np.mean(np.abs(vs_ratios - 1.0))
+            
+            # Combined average change
+            combined_avg_change = (vp_avg_change + vs_avg_change) / 2.0
+            
+            depth_avg_changes.append({
+                'depth': depth,
+                'vp_avg_change': vp_avg_change,
+                'vs_avg_change': vs_avg_change,
+                'combined_avg_change': combined_avg_change
+            })
+    
+    # Sort by combined average change
+    depth_avg_changes.sort(key=lambda x: x['combined_avg_change'])
+    
+    # Get depths with minimum and maximum average changes
+    min_change_info = depth_avg_changes[0]
+    max_change_info = depth_avg_changes[-1]
+    
+    logger.debug(f"Depth with minimum average ratio change: {min_change_info['depth']:.1f} km")
+    logger.debug(f"Depth with maximum average ratio change: {max_change_info['depth']:.1f} km")
+    
+    return {
+        'max_change_depth': max_change_info['depth'],
+        'max_vp_avg_change': max_change_info['vp_avg_change'],
+        'max_vs_avg_change': max_change_info['vs_avg_change'],
+        'max_combined_avg_change': max_change_info['combined_avg_change'],
+        'min_change_depth': min_change_info['depth'],
+        'min_vp_avg_change': min_change_info['vp_avg_change'],
+        'min_vs_avg_change': min_change_info['vs_avg_change'],
+        'min_combined_avg_change': min_change_info['combined_avg_change']
+    }
+
+
+def get_depth_slice_data(df1: pd.DataFrame, df2: pd.DataFrame, 
+                        depth: float) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Extract data for a specific depth slice from both models.
+    
+    Args:
+        df1: First velocity model dataframe
+        df2: Second velocity model dataframe
+        depth: Depth value to extract
+        
+    Returns:
+        Tuple of (slice_data1, slice_data2)
+    """
+    slice_data1 = df1[df1['Z_grid_km'] == depth].copy()
+    slice_data2 = df2[df2['Z_grid_km'] == depth].copy()
+    
+    return slice_data1, slice_data2
+
+
+def compute_spatial_extent(df: pd.DataFrame) -> Dict[str, Tuple[float, float]]:
+    """
+    Compute spatial extent of the velocity model domain.
+    
+    Args:
+        df: Velocity dataframe
+        
+    Returns:
+        Dictionary with min/max for each dimension
+    """
+    return {
+        'x': (df['X_grid_km'].min(), df['X_grid_km'].max()),
+        'y': (df['Y_grid_km'].min(), df['Y_grid_km'].max()),
+        'z': (df['Z_grid_km'].min(), df['Z_grid_km'].max())
+    }
+
+
+def get_unique_coordinates(df: pd.DataFrame) -> Dict[str, np.ndarray]:
+    """
+    Get unique coordinate values from velocity model.
+    
+    Args:
+        df: Velocity dataframe
+        
+    Returns:
+        Dictionary with unique values for each coordinate
+    """
+    return {
+        'x': np.sort(df['X_grid_km'].unique()),
+        'y': np.sort(df['Y_grid_km'].unique()),
+        'z': np.sort(df['Z_grid_km'].unique())
+    }

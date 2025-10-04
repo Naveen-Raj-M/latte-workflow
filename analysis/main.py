@@ -15,10 +15,11 @@ from utils.logging_utils import setup_logging, ProcessTimer
 from utils.io_utils import ensure_directory_exists
 
 # Import analysis functions
-from .travel_time_analysis import analyze_travel_time_residuals
+from .traveltime_analysis import analyze_travel_time_residuals
 from .velocity_analysis import analyze_velocity_models
 from .distance_analysis import analyze_distance_dependent_residuals
 from .short_distance_analysis import analyze_short_distance_residuals
+from .source_analysis import analyze_source_corrections
 
 logger = logging.getLogger(__name__)
 
@@ -35,15 +36,10 @@ def run_travel_time_analysis(cfg: DictConfig) -> None:
     
     with ProcessTimer("Travel time analysis"):
         try:
-            # Ensure output directory exists
             ensure_directory_exists(cfg.travel_time_analysis.output_dir)
-            
-            # Run analysis
             results = analyze_travel_time_residuals(OmegaConf.to_container(cfg, resolve=True))
-            
             logger.info("Travel time analysis completed successfully")
             logger.info(f"Results saved to: {cfg.travel_time_analysis.output_dir}")
-            
         except Exception as e:
             logger.error(f"Travel time analysis failed: {e}")
             raise
@@ -61,15 +57,10 @@ def run_velocity_analysis(cfg: DictConfig) -> None:
     
     with ProcessTimer("Velocity analysis"):
         try:
-            # Ensure output directory exists
             ensure_directory_exists(cfg.velocity_analysis.output_dir)
-            
-            # Run analysis
             results = analyze_velocity_models(OmegaConf.to_container(cfg, resolve=True))
-            
             logger.info("Velocity analysis completed successfully")
             logger.info(f"Results saved to: {cfg.velocity_analysis.output_dir}")
-            
         except Exception as e:
             logger.error(f"Velocity analysis failed: {e}")
             raise
@@ -87,15 +78,10 @@ def run_distance_analysis(cfg: DictConfig) -> None:
     
     with ProcessTimer("Distance analysis"):
         try:
-            # Ensure output directory exists
             ensure_directory_exists(cfg.distance_analysis.output_dir)
-            
-            # Run analysis
             results = analyze_distance_dependent_residuals(OmegaConf.to_container(cfg, resolve=True))
-            
             logger.info("Distance analysis completed successfully")
             logger.info(f"Results saved to: {cfg.distance_analysis.output_dir}")
-            
         except Exception as e:
             logger.error(f"Distance analysis failed: {e}")
             raise
@@ -113,17 +99,33 @@ def run_short_distance_analysis(cfg: DictConfig) -> None:
     
     with ProcessTimer("Short distance analysis"):
         try:
-            # Ensure output directory exists
             ensure_directory_exists(cfg.short_distance_analysis.output_dir)
-            
-            # Run analysis
             results = analyze_short_distance_residuals(OmegaConf.to_container(cfg, resolve=True))
-            
             logger.info("Short distance analysis completed successfully")
             logger.info(f"Results saved to: {cfg.short_distance_analysis.output_dir}")
-            
         except Exception as e:
             logger.error(f"Short distance analysis failed: {e}")
+            raise
+
+
+def run_source_analysis(cfg: DictConfig) -> None:
+    """Run source correction analysis."""
+    if not cfg.source_analysis.enabled:
+        logger.info("Source correction analysis disabled, skipping")
+        return
+    
+    logger.info("=" * 60)
+    logger.info("STARTING SOURCE CORRECTION ANALYSIS")
+    logger.info("=" * 60)
+    
+    with ProcessTimer("Source correction analysis"):
+        try:
+            ensure_directory_exists(cfg.source_analysis.output_dir)
+            results = analyze_source_corrections(OmegaConf.to_container(cfg, resolve=True))
+            logger.info("Source correction analysis completed successfully")
+            logger.info(f"Results saved to: {cfg.source_analysis.output_dir}")
+        except Exception as e:
+            logger.error(f"Source correction analysis failed: {e}")
             raise
 
 
@@ -140,6 +142,7 @@ def run_single_function(cfg: DictConfig, function_name: str) -> None:
         'velocity_analysis': run_velocity_analysis,
         'distance_analysis': run_distance_analysis,
         'short_distance_analysis': run_short_distance_analysis,
+        'source_analysis': run_source_analysis,
     }
     
     if function_name not in function_map:
@@ -161,14 +164,13 @@ def run_analysis_pipeline(cfg: DictConfig) -> None:
     logger.info("Starting LATTE analysis pipeline")
     logger.info(f"Configuration mode: {cfg.get('mode', 'full_pipeline')}")
     
-    # Track overall timing
     with ProcessTimer("Complete analysis pipeline"):
-        # Run each analysis module in sequence
         analyses = [
             ('Travel Time Analysis', run_travel_time_analysis),
             ('Velocity Analysis', run_velocity_analysis),
             ('Distance Analysis', run_distance_analysis),
             ('Short Distance Analysis', run_short_distance_analysis),
+            ('Source Correction Analysis', run_source_analysis),
         ]
         
         completed_analyses = []
@@ -182,7 +184,6 @@ def run_analysis_pipeline(cfg: DictConfig) -> None:
                 logger.error(f"{analysis_name} failed: {e}")
                 failed_analyses.append((analysis_name, str(e)))
                 
-                # Continue with other analyses unless configured to stop on error
                 if cfg.get('strict_mode', False):
                     logger.error("Strict mode enabled, stopping pipeline")
                     break
@@ -230,6 +231,8 @@ def validate_configuration(cfg: DictConfig) -> None:
         enabled_analyses.append('distance_analysis')
     if cfg.short_distance_analysis.get('enabled', False):
         enabled_analyses.append('short_distance_analysis')
+    if cfg.source_analysis.get('enabled', False):
+        enabled_analyses.append('source_analysis')
     
     if not enabled_analyses:
         logger.error("No analysis modules are enabled!")
@@ -281,6 +284,12 @@ def validate_configuration(cfg: DictConfig) -> None:
                 if file_path and not Path(file_path).exists():
                     missing_files.append(f"{description}: {file_path}")
         
+        # Check source correction analysis files
+        if cfg.source_analysis.get('enabled', False):
+            source_csv = cfg.source_analysis.get('input_csv')
+            if source_csv and not Path(source_csv).exists():
+                missing_files.append(f"Source correction CSV: {source_csv}")
+        
         if missing_files:
             logger.error("Missing input files:")
             for missing_file in missing_files:
@@ -294,7 +303,7 @@ def validate_configuration(cfg: DictConfig) -> None:
     logger.info("Configuration validation completed")
 
 
-@hydra.main(version_base=None, config_path="../configs", config_name="analysis/config")
+@hydra.main(version_base=None, config_path="../configs/analysis", config_name="config")
 def main(cfg: DictConfig) -> None:
     """
     Main entry point for analysis with Hydra.
@@ -317,10 +326,8 @@ def main(cfg: DictConfig) -> None:
     # Check if we should run a single function
     single_function = cfg.get('single_function', None)
     if single_function:
-        # Run single function
         run_single_function(cfg, single_function)
     else:
-        # Run full pipeline
         run_analysis_pipeline(cfg)
 
 

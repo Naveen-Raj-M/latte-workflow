@@ -69,36 +69,34 @@ travel_time_analysis:
 velocity_analysis:
   enabled: true
   
-  # Input/Output
-  model1_csv: null  # Initial model CSV
-  model2_csv: null  # Final/comparison model CSV
-  output_dir: null
+  # Input files
+  model1_csv: "data/processed/velocity_cartesian.csv"
+  model2_csv: "data/processed/velocity_cartesian_updated.csv"
+  output_dir: "results/analysis/velocity_comparison"
   
-  # Comparison modes: "initial_vs_final", "method_comparison", "custom"
+  # Comparison mode: "initial_vs_final", "method_comparison", or "custom"
   comparison_mode: "initial_vs_final"
+  
+  # Model names (used when comparison_mode is not "initial_vs_final" or "method_comparison")
   model1_name: "Initial Model"
   model2_name: "Final Model"
   
-  # Custom titles (used when comparison_mode = "custom")
+  # Custom titles (only used when comparison_mode = "custom")
   custom_title1: "Model A"
   custom_title2: "Model B"
   
-  # Analysis options
+  # Analysis features
   compute_log_ratios: true
   compute_geometric_mean_ratios: true
   enable_spatial_projections: true
   enable_profile_analysis: true
   enable_slice_analysis: true
   
-  # Spatial analysis
-  interpolation_method: "cubic"  # linear, cubic, nearest
+  # Spatial analysis settings
+  interpolation_method: "cubic"  # Options: linear, cubic, nearest
   grid_resolution: 100
   
-  # Statistical thresholds
-  difference_threshold: 1e-6
-  ratio_threshold: 1e-6
-  
-  # Plotting options
+  # Plotting settings
   contour_levels: 20
   velocity_colormap: "viridis"
   difference_colormap: "RdBu_r"
@@ -182,6 +180,43 @@ short_distance_analysis:
       y_max: 220.0
       description: "Northwestern region"
 
+# Source correction analysis configuration
+source_analysis:
+  enabled: true  # Set to true to enable
+  
+  # Input/Output
+  input_csv: null  # CSV with before/after correction columns
+  output_dir: "results/analysis/source_corrections"
+  
+  # Column names in input CSV
+  # Before correction columns:
+  #   - event_x_transformed
+  #   - event_y_transformed
+  #   - event_z_transformed
+  #   - origin_time_s
+  # After correction columns:
+  #   - corrected_event_x_transformed
+  #   - corrected_event_y_transformed
+  #   - corrected_event_z_transformed
+  #   - corrected_origin_time_s
+  
+  # Analysis options
+  use_log_scale: false  # Set to true for log scale plots
+  enable_depth_analysis: true
+  zero_initial_origin_time: true
+  
+  # Depth binning
+  depth_bins: 10
+  min_events_per_bin: 5
+  
+  # Plotting options
+  histogram_bins: 50
+  max_arrows_map: 5000  # Maximum arrows to draw on geographic map
+  
+  # Output options
+  generate_summary_report: true
+  save_corrected_data: true  # Save CSV with computed deltas
+
 # File paths and naming
 paths:
   # Base directories
@@ -193,6 +228,7 @@ paths:
   velocity_csv_pattern: "velocity_cartesian*.csv"
   station_csv_name: "stations_cartesian.csv"
   events_csv_name: "events_cartesian*.csv"
+  source_csv_pattern: "source_corrections*.csv"
   
   # Output subdirectories
   plots_subdir: "plots"
