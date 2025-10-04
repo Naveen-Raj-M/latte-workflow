@@ -5,6 +5,7 @@ velocity model comparisons, distance-dependent analysis, and source corrections.
 """
 
 __version__ = "1.0.0"
+__author__ = "Naveen Raj Manoharan"
 
 __all__ = [
     # Travel time analysis
