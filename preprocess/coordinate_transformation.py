@@ -26,7 +26,7 @@ ECEF_CRS = "EPSG:4978"
 
 
 # ============================================================================
-# I/O Functions (preserved from your original scripts)
+# I/O Functions
 # ============================================================================
 
 def load_station_data(file_path: str) -> pd.DataFrame:
@@ -180,7 +180,7 @@ def load_final_velocity_data(file_path: str) -> pd.DataFrame:
 
 
 # ============================================================================
-# Exact Transformation Functions (your spherical_to_cartesian_exact.py)
+# Exact Transformation Functions
 # ============================================================================
 
 def _convert_to_ecef(df: pd.DataFrame) -> pd.DataFrame:
@@ -286,7 +286,7 @@ def exact_geodetic_to_local_cartesian(
 
 
 # ============================================================================
-# Flattening Transformation Functions (your spherical_to_cartesian_flattening.py)
+# Flattening Transformation Functions
 # ============================================================================
 
 def simple_flattening_conversion(df: pd.DataFrame, origin_lon: float, origin_lat: float, origin_depth: float) -> pd.DataFrame:
