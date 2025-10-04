@@ -41,8 +41,11 @@ python -m preprocess.main
 # Run post-processing pipeline
 python -m postprocess.main
 
+# Run analysis pipeline
+python -m analysis.main
+
 # Override configuration parameters
-python -m postprocess.main velocity_processing.enabled=false
+python -m analysis.main analysis.output_format=pdf
 ```
 
 ## Toolkit Components
@@ -56,6 +59,12 @@ Complete data preparation pipeline for tomographic inversion:
 - **Geometry & Travel Time Processing** - Parse phase picks, validate data quality, and create LATTE-compatible files
 - **Binary File Generation** - Convert velocity models to Fortran-compatible binary format
 - **Visualization** - Generate quality control plots and animations
+
+**Key Features:**
+- Multiple coordinate transformation methods
+- Automated velocity model generation
+- Quality control filtering
+- LATTE-compatible binary outputs
 
 For detailed preprocessing documentation, see [Preprocessing Guide](docs/preprocess.md).
 
@@ -74,43 +83,38 @@ Converts LATTE tomography binary outputs to analysis-ready CSV format:
 - Automatic residual calculation (observed - synthetic)
 - Support for source correction and location updates
 - Comprehensive metadata preservation
-- Hydra-based configuration with command-line overrides
 
 For detailed post-processing documentation, see [Post-Processing Guide](docs/postprocess.md).
 
-## Configuration System
+### Analysis Module
 
-Uses [Hydra](https://hydra.cc/) for flexible YAML-based configuration:
+Comprehensive analysis and visualization of tomographic inversion results:
 
-```yaml
-# Post-processing example configuration
-velocity_processing:
-  enabled: true
-  original_velocity_csv: "/path/to/velocity_cartesian_final.csv"
-  vp_binary: "${data.base_dir}/model/updated_vp.bin"
-  vs_binary: "${data.base_dir}/model/updated_vs.bin"
-  velocity_output_csv: "${data.analysis_output_dir}/velocity_cartesian_latte_output.csv"
-  use_chapman_inverse: false
+- **Travel Time Analysis** - Residual statistics, phase comparisons, and logarithmic ratio analysis
+- **Velocity Model Comparison** - Spatial projections, profile analysis, and statistical comparisons
+- **Distance-Dependent Analysis** - Correlation studies and binned statistics by source-receiver distance
+- **Short Distance Analysis** - Focused analysis with spatial clustering and travel path visualization
+- **Source Correction Analysis** - Hypocenter relocation evaluation and correction magnitude assessment
 
-travel_time_processing:
-  enabled: true
-  ground_truth_csv: "/path/to/ground_truth_travel_times_corrected.csv"
-  synthetic_tt_dir: "${data.base_dir}/synthetic_traveltimes"
-  synthetic_tt_output_csv: "${data.analysis_output_dir}/synthetic_travel_times_latte_output.csv"
-  source_receiver_exchange: false
-  source_correction: false
-```
+**Key Features:**
+- Professional publication-quality visualizations
+- Comprehensive statistical reporting
+- Modular analysis with flexible configuration
+- Multi-scale spatial analysis
+- Automated quality metrics
+
+For detailed analysis documentation, see [Analysis Guide](docs/analysis.md).
 
 ## Complete Workflow
 
 ```
-1. Preprocessing          2. LATTE Inversion       3. Post-Processing
-   ↓                         ↓                        ↓
-Input Data              Binary Outputs           Analysis-Ready CSVs
-├─ stacoords.txt        ├─ updated_vp.bin        ├─ velocity_cartesian_latte_output.csv
-├─ phasePickings.txt    ├─ updated_vs.bin        ├─ synthetic_travel_times_latte_output.csv
-├─ vmodel-PB1D.txt      ├─ updated_sx.bin        └─ [Optional source corrections]
-└─ vmodel-PB3D.txt      ├─ updated_sy.bin
+1. Preprocessing          2. LATTE Inversion       3. Post-Processing        4. Analysis
+   ↓                         ↓                        ↓                         ↓
+Input Data              Binary Outputs           Analysis-Ready CSVs       Results & Plots
+├─ stacoords.txt        ├─ updated_vp.bin        ├─ velocity_cartesian     ├─ Residual plots
+├─ phasePickings.txt    ├─ updated_vs.bin        ├─ synthetic_travel_times ├─ Velocity comparisons
+├─ vmodel-PB1D.txt      ├─ updated_sx.bin        └─ [Optional corrections] ├─ Statistical reports
+└─ vmodel-PB3D.txt      ├─ updated_sy.bin                                  └─ Quality metrics
                         ├─ updated_sz.bin
                         ├─ updated_st0.bin
                         └─ synthetic_traveltimes/
@@ -132,88 +136,118 @@ latte_toolkit/
 │   ├── postprocess_velocity.py
 │   ├── postprocess_traveltime.py
 │   └── postprocess_source.py
+├── analysis/                # Analysis pipeline
+│   ├── main.py
+│   ├── traveltime_analysis.py
+│   ├── velocity_analysis.py
+│   ├── distance_analysis.py
+│   ├── short_distance_analysis.py
+│   └── source_analysis.py
 ├── utils/                   # Shared utilities
 │   ├── io_utils.py
-│   └── logging_utils.py
+│   ├── logging_utils.py
+│   └── plot_utils.py
 ├── configs/                 # Configuration files
 │   ├── preprocess/
 │   │   └── default.yaml
-│   └── postprocess/
+│   ├── postprocess/
+│   │   └── default.yaml
+│   └── analysis/
 │       └── default.yaml
 └── docs/                    # Documentation
     ├── preprocess.md
-    └── postprocess.md
+    ├── postprocess.md
+    └── analysis.md
 ```
 
-## Post-Processing Quick Examples
+## Analysis Quick Examples
 
 ### Standard Workflow
 
 ```bash
-# 1. Configure paths in configs/postprocess/default.yaml
-# 2. Run post-processing
-python -m postprocess.main
+# 1. Configure paths in configs/analysis/default.yaml
+# 2. Run complete analysis
+python -m analysis.main
 
 # 3. Check outputs
-ls outputs/analysis/
+ls results/analysis/
 ```
 
-### Enable Source Correction
+### Run Single Analysis Module
 
 ```bash
-python -m postprocess.main \
-  travel_time_processing.source_correction=true
+# Travel time analysis only
+python -m analysis.main single_function=travel_time_analysis
+
+# Velocity comparison only
+python -m analysis.main single_function=velocity_analysis
+
+# Distance analysis only
+python -m analysis.main single_function=distance_analysis
 ```
 
-### Use Source-Receiver Exchange
+### Customize Output Quality
 
 ```bash
-python -m postprocess.main \
-  travel_time_processing.source_receiver_exchange=true
+# High-resolution PDF output
+python -m analysis.main analysis.output_format=pdf analysis.dpi=600
+
+# Publication quality with custom styling
+python -m analysis.main \
+  analysis.output_format=pdf \
+  analysis.dpi=600 \
+  analysis.plot_style.font_size=16
 ```
 
-### Enable Chapman Transformation
+### Enable/Disable Specific Features
 
 ```bash
-python -m postprocess.main \
-  velocity_processing.use_chapman_inverse=true
-```
+# Enable all velocity analysis features
+python -m analysis.main \
+  velocity_analysis.enable_spatial_projections=true \
+  velocity_analysis.compute_geometric_mean_ratios=true
 
-### Process Only Velocity Data
-
-```bash
-python -m postprocess.main \
-  travel_time_processing.enabled=false \
-  source_processing.enabled=false
+# Disable log-scale plots
+python -m analysis.main \
+  travel_time_analysis.enable_log_log_plots=false
 ```
 
 ## Output Files
 
-### Velocity CSV
-Contains updated velocity models with preserved coordinate systems and grid structure. Includes Vp, Vs values in km/s with optional Chapman inverse transformation.
+### Preprocessing Outputs
+Binary files and CSV datasets ready for LATTE inversion with complete coordinate mappings and quality control plots.
 
-### Travel Time CSV
-Comprehensive dataset combining observed and synthetic travel times with complete metadata including event/station coordinates, residuals, and weights.
+### Post-Processing Outputs
+Analysis-ready CSV files containing updated velocity models, synthetic travel times with residuals, and optional source corrections.
 
-### Source Updates CSV (Optional)
-Enhanced travel time CSV with corrected source locations (x, y, z) and origin times when source parameter inversion is enabled.
+### Analysis Outputs
+- **Plots**: Publication-quality visualizations (PNG, PDF, SVG)
+- **Reports**: Comprehensive statistical summaries in text format
+- **Statistics**: Detailed metrics for quality assessment
+
+## Documentation
+
+- **[Preprocessing Guide](docs/preprocess.md)** - Detailed preprocessing documentation
+- **[Post-Processing Guide](docs/postprocess.md)** - Detailed post-processing documentation
+- **[Analysis Guide](docs/analysis.md)** - Detailed analysis documentation
+- **Configuration Examples** - See `configs/` directory
+- **API Reference** - See docstrings in source files
 
 ## Troubleshooting
 
 **Module Import Errors:**
-Run from the parent directory: `python -m preprocess.main`
+Run from the parent directory: `python -m analysis.main`
 
-**Missing pyproj:**
-Install for exact transformations: `pip install pyproj`
+**Missing Dependencies:**
+Install required packages: `pip install -r requirements.txt`
 
 **Configuration Not Found:**
-Verify file is at `configs/preprocess/default.yaml`
+Verify file is at `configs/analysis/default.yaml`
 
-**Grid Dimension Warnings:**
-The toolkit auto-detects dimensions from your data
+**Memory Issues:**
+Reduce plot resolution: `analysis.plot_style.max_plot_points=20000`
 
-For detailed troubleshooting, see the [preprocessing guide](docs/preprocess.md).
-
+For detailed troubleshooting, see the respective module documentation.
 
 ## Compatibility
 
