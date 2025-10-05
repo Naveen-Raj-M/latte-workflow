@@ -30,7 +30,7 @@ def create_velocity_gradient_plots(df: pd.DataFrame,
         stats: Statistics dictionary
         config: Configuration dictionary
     """
-    output_dir = Path(config['gradient_analysis']['output_dir'])
+    output_dir = Path(config['gradient_analysis']['velocity_output_dir'])
     plots_dir = output_dir / 'plots'
     plots_dir.mkdir(parents=True, exist_ok=True)
     
@@ -80,7 +80,7 @@ def create_source_gradient_plots(df: pd.DataFrame,
         stats: Statistics dictionary
         config: Configuration dictionary
     """
-    output_dir = Path(config['gradient_analysis']['output_dir'])
+    output_dir = Path(config['gradient_analysis']['source_output_dir'])
     plots_dir = output_dir / 'plots'
     plots_dir.mkdir(parents=True, exist_ok=True)
     

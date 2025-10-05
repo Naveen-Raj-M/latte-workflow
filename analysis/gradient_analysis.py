@@ -41,9 +41,9 @@ def analyze_gradients_and_search(config: Dict[str, Any]) -> Dict[str, Any]:
     # Determine analysis type (velocity or source)
     analysis_type = config['gradient_analysis'].get('analysis_type', 'velocity')
     
-    if analysis_type == 'velocity':
+    if 'velocity' in analysis_type:
         return analyze_velocity_gradients(config)
-    elif analysis_type == 'source':
+    if 'source' in analysis_type:
         return analyze_source_gradients(config)
     else:
         logger.error(f"Unknown analysis type: {analysis_type}")
@@ -62,8 +62,8 @@ def analyze_velocity_gradients(config: Dict[str, Any]) -> Dict[str, Any]:
     """
     logger.info("Analyzing velocity gradients and search directions")
     
-    input_csv = config['gradient_analysis']['input_csv']
-    output_dir = Path(config['gradient_analysis']['output_dir'])
+    input_csv = config['gradient_analysis']['velocity_input_csv']
+    output_dir = Path(config['gradient_analysis']['velocity_output_dir'])
     
     logger.info(f"Loading velocity data from: {input_csv}")
     df = read_csv_file(input_csv)
@@ -109,8 +109,8 @@ def analyze_source_gradients(config: Dict[str, Any]) -> Dict[str, Any]:
     """
     logger.info("Analyzing source parameter gradients and search directions")
     
-    input_csv = config['gradient_analysis']['input_csv']
-    output_dir = Path(config['gradient_analysis']['output_dir'])
+    input_csv = config['gradient_analysis']['source_input_csv']
+    output_dir = Path(config['gradient_analysis']['source_output_dir'])
     
     logger.info(f"Loading source data from: {input_csv}")
     df = read_csv_file(input_csv)

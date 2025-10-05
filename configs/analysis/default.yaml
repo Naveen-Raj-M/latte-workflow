@@ -41,11 +41,13 @@ gradient_analysis:
   enabled: false  # Set to true to enable gradient analysis
   
   # Analysis type: "velocity" or "source"
-  analysis_type: "velocity"  # or "source"
+  analysis_type: ["velocity", "source"]
   
   # Input/Output
-  input_csv: null  # CSV file with gradient and/or search direction columns
-  output_dir: "results/analysis/gradient_analysis"
+  velocity_input_csv: /path/to/postprocessed/velocity/csv  # CSV file with gradient and/or search direction columns
+  velocity_output_dir: "/path/to/velocity_gradient_analysis"
+  source_input_csv: /path/to/postprocessed/source/csv  # CSV file with gradient and/or search direction columns
+  source_output_dir: "/path/to/source_gradient_analysis"
   
   # Analysis options
   histogram_bins: 50

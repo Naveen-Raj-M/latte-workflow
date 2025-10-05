@@ -30,7 +30,7 @@ def generate_velocity_gradient_report(df: pd.DataFrame,
         stats: Statistics dictionary
         config: Configuration dictionary
     """
-    output_dir = Path(config['gradient_analysis']['output_dir'])
+    output_dir = Path(config['gradient_analysis']['velocity_output_dir'])
     reports_dir = output_dir / 'reports'
     ensure_directory_exists(reports_dir)
     
@@ -87,7 +87,7 @@ def generate_source_gradient_report(df: pd.DataFrame,
         stats: Statistics dictionary
         config: Configuration dictionary
     """
-    output_dir = Path(config['gradient_analysis']['output_dir'])
+    output_dir = Path(config['gradient_analysis']['source_output_dir'])
     reports_dir = output_dir / 'reports'
     ensure_directory_exists(reports_dir)
     

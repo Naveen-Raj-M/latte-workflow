@@ -142,7 +142,8 @@ def run_gradient_analysis(cfg: DictConfig) -> None:
     
     with ProcessTimer("Gradient analysis"):
         try:
-            ensure_directory_exists(cfg.gradient_analysis.output_dir)
+            ensure_directory_exists(cfg.gradient_analysis.velocity_output_dir)
+            ensure_directory_exists(cfg.gradient_analysis.source_output_dir)
             results = analyze_gradients_and_search(OmegaConf.to_container(cfg, resolve=True))
             logger.info("Gradient analysis completed successfully")
             logger.info(f"Results saved to: {cfg.gradient_analysis.output_dir}")
@@ -318,9 +319,18 @@ def validate_configuration(cfg: DictConfig) -> None:
         
         # Check gradient analysis files
         if cfg.gradient_analysis.get('enabled', False):
-            gradient_csv = cfg.gradient_analysis.get('input_csv')
-            if gradient_csv and not Path(gradient_csv).exists():
-                missing_files.append(f"Gradient analysis CSV: {gradient_csv}")
+            if "velocity" in cfg.gradient_analysis.get('analysis_type', []):
+                velocity_gradient_csv = cfg.gradient_analysis.get('velocity_input_csv')
+                if velocity_gradient_csv and not Path(velocity_gradient_csv).exists():
+                    missing_files.append(f"Gradient analysis CSV: {velocity_gradient_csv}")
+            
+            if "source" in cfg.gradient_analysis.get('analysis_type', []):
+                source_gradient_csv = cfg.gradient_analysis.get('source_ input_csv')
+                if source_gradient_csv and not Path(source_gradient_csv).exists():
+                    missing_files.append(f"Gradient analysis CSV: {source_gradient_csv}")
+            
+            else:
+                logger.error(f"Unknown analysis type: {cfg.gradient.analysis.get('analysis_type', [])}")
         
         if missing_files:
             logger.error("Missing input files:")
