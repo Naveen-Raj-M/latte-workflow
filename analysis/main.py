@@ -146,7 +146,8 @@ def run_gradient_analysis(cfg: DictConfig) -> None:
             ensure_directory_exists(cfg.gradient_analysis.source_output_dir)
             results = analyze_gradients_and_search(OmegaConf.to_container(cfg, resolve=True))
             logger.info("Gradient analysis completed successfully")
-            logger.info(f"Results saved to: {cfg.gradient_analysis.output_dir}")
+            logger.info(f"Velocity Gradient Results saved to: {cfg.gradient_analysis.velocity_output_dir}")
+            logger.info(f"Source Gradient Results saved to: {cfg.gradient_analysis.source_output_dir}")
         except Exception as e:
             logger.error(f"Gradient analysis failed: {e}")
             raise

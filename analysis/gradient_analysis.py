@@ -29,25 +29,43 @@ def analyze_gradients_and_search(config: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         Dictionary containing analysis results
     """
-    if not config.get('gradient_analysis', {}).get('enabled', False):
-        logger.info("Gradient and search direction analysis is disabled")
+    gradient_cfg = config.get('gradient_analysis', {})
+    if not gradient_cfg.get('enabled', False):
+        logger.info("Gradient and search direction analysis is disabled.")
         return {}
     
-    logger.info("Starting gradient and search direction analysis")
+    logger.info("Starting gradient and search direction analysis.")
     
     # Setup plot style
-    setup_plot_style(config['analysis'])
+    setup_plot_style(config.get('analysis', {}))
     
-    # Determine analysis type (velocity or source)
-    analysis_type = config['gradient_analysis'].get('analysis_type', 'velocity')
+    # Determine analysis type(s)
+    analysis_type = gradient_cfg.get('analysis_type', ['velocity'])
+    if isinstance(analysis_type, str):
+        analysis_type = [analysis_type.lower()]
+    else:
+        analysis_type = [t.lower() for t in analysis_type]
+    
+    logger.info(f"Analysis types: {analysis_type}")
+    
+    results = {}
     
     if 'velocity' in analysis_type:
-        return analyze_velocity_gradients(config)
+        logger.info("Running velocity gradient analysis...")
+        results['velocity'] = analyze_velocity_gradients(config)
+    
     if 'source' in analysis_type:
-        return analyze_source_gradients(config)
-    else:
-        logger.error(f"Unknown analysis type: {analysis_type}")
-        return {}
+        logger.info("Running source gradient analysis...")
+        results['source'] = analyze_source_gradients(config)
+    
+    # Handle unknown types gracefully
+    known_types = {'velocity', 'source'}
+    unknown_types = set(analysis_type) - known_types
+    if unknown_types:
+        logger.warning(f"Unknown analysis types ignored: {unknown_types}")
+    
+    return results
+
 
 
 def analyze_velocity_gradients(config: Dict[str, Any]) -> Dict[str, Any]:
