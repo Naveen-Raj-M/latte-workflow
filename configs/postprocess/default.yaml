@@ -21,8 +21,28 @@ velocity_processing:
   vp_binary: "${data.base_dir}/model/updated_vp.bin"
   vs_binary: "${data.base_dir}/model/updated_vs.bin"
 
-  # Grid dimensions (nx, ny, nz)
-  grid_dimensions: [401, 361, 43]
+  # Fine grid parameters (from LATTE binary files)
+  fine_grid:
+    nx: 401
+    ny: 361
+    nz: 43
+    dx: 0.5      # km
+    dy: 0.5      # km
+    dz: 0.5      # km
+    origin_x: 0.0  # km
+    origin_y: 0.0  # km
+    origin_z: 0.0  # km
+  
+  # Optional: Coarse grid dimensions (auto-detected from CSV if not provided)
+  # coarse_grid:
+  #   nx: 41
+  #   ny: 37
+  #   nz: 43
+  
+  # Processing mode:
+  #   "sample_at_coarse" - Sample fine grid at coarse points (output = coarse size)
+  #   "expand_to_fine"   - Expand to full fine grid (output = fine size)
+  interpolation_mode: "sample_at_coarse"
   
   # Output file
   velocity_output_csv: "${data.analysis_output_dir}/velocity_cartesian_latte_output.csv"
