@@ -38,40 +38,12 @@ def postprocess_latte_outputs(config: DictConfig) -> None:
     
     if hasattr(config, "source_processing") and config.source_processing.enabled:
         ensure_directory_exists(os.path.dirname(config.source_processing.output_csv))
-
-    grid_dimensions = config.velocity_processing.get('grid_dimensions', None)
     
     # Process velocity binaries
     if config.velocity_processing.enabled:
         print(f"\nVelocity processing: ENABLED")
         try:
-            # Base configuration
-            velocity_config_dict = {
-                'original_velocity_csv': config.velocity_processing.original_velocity_csv,
-                'vp_binary': config.velocity_processing.vp_binary,
-                'vs_binary': config.velocity_processing.vs_binary,
-                "grid_dimensions": grid_dimensions,
-                'velocity_output_csv': config.velocity_processing.velocity_output_csv,
-                'use_chapman_inverse': config.velocity_processing.use_chapman_inverse,
-                'earth_radius_km': config.velocity_processing.earth_radius_km
-            }
-            
-            # Add optional gradient/search configuration
-            if hasattr(config.velocity_processing, 'parameters_to_process'):
-                velocity_config_dict['parameters_to_process'] = config.velocity_processing.parameters_to_process
-                
-                # Add gradient files if specified
-                for param in ['vp', 'vs']:
-                    grad_key = f'grad_{param}_binary'
-                    if hasattr(config.velocity_processing, grad_key):
-                        velocity_config_dict[grad_key] = getattr(config.velocity_processing, grad_key)
-                    
-                    srch_key = f'srch_{param}_binary'
-                    if hasattr(config.velocity_processing, srch_key):
-                        velocity_config_dict[srch_key] = getattr(config.velocity_processing, srch_key)
-            
-            velocity_config = OmegaConf.create(velocity_config_dict)
-            create_velocity_csv_from_binaries(velocity_config)
+            create_velocity_csv_from_binaries(config.velocity_processing)
         except Exception as e:
             print(f"Error in velocity processing: {e}")
             if config.strict_mode:
