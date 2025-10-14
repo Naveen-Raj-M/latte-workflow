@@ -3,7 +3,7 @@
 
 analysis:
   # Global settings
-  log_level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  log_level: "DEBUG"  # DEBUG, INFO, WARNING, ERROR
   output_format: "png"  # png, pdf, svg
   dpi: 300
   save_intermediate_results: true
@@ -21,6 +21,7 @@ analysis:
     marker_size: 4
     alpha: 0.7
     grid_alpha: 0.3
+    max_plot_points: 100000  # Subsample if more points
     
     # Color schemes
     colors:
@@ -67,9 +68,19 @@ gradient_analysis:
 travel_time_analysis:
   enabled: true
   
+  # Comparison mode: "ground_truth" or "method_comparison"
+  comparison_mode: "ground_truth"
+  
   # Input/Output
+  # For ground_truth mode:
   input_csv: null  # Will be set by config.yaml
   output_dir: null # Will be set by config.yaml
+  
+  # For method_comparison mode:
+  method1_csv: null  # Path to first method's travel time CSV
+  method2_csv: null  # Path to second method's travel time CSV
+  method1_name: "Method 1"  # Custom name for first method
+  method2_name: "Method 2"  # Custom name for second method
   
   # Analysis options
   enable_log_log_plots: true
@@ -85,7 +96,6 @@ travel_time_analysis:
   histogram_bins: 50
   scatter_alpha: 0.6
   scatter_size: 15
-  max_plot_points: 50000  # Subsample if more points
   
   # Report generation
   generate_summary_report: true
@@ -133,14 +143,27 @@ velocity_analysis:
 distance_analysis:
   enabled: true
   
+  # Comparison mode: "ground_truth" or "method_comparison"
+  comparison_mode: "ground_truth"
+  
   # Input/Output
+  # For ground_truth mode:
   travel_time_csv: null
   station_csv: null
   events_csv: null
   output_dir: null
   
+  # For method_comparison mode:
+  method1_csv: null  # Path to first method's travel time CSV
+  method2_csv: null  # Path to second method's travel time CSV
+  method1_name: "Method 1"  # Custom name for first method
+  method2_name: "Method 2"  # Custom name for second method
+  
   # Coordinate system: "transformed" or "original"
   coordinate_type: "transformed"
+  
+  # Distance calculation types: ["hypocentral", "epicentral"] or ["hypocentral"] or ["epicentral"]
+  distance_types: ["hypocentral"]  # Options: hypocentral (3D), epicentral (2D horizontal only)
   
   # Analysis options
   enable_ratio_analysis: true
@@ -161,15 +184,28 @@ distance_analysis:
 short_distance_analysis:
   enabled: true
   
-  # Input/Output  
+  # Comparison mode: "ground_truth" or "method_comparison"
+  comparison_mode: "ground_truth"
+  
+  # Input/Output
+  # For ground_truth mode:
   travel_time_csv: null
   station_csv: null
   events_csv: null
   output_dir: null
   
+  # For method_comparison mode:
+  method1_csv: null  # Path to first method's travel time CSV
+  method2_csv: null  # Path to second method's travel time CSV
+  method1_name: "Method 1"  # Custom name for first method
+  method2_name: "Method 2"  # Custom name for second method
+  
   # Distance cutoff
   distance_cutoff_km: 20.0
   coordinate_type: "transformed"  # "transformed" or "original"
+  
+  # Distance calculation types: ["hypocentral", "epicentral"] or ["hypocentral"] or ["epicentral"]
+  distance_types: ["hypocentral"]  # Options: hypocentral (3D), epicentral (2D horizontal only)
   
   # Filtering options
   phase_filter: null  # null for both P and S, or "P" or "S"
@@ -209,13 +245,23 @@ short_distance_analysis:
 
 # Source correction analysis configuration
 source_analysis:
-  enabled: true  # Set to true to enable
+  enabled: false  # Set to true to enable
+  
+  # Comparison mode: "ground_truth" or "method_comparison"
+  comparison_mode: "ground_truth"
   
   # Input/Output
+  # For ground_truth mode:
   input_csv: null  # CSV with before/after correction columns
   output_dir: "results/analysis/source_corrections"
   
-  # Column names in input CSV
+  # For method_comparison mode:
+  method1_csv: null  # Path to first method's source parameters CSV
+  method2_csv: null  # Path to second method's source parameters CSV
+  method1_name: "Method 1"  # Custom name for first method
+  method2_name: "Method 2"  # Custom name for second method
+  
+  # Column names in input CSV (for ground_truth mode)
   # Before correction columns:
   #   - event_x_transformed
   #   - event_y_transformed

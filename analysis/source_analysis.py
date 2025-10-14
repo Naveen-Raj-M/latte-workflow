@@ -3,6 +3,7 @@ Source correction analysis module.
 
 This module provides comprehensive analysis of hypocenter corrections
 including spatial, temporal, and depth corrections.
+Supports both ground truth comparison and method-to-method comparison.
 """
 
 import numpy as np
@@ -23,6 +24,10 @@ def analyze_source_corrections(config: Dict[str, Any]) -> Dict[str, Any]:
     """
     Main function for source correction analysis.
     
+    Supports two modes:
+    1. Ground truth comparison: Compare corrected vs original source parameters
+    2. Method comparison: Compare source parameters from two methods
+    
     Args:
         config: Configuration dictionary
         
@@ -34,7 +39,30 @@ def analyze_source_corrections(config: Dict[str, Any]) -> Dict[str, Any]:
     # Setup plot style
     setup_plot_style(config['analysis'])
     
-    # Load data
+    # Determine comparison mode
+    comparison_mode = config['source_analysis'].get('comparison_mode', 'ground_truth')
+    
+    if comparison_mode == 'method_comparison':
+        logger.info("Running in METHOD COMPARISON mode")
+        results = _analyze_method_comparison(config)
+    else:
+        logger.info("Running in GROUND TRUTH COMPARISON mode")
+        results = _analyze_ground_truth_comparison(config)
+    
+    logger.info("Source correction analysis completed")
+    return results
+
+
+def _analyze_ground_truth_comparison(config: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Analyze source corrections against ground truth (original parameters).
+    
+    Args:
+        config: Configuration dictionary
+        
+    Returns:
+        Dictionary containing analysis results
+    """
     input_csv = config['source_analysis']['input_csv']
     output_dir = Path(config['source_analysis']['output_dir'])
     
@@ -42,20 +70,20 @@ def analyze_source_corrections(config: Dict[str, Any]) -> Dict[str, Any]:
     df = read_csv_file(input_csv)
     
     # Validate and compute corrections
-    df_corrected = compute_source_corrections(df, config)
+    df_corrected = compute_source_corrections(df, config, comparison_mode='ground_truth')
     
     # Compute statistics
     logger.info("Computing source correction statistics")
-    stats = compute_source_statistics(df_corrected, config)
+    stats = compute_source_statistics(df_corrected, config, comparison_mode='ground_truth')
     
     # Create plots
     logger.info("Creating source correction plots")
-    create_source_plots(df_corrected, stats, config)
+    create_source_plots(df_corrected, stats, config, comparison_mode='ground_truth')
     
     # Generate summary report
     if config['source_analysis'].get('generate_summary_report', True):
         logger.info("Generating summary report")
-        generate_source_report(df_corrected, stats, config)
+        generate_source_report(df_corrected, stats, config, comparison_mode='ground_truth')
     
     # Save corrected data with deltas
     if config['source_analysis'].get('save_corrected_data', True):
@@ -63,34 +91,155 @@ def analyze_source_corrections(config: Dict[str, Any]) -> Dict[str, Any]:
         df_corrected.to_csv(output_csv, index=False)
         logger.info(f"Saved corrected data to: {output_csv}")
     
-    logger.info("Source correction analysis completed")
     return stats
 
 
+def _analyze_method_comparison(config: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Analyze source parameter comparison between two methods.
+    
+    Args:
+        config: Configuration dictionary
+        
+    Returns:
+        Dictionary containing analysis results
+    """
+    method1_csv = config['source_analysis']['method1_csv']
+    method2_csv = config['source_analysis']['method2_csv']
+    output_dir = Path(config['source_analysis']['output_dir'])
+    
+    logger.info(f"Loading Method 1 data from: {method1_csv}")
+    logger.info(f"Loading Method 2 data from: {method2_csv}")
+    
+    df1 = read_csv_file(method1_csv)
+    df2 = read_csv_file(method2_csv)
+    
+    # Prepare comparison data
+    logger.info("Preparing method comparison data")
+    df_comparison = prepare_method_comparison_data(df1, df2, config)
+    
+    # Compute corrections (differences between methods)
+    df_corrected = compute_source_corrections(df_comparison, config, 
+                                             comparison_mode='method_comparison')
+    
+    # Compute statistics
+    logger.info("Computing method comparison statistics")
+    stats = compute_source_statistics(df_corrected, config, 
+                                     comparison_mode='method_comparison')
+    
+    # Create plots
+    logger.info("Creating method comparison plots")
+    create_source_plots(df_corrected, stats, config, 
+                       comparison_mode='method_comparison')
+    
+    # Generate summary report
+    if config['source_analysis'].get('generate_summary_report', True):
+        logger.info("Generating summary report")
+        generate_source_report(df_corrected, stats, config, 
+                             comparison_mode='method_comparison')
+    
+    # Save comparison data with deltas
+    if config['source_analysis'].get('save_corrected_data', True):
+        output_csv = output_dir / 'source_method_comparison_with_deltas.csv'
+        df_corrected.to_csv(output_csv, index=False)
+        logger.info(f"Saved comparison data to: {output_csv}")
+    
+    return stats
+
+
+def prepare_method_comparison_data(df1: pd.DataFrame, df2: pd.DataFrame,
+                                  config: Dict[str, Any]) -> pd.DataFrame:
+    """
+    Prepare data for method-to-method comparison.
+    
+    Args:
+        df1: Method 1 dataframe
+        df2: Method 2 dataframe
+        config: Configuration dictionary
+        
+    Returns:
+        Merged dataframe for comparison
+    """
+    logger.info(f"Method 1 events: {len(df1)}")
+    logger.info(f"Method 2 events: {len(df2)}")
+    
+    # Merge on event_id
+    merge_key = 'event_id'
+    
+    if merge_key not in df1.columns:
+        raise ValueError(f"Missing '{merge_key}' column in Method 1 data")
+    if merge_key not in df2.columns:
+        raise ValueError(f"Missing '{merge_key}' column in Method 2 data")
+    
+    logger.info(f"Merging datasets on key: {merge_key}")
+    df_merged = pd.merge(
+        df1, df2,
+        on=merge_key,
+        suffixes=('_method1', '_method2'),
+        how='inner'
+    )
+    
+    logger.info(f"Merged events: {len(df_merged)}")
+    
+    if len(df_merged) == 0:
+        raise ValueError("No matching events found between Method 1 and Method 2 data")
+    
+    # Rename for consistency with ground truth comparison
+    # Method 1 becomes "original", Method 2 becomes "corrected"
+    rename_map = {}
+    
+    # Handle both possible column name patterns
+    for coord in ['x', 'y', 'z']:
+        # Pattern 1: event_x_transformed
+        if f'event_{coord}_transformed_method1' in df_merged.columns:
+            rename_map[f'event_{coord}_transformed_method1'] = f'event_{coord}_transformed'
+            rename_map[f'event_{coord}_transformed_method2'] = f'corrected_event_{coord}_transformed'
+        # Pattern 2: X_grid_km, Y_grid_km, Z_grid_km
+        elif f'{coord.upper()}_grid_km_method1' in df_merged.columns:
+            rename_map[f'{coord.upper()}_grid_km_method1'] = f'event_{coord}_transformed'
+            rename_map[f'{coord.upper()}_grid_km_method2'] = f'corrected_event_{coord}_transformed'
+    
+    # Handle origin time
+    if 'origin_time_s_method1' in df_merged.columns:
+        rename_map['origin_time_s_method1'] = 'origin_time_s'
+        rename_map['origin_time_s_method2'] = 'corrected_origin_time_s'
+    
+    df_merged = df_merged.rename(columns=rename_map)
+    
+    # Drop unnecessary columns
+    drop_cols = [col for col in df_merged.columns 
+                 if col.endswith('_method1') or col.endswith('_method2')]
+    df_merged = df_merged.drop(columns=drop_cols, errors='ignore')
+    
+    return df_merged
+
+
 def compute_source_corrections(df: pd.DataFrame, 
-                               config: Dict[str, Any]) -> pd.DataFrame:
+                               config: Dict[str, Any],
+                               comparison_mode: str = 'ground_truth') -> pd.DataFrame:
     """
     Compute correction deltas and derived quantities.
     
     Args:
-        df: Input dataframe with raw and corrected columns
+        df: Input dataframe with original and corrected columns
         config: Configuration dictionary
+        comparison_mode: 'ground_truth' or 'method_comparison'
         
     Returns:
         Dataframe with added correction columns
     """
     logger.info(f"Computing corrections for {len(df)} events")
+    logger.info(f"Comparison mode: {comparison_mode}")
     
     df = df.copy()
-        
+    
     # Temporal correction
     if config['source_analysis'].get('zero_initial_origin_time', False):
         df['delta_time_s'] = df['corrected_origin_time_s']
-
     else:
-        df['delta_time_s'] = df['origin_time_s'] - df['corrected_origin_time_s'] 
+        df['delta_time_s'] = df['corrected_origin_time_s'] - df['origin_time_s']
     
-    # Spatial corrections (in transformed coordinates, assumed to be in km)
+    # Spatial corrections (in transformed coordinates, assumed to be in meters)
     df['delta_x_km'] = (df['corrected_event_x_transformed'] - df['event_x_transformed']) / 1000
     df['delta_y_km'] = (df['corrected_event_y_transformed'] - df['event_y_transformed']) / 1000
     df['delta_z_km'] = (df['corrected_event_z_transformed'] - df['event_z_transformed']) / 1000
@@ -129,18 +278,20 @@ def compute_source_corrections(df: pd.DataFrame,
 
 
 def compute_source_statistics(df: pd.DataFrame, 
-                              config: Dict[str, Any]) -> Dict[str, Any]:
+                              config: Dict[str, Any],
+                              comparison_mode: str = 'ground_truth') -> Dict[str, Any]:
     """
     Compute comprehensive source correction statistics.
     
     Args:
         df: Dataframe with corrections
         config: Configuration dictionary
+        comparison_mode: 'ground_truth' or 'method_comparison'
         
     Returns:
         Dictionary of statistics
     """
-    stats = {}
+    stats = {'comparison_mode': comparison_mode}
     
     # Overall statistics for each correction type
     correction_columns = {
@@ -213,7 +364,8 @@ def compute_depth_dependent_stats(df: pd.DataFrame,
 
 
 def create_source_plots(df: pd.DataFrame, stats: Dict[str, Any],
-                       config: Dict[str, Any]) -> None:
+                       config: Dict[str, Any],
+                       comparison_mode: str = 'ground_truth') -> None:
     """
     Create comprehensive source correction plots.
     
@@ -221,6 +373,7 @@ def create_source_plots(df: pd.DataFrame, stats: Dict[str, Any],
         df: Dataframe with corrections
         stats: Statistics dictionary
         config: Configuration dictionary
+        comparison_mode: 'ground_truth' or 'method_comparison'
     """
     output_dir = Path(config['source_analysis']['output_dir'])
     plots_dir = output_dir / 'plots'
@@ -241,19 +394,20 @@ def create_source_plots(df: pd.DataFrame, stats: Dict[str, Any],
     )
     
     # Create all plots
-    create_correction_histograms(df, colors, plots_dir, output_format, use_log, config)
-    create_scatter_relationships(df, colors, plots_dir, output_format, use_log, config)
-    create_geographic_map(df, colors, plots_dir, output_format, config)
-    create_depth_analysis(df, colors, plots_dir, output_format, use_log, config)
-    create_correction_summary(df, colors, plots_dir, output_format, use_log, config)
+    create_correction_histograms(df, colors, plots_dir, output_format, use_log, config, comparison_mode)
+    create_scatter_relationships(df, colors, plots_dir, output_format, use_log, config, comparison_mode)
+    create_geographic_map(df, colors, plots_dir, output_format, config, comparison_mode)
+    create_depth_analysis(df, colors, plots_dir, output_format, use_log, config, comparison_mode)
+    create_correction_summary(df, colors, plots_dir, output_format, use_log, config, comparison_mode)
     
     # Temporal plots if time data available
     if 'origin_time_s' in df.columns:
-        create_temporal_corrections(df, colors, plots_dir, output_format, use_log, config)
+        create_temporal_corrections(df, colors, plots_dir, output_format, use_log, config, comparison_mode)
 
 
 def generate_source_report(df: pd.DataFrame, stats: Dict[str, Any],
-                          config: Dict[str, Any]) -> None:
+                          config: Dict[str, Any],
+                          comparison_mode: str = 'ground_truth') -> None:
     """
     Generate comprehensive source correction analysis report.
     
@@ -261,6 +415,7 @@ def generate_source_report(df: pd.DataFrame, stats: Dict[str, Any],
         df: Dataframe with corrections
         stats: Statistics dictionary
         config: Configuration dictionary
+        comparison_mode: 'ground_truth' or 'method_comparison'
     """
     output_dir = Path(config['source_analysis']['output_dir'])
     reports_dir = output_dir / 'reports'
@@ -270,71 +425,111 @@ def generate_source_report(df: pd.DataFrame, stats: Dict[str, Any],
     
     scale_type = "Log Scale" if config['source_analysis'].get('use_log_scale', False) else "Linear Scale"
     
+    # Get titles based on comparison mode
+    if comparison_mode == 'method_comparison':
+        method1_name = config['source_analysis'].get('method1_name', 'Method 1')
+        method2_name = config['source_analysis'].get('method2_name', 'Method 2')
+        title = f"SOURCE PARAMETER METHOD COMPARISON REPORT\n{method1_name} vs {method2_name}"
+        mode_description = f"Comparing: {method2_name} - {method1_name}"
+    else:
+        title = "SOURCE CORRECTION ANALYSIS REPORT"
+        mode_description = "Comparing: Corrected vs Original"
+    
     report_lines = [
-        "SOURCE CORRECTION ANALYSIS REPORT",
+        title,
         "=" * 60,
         f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-        f"Input file: {config['source_analysis']['input_csv']}",
+        f"Comparison mode: {comparison_mode}",
+        mode_description,
         f"Plot scale: {scale_type}",
         "",
+    ]
+    
+    if comparison_mode == 'method_comparison':
+        report_lines.extend([
+            f"Method 1 file: {config['source_analysis']['method1_csv']}",
+            f"Method 2 file: {config['source_analysis']['method2_csv']}",
+            "",
+        ])
+    else:
+        report_lines.extend([
+            f"Input file: {config['source_analysis']['input_csv']}",
+            "",
+        ])
+    
+    report_lines.extend([
         "SUMMARY",
         "-" * 60,
         f"Total events analyzed: {stats['time']['count']}",
         "",
-    ]
+    ])
     
-    # Temporal corrections
+    # Temporal corrections/differences
+    if comparison_mode == 'method_comparison':
+        report_lines.extend([
+            "TEMPORAL DIFFERENCES",
+            "-" * 60,
+            f"Mean time difference: {stats['time']['mean']:.4f} s",
+            f"Std time difference: {stats['time']['std']:.4f} s",
+            f"Median time difference: {stats['time']['median']:.4f} s",
+            f"Mean absolute time difference: {stats['time']['mean_abs']:.4f} s",
+            f"Max absolute time difference: {stats['time']['max_abs']:.4f} s",
+            f"Range: [{stats['time']['min']:.4f}, {stats['time']['max']:.4f}] s",
+            "",
+        ])
+    else:
+        report_lines.extend([
+            "TEMPORAL CORRECTIONS",
+            "-" * 60,
+            f"Mean time shift: {stats['time']['mean']:.4f} s",
+            f"Std time shift: {stats['time']['std']:.4f} s",
+            f"Median time shift: {stats['time']['median']:.4f} s",
+            f"Mean absolute time shift: {stats['time']['mean_abs']:.4f} s",
+            f"Max absolute time shift: {stats['time']['max_abs']:.4f} s",
+            f"Range: [{stats['time']['min']:.4f}, {stats['time']['max']:.4f}] s",
+            "",
+        ])
+    
+    # Horizontal corrections/differences
+    label_type = "difference" if comparison_mode == 'method_comparison' else "shift"
     report_lines.extend([
-        "TEMPORAL CORRECTIONS",
+        f"HORIZONTAL {label_type.upper()}S",
         "-" * 60,
-        f"Mean time shift: {stats['time']['mean']:.4f} s",
-        f"Std time shift: {stats['time']['std']:.4f} s",
-        f"Median time shift: {stats['time']['median']:.4f} s",
-        f"Mean absolute time shift: {stats['time']['mean_abs']:.4f} s",
-        f"Max absolute time shift: {stats['time']['max_abs']:.4f} s",
-        f"Range: [{stats['time']['min']:.4f}, {stats['time']['max']:.4f}] s",
+        f"Mean horizontal {label_type}: {stats['horizontal']['mean']:.4f} km",
+        f"Std horizontal {label_type}: {stats['horizontal']['std']:.4f} km",
+        f"Median horizontal {label_type}: {stats['horizontal']['median']:.4f} km",
+        f"Mean absolute horizontal {label_type}: {stats['horizontal']['mean_abs']:.4f} km",
+        f"Max horizontal {label_type}: {stats['horizontal']['max']:.4f} km",
         "",
     ])
     
-    # Horizontal corrections
+    # Depth corrections/differences
     report_lines.extend([
-        "HORIZONTAL CORRECTIONS",
+        f"DEPTH {label_type.upper()}S",
         "-" * 60,
-        f"Mean horizontal shift: {stats['horizontal']['mean']:.4f} km",
-        f"Std horizontal shift: {stats['horizontal']['std']:.4f} km",
-        f"Median horizontal shift: {stats['horizontal']['median']:.4f} km",
-        f"Mean absolute horizontal shift: {stats['horizontal']['mean_abs']:.4f} km",
-        f"Max horizontal shift: {stats['horizontal']['max']:.4f} km",
-        "",
-    ])
-    
-    # Depth corrections
-    report_lines.extend([
-        "DEPTH CORRECTIONS",
-        "-" * 60,
-        f"Mean depth shift: {stats['depth']['mean']:.4f} km",
-        f"Std depth shift: {stats['depth']['std']:.4f} km",
-        f"Median depth shift: {stats['depth']['median']:.4f} km",
-        f"Mean absolute depth shift: {stats['depth']['mean_abs']:.4f} km",
-        f"Max absolute depth shift: {stats['depth']['max_abs']:.4f} km",
+        f"Mean depth {label_type}: {stats['depth']['mean']:.4f} km",
+        f"Std depth {label_type}: {stats['depth']['std']:.4f} km",
+        f"Median depth {label_type}: {stats['depth']['median']:.4f} km",
+        f"Mean absolute depth {label_type}: {stats['depth']['mean_abs']:.4f} km",
+        f"Max absolute depth {label_type}: {stats['depth']['max_abs']:.4f} km",
         f"Range: [{stats['depth']['min']:.4f}, {stats['depth']['max']:.4f}] km",
         "",
     ])
     
-    # 3D corrections
+    # 3D corrections/differences
     report_lines.extend([
-        "TOTAL 3D CORRECTIONS",
+        f"TOTAL 3D {label_type.upper()}S",
         "-" * 60,
-        f"Mean 3D shift: {stats['3d']['mean']:.4f} km",
-        f"Std 3D shift: {stats['3d']['std']:.4f} km",
-        f"Median 3D shift: {stats['3d']['median']:.4f} km",
-        f"Max 3D shift: {stats['3d']['max']:.4f} km",
+        f"Mean 3D {label_type}: {stats['3d']['mean']:.4f} km",
+        f"Std 3D {label_type}: {stats['3d']['std']:.4f} km",
+        f"Median 3D {label_type}: {stats['3d']['median']:.4f} km",
+        f"Max 3D {label_type}: {stats['3d']['max']:.4f} km",
         "",
     ])
     
     # X and Y components
     report_lines.extend([
-        "COORDINATE-WISE CORRECTIONS",
+        f"COORDINATE-WISE {label_type.upper()}S",
         "-" * 60,
         "X-direction:",
         f"  Mean: {stats['x']['mean']:.4f} km",
@@ -361,12 +556,12 @@ def generate_source_report(df: pd.DataFrame, stats: Dict[str, Any],
     report_lines.extend([
         "PERCENTILE ANALYSIS",
         "-" * 60,
-        "Horizontal shifts:",
+        f"Horizontal {label_type}s:",
         f"  25th percentile: {stats['horizontal']['p25']:.4f} km",
         f"  50th percentile: {stats['horizontal']['median']:.4f} km",
         f"  75th percentile: {stats['horizontal']['p75']:.4f} km",
         "",
-        "Depth shifts:",
+        f"Depth {label_type}s:",
         f"  25th percentile: {stats['depth']['p25']:.4f} km",
         f"  50th percentile: {stats['depth']['median']:.4f} km",
         f"  75th percentile: {stats['depth']['p75']:.4f} km",

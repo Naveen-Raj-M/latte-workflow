@@ -3,9 +3,11 @@ Analysis module for LATTE tomography results.
 This module provides comprehensive analysis tools for travel time residuals,
 velocity model comparisons, distance-dependent analysis, source corrections,
 and gradient/search direction analysis.
+
+Updated to support method comparison mode for distance and short distance analysis.
 """
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 __author__ = "Naveen Raj Manoharan"
 
 __all__ = [
@@ -25,11 +27,15 @@ __all__ = [
     'analyze_distance_dependent_residuals',
     'create_distance_analysis_plots',
     'compute_distance_statistics',
+    'load_and_merge_distance_data',
+    'prepare_method_comparison_data',
     
     # Short distance analysis
     'analyze_short_distance_residuals',
     'create_short_distance_plots',
     'compute_short_distance_statistics',
+    'load_and_filter_short_distance_data',
+    'prepare_short_distance_comparison_data',
     
     # Source correction analysis
     'analyze_source_corrections',
@@ -44,13 +50,12 @@ __all__ = [
 ]
 
 # Import main analysis functions
-from .traveltime_analysis import (
-    analyze_travel_time_residuals,
-    compute_travel_time_statistics
-)
+from .traveltime_analysis import analyze_travel_time_residuals
 
 try:
-    from .traveltime_analysis import create_travel_time_plots
+    from .traveltime_plots import create_travel_time_plots
+    from .traveltime_statistics import compute_travel_time_statistics
+    from .traveltime_comparison import prepare_comparison_data
 except ImportError:
     pass
 
@@ -76,25 +81,33 @@ except ImportError as e:
     import logging
     logging.debug(f"Velocity analysis module import warning: {e}")
 
-# Distance analysis imports
+# Distance analysis imports (modular structure)
 try:
-    from .distance_analysis import (
-        analyze_distance_dependent_residuals,
-        create_distance_analysis_plots,
-        compute_distance_statistics
+    from .distance_analysis import analyze_distance_dependent_residuals
+    from .distance_data import (
+        load_and_merge_distance_data,
+        prepare_method_comparison_data
     )
-except ImportError:
-    pass
+    from .distance_statistics import compute_distance_statistics
+    from .distance_plots import create_distance_analysis_plots
+    from .distance_reports import generate_distance_analysis_report
+except ImportError as e:
+    import logging
+    logging.debug(f"Distance analysis module import warning: {e}")
 
-# Short distance analysis imports
+# Short distance analysis imports (modular structure)
 try:
-    from .short_distance_analysis import (
-        analyze_short_distance_residuals,
-        create_short_distance_plots,
-        compute_short_distance_statistics
+    from .short_distance_analysis import analyze_short_distance_residuals
+    from .short_distance_data import (
+        load_and_filter_short_distance_data,
+        prepare_short_distance_comparison_data
     )
-except ImportError:
-    pass
+    from .short_distance_statistics import compute_short_distance_statistics
+    from .short_distance_plots import create_short_distance_plots
+    from .short_distance_reports import generate_short_distance_report
+except ImportError as e:
+    import logging
+    logging.debug(f"Short distance analysis module import warning: {e}")
 
 # Source correction analysis imports
 try:

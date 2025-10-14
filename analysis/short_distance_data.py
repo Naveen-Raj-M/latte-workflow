@@ -1,0 +1,264 @@
+"""
+Short distance analysis data loading and preparation module.
+
+This module handles data loading for both ground_truth and method_comparison modes.
+"""
+
+import numpy as np
+import pandas as pd
+import logging
+from typing import Dict, Any
+
+from utils.io_utils import read_csv_file
+from utils.distance_utils import (
+    calculate_all_distances, validate_distance_types,
+    get_distance_column_name
+)
+
+logger = logging.getLogger(__name__)
+
+
+def load_and_filter_short_distance_data(config: Dict[str, Any]) -> pd.DataFrame:
+    """
+    Load, merge, and filter data for short distance analysis.
+    For ground_truth mode.
+    
+    Args:
+        config: Configuration dictionary
+        
+    Returns:
+        Filtered dataframe with short distances
+    """
+    travel_time_csv = config['short_distance_analysis']['travel_time_csv']
+    station_csv = config['short_distance_analysis']['station_csv']
+    events_csv = config['short_distance_analysis']['events_csv']
+    
+    logger.info(f"Loading data files:")
+    logger.info(f"  Travel times: {travel_time_csv}")
+    logger.info(f"  Stations: {station_csv}")
+    logger.info(f"  Events: {events_csv}")
+    
+    # Load data
+    df_tt = read_csv_file(travel_time_csv)
+    df_stations = read_csv_file(station_csv)
+    df_events = read_csv_file(events_csv)
+    
+    logger.info(f"Loaded {len(df_tt)} travel time records")
+    logger.info(f"Loaded {len(df_stations)} stations")
+    logger.info(f"Loaded {len(df_events)} events")
+    
+    # Merge with station data
+    df_merged = df_tt.merge(df_stations, on='station', how='left', suffixes=('', '_station'))
+    logger.info(f"After station merge: {len(df_merged)} records")
+    
+    # Merge with event data
+    df_merged = df_merged.merge(df_events, on='event_id', how='left', suffixes=('', '_event'))
+    logger.info(f"After event merge: {len(df_merged)} records")
+    
+    # Calculate distances and filter
+    df_filtered = _calculate_and_filter_distances(df_merged, config)
+    
+    # Apply additional filters
+    df_filtered = _apply_additional_filters(df_filtered, config)
+    
+    logger.info(f"Final filtered dataset: {len(df_filtered)} records")
+    return df_filtered
+
+
+def prepare_short_distance_comparison_data(config: Dict[str, Any]) -> pd.DataFrame:
+    """
+    Prepare data for method comparison mode.
+    Loads two separate travel time files and computes residuals between them.
+    
+    Args:
+        config: Configuration dictionary
+        
+    Returns:
+        Filtered dataframe with computed residuals and short distances
+    """
+    method1_csv = config['short_distance_analysis']['method1_csv']
+    method2_csv = config['short_distance_analysis']['method2_csv']
+    station_csv = config['short_distance_analysis']['station_csv']
+    events_csv = config['short_distance_analysis']['events_csv']
+    
+    method1_name = config['short_distance_analysis'].get('method1_name', 'Method 1')
+    method2_name = config['short_distance_analysis'].get('method2_name', 'Method 2')
+    
+    logger.info(f"Loading method comparison data:")
+    logger.info(f"  Method 1 ({method1_name}): {method1_csv}")
+    logger.info(f"  Method 2 ({method2_name}): {method2_csv}")
+    logger.info(f"  Stations: {station_csv}")
+    logger.info(f"  Events: {events_csv}")
+    
+    # Load travel time data
+    df_method1 = read_csv_file(method1_csv)
+    df_method2 = read_csv_file(method2_csv)
+    df_stations = read_csv_file(station_csv)
+    df_events = read_csv_file(events_csv)
+    
+    logger.info(f"Loaded {len(df_method1)} records for {method1_name}")
+    logger.info(f"Loaded {len(df_method2)} records for {method2_name}")
+    logger.info(f"Loaded {len(df_stations)} stations")
+    logger.info(f"Loaded {len(df_events)} events")
+    
+    # Merge the two methods
+    df_merged = _merge_method_data(df_method1, df_method2, method1_name, method2_name)
+    
+    # Merge with station data
+    df_merged = df_merged.merge(df_stations, on='station', how='left', suffixes=('', '_station'))
+    logger.info(f"After station merge: {len(df_merged)} records")
+    
+    # Merge with event data
+    df_merged = df_merged.merge(df_events, on='event_id', how='left', suffixes=('', '_event'))
+    logger.info(f"After event merge: {len(df_merged)} records")
+    
+    # Calculate distances and filter
+    df_filtered = _calculate_and_filter_distances(df_merged, config)
+    
+    # Apply additional filters
+    df_filtered = _apply_additional_filters(df_filtered, config)
+    
+    logger.info(f"Final filtered dataset: {len(df_filtered)} records")
+    logger.info(f"Method comparison: {method1_name} vs {method2_name}")
+    
+    return df_filtered
+
+
+def _merge_method_data(df_method1: pd.DataFrame, df_method2: pd.DataFrame,
+                       method1_name: str, method2_name: str) -> pd.DataFrame:
+    """
+    Merge two method datasets and compute residuals.
+    
+    Args:
+        df_method1: First method dataframe
+        df_method2: Second method dataframe
+        method1_name: Name of first method
+        method2_name: Name of second method
+        
+    Returns:
+        Merged dataframe with residuals
+    """
+    # Identify common columns for merging
+    merge_keys = ['event_id', 'station', 'phase']
+    
+    # Check if merge keys exist
+    for key in merge_keys:
+        if key not in df_method1.columns or key not in df_method2.columns:
+            raise ValueError(f"Required merge key '{key}' not found in both method datasets")
+    
+    # Merge on event_id, station, and phase
+    df_merged = df_method1.merge(
+        df_method2,
+        on=merge_keys,
+        how='inner',
+        suffixes=(f'_{method1_name}', f'_{method2_name}')
+    )
+    
+    logger.info(f"Matched {len(df_merged)} common records between methods")
+    
+    # Determine travel time column names
+    tt_patterns = ['travel_time', 'travel_time_s', 'traveltime', 'tt', 'synthetic_tt']
+    
+    method1_tt_col = None
+    method2_tt_col = None
+    
+    for pattern in tt_patterns:
+        col1 = f'{pattern}_{method1_name}'
+        col2 = f'{pattern}_{method2_name}'
+        if col1 in df_merged.columns and col2 in df_merged.columns:
+            method1_tt_col = col1
+            method2_tt_col = col2
+            break
+    
+    if method1_tt_col is None or method2_tt_col is None:
+        raise ValueError(
+            f"Could not identify travel time columns. Expected patterns: {tt_patterns}"
+        )
+    
+    logger.info(f"Using travel time columns: {method1_tt_col} and {method2_tt_col}")
+    
+    # Compute residuals (Method1 - Method2)
+    df_merged['observed_tt'] = df_merged[method1_tt_col]
+    df_merged['synthetic_tt'] = df_merged[method2_tt_col]
+    df_merged['residual_s'] = df_merged['observed_tt'] - df_merged['synthetic_tt']
+    
+    # Log statistics
+    logger.info(f"Residual statistics ({method1_name} - {method2_name}):")
+    logger.info(f"  Mean: {df_merged['residual_s'].mean():.4f} s")
+    logger.info(f"  Std: {df_merged['residual_s'].std():.4f} s")
+    logger.info(f"  RMS: {np.sqrt(np.mean(df_merged['residual_s']**2)):.4f} s")
+    
+    return df_merged
+
+
+def _calculate_and_filter_distances(df: pd.DataFrame, config: Dict[str, Any]) -> pd.DataFrame:
+    """
+    Calculate distances and filter by distance cutoff.
+    
+    Args:
+        df: Input dataframe
+        config: Configuration dictionary
+        
+    Returns:
+        Filtered dataframe
+    """
+    coordinate_type = config['short_distance_analysis']['coordinate_type']
+    distance_cutoff = config['short_distance_analysis']['distance_cutoff_km']
+    distance_types = validate_distance_types(
+        config['short_distance_analysis'].get('distance_types', ['hypocentral'])
+    )
+    
+    # Calculate all requested distance types
+    df = calculate_all_distances(df, coordinate_type, distance_types)
+    
+    # Filter by distance cutoff for each distance type
+    # Use the first distance type as primary filter
+    primary_distance_type = distance_types[0]
+    distance_col = get_distance_column_name(coordinate_type, primary_distance_type)
+    
+    initial_count = len(df)
+    df_filtered = df[df[distance_col] <= distance_cutoff].copy()
+    filtered_count = len(df_filtered)
+    
+    logger.info(f"Filtered to {filtered_count} records with {primary_distance_type} distance ≤ {distance_cutoff} km")
+    logger.info(f"Removed {initial_count - filtered_count} records beyond cutoff")
+    
+    return df_filtered
+
+
+def _apply_additional_filters(df: pd.DataFrame, config: Dict[str, Any]) -> pd.DataFrame:
+    """
+    Apply additional filters (phase, residual thresholds).
+    
+    Args:
+        df: Input dataframe
+        config: Configuration dictionary
+        
+    Returns:
+        Filtered dataframe
+    """
+    initial_count = len(df)
+    
+    # Phase filter
+    phase_filter = config['short_distance_analysis'].get('phase_filter')
+    if phase_filter:
+        df = df[df['phase'] == phase_filter].copy()
+        logger.info(f"Filtered to {phase_filter}-wave only: {len(df)} records")
+    
+    # Residual threshold filters
+    min_residual = config['short_distance_analysis'].get('min_residual_threshold')
+    max_residual = config['short_distance_analysis'].get('max_residual_threshold')
+    
+    if min_residual is not None:
+        df = df[df['residual_s'] >= min_residual].copy()
+    if max_residual is not None:
+        df = df[df['residual_s'] <= max_residual].copy()
+    
+    if min_residual is not None or max_residual is not None:
+        logger.info(f"Applied residual filters: {len(df)} records remain")
+    
+    final_count = len(df)
+    if final_count < initial_count:
+        logger.info(f"Total records removed by additional filters: {initial_count - final_count}")
+    
+    return df
