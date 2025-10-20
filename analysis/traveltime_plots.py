@@ -47,8 +47,8 @@ def create_travel_time_plots(df: pd.DataFrame, stats: Dict[str, Any],
         xlabel_obs = f'{method1_name} Travel Time (s)'
         xlabel_syn = f'{method2_name} Travel Time (s)'
     else:
-        title_suffix = "Observed vs Synthetic"
-        xlabel_obs = 'Observed Travel Time (s)'
+        title_suffix = "Estimated vs Synthetic"
+        xlabel_obs = 'Estimated Travel Time (s)'
         xlabel_syn = 'Synthetic Travel Time (s)'
     
     # Basic comparison plots
@@ -143,7 +143,7 @@ def create_residual_histograms(df: pd.DataFrame, colors: Dict[str, str],
         xlabel = f'Difference ({method2_name} - {method1_name}) [s]'
     else:
         title = 'Travel Time Residual Distributions'
-        xlabel = 'Residual (Observed - Synthetic) [s]'
+        xlabel = 'Residual (Estimated - Synthetic) [s]'
     
     fig, axes = create_multi_panel_figure(1, 2, figsize=(16, 8), title=title)
     
@@ -261,8 +261,8 @@ def create_ln_ratio_histograms(df: pd.DataFrame, colors: Dict[str, str],
         title = f'Logarithmic Ratio Histograms: ln({method2_name}/{method1_name})'
         xlabel = f'ln({method2_name}/{method1_name})'
     else:
-        title = 'Logarithmic Ratio Histograms: ln(Synthetic/Observed)'
-        xlabel = 'ln(Synthetic/Observed)'
+        title = 'Logarithmic Ratio Histograms: ln(Synthetic/Estimated)'
+        xlabel = 'ln(Synthetic/Estimated)'
     
     # Create histogram plots
     fig, axes = create_multi_panel_figure(1, 2, figsize=(16, 8), title=title)
@@ -335,21 +335,21 @@ def create_ln_ratio_plots(df: pd.DataFrame, colors: Dict[str, str],
     # First row: ln(ratio) vs observed time (linear scale)
     # P-wave ln(ratio) vs observed time
     if not p_data.empty and len(axes) > 0:
-        axes[0].scatter(p_data['observed_tt'], p_data['ln_ratio'], 
+        axes[0].scatter(p_data['observed_tt'], p_data['ln_ratio'],
                        alpha=0.6, s=15, color=colors['p_wave_dark'])
         axes[0].axhline(0, color='red', linestyle='--', linewidth=2)
         axes[0].set_xlabel(xlabel_obs)
-        axes[0].set_ylabel('ln(Synthetic/Observed)')
+        axes[0].set_ylabel('ln(Synthetic/Estimated)')
         axes[0].set_title('P-wave: ln(Ratio) vs Time')
         axes[0].grid(True, alpha=0.3)
     
     # S-wave ln(ratio) vs observed time
     if not s_data.empty and len(axes) > 1:
-        axes[1].scatter(s_data['observed_tt'], s_data['ln_ratio'], 
+        axes[1].scatter(s_data['observed_tt'], s_data['ln_ratio'],
                        alpha=0.6, s=15, color=colors['s_wave_dark'])
         axes[1].axhline(0, color='red', linestyle='--', linewidth=2)
         axes[1].set_xlabel(xlabel_obs)
-        axes[1].set_ylabel('ln(Synthetic/Observed)')
+        axes[1].set_ylabel('ln(Synthetic/Estimated)')
         axes[1].set_title('S-wave: ln(Ratio) vs Time')
         axes[1].grid(True, alpha=0.3)
     
@@ -360,7 +360,7 @@ def create_ln_ratio_plots(df: pd.DataFrame, colors: Dict[str, str],
                         alpha=0.6, markersize=4, color=colors['p_wave_dark'])
         axes[2].axhline(0, color='red', linestyle='--', linewidth=2)
         axes[2].set_xlabel(f'{xlabel_obs} [log scale]')
-        axes[2].set_ylabel('ln(Synthetic/Observed)')
+        axes[2].set_ylabel('ln(Synthetic/Estimated)')
         axes[2].set_title('P-wave: ln(Ratio) vs Time (Log Scale)')
         axes[2].grid(True, which="both", ls='--', alpha=0.3)
         axes[2].tick_params(which='both', direction='in')
@@ -372,7 +372,7 @@ def create_ln_ratio_plots(df: pd.DataFrame, colors: Dict[str, str],
                         alpha=0.6, markersize=4, color=colors['s_wave_dark'])
         axes[3].axhline(0, color='red', linestyle='--', linewidth=2)
         axes[3].set_xlabel(f'{xlabel_obs} [log scale]')
-        axes[3].set_ylabel('ln(Synthetic/Observed)')
+        axes[3].set_ylabel('ln(Synthetic/Estimated)')
         axes[3].set_title('S-wave: ln(Ratio) vs Time (Log Scale)')
         axes[3].grid(True, which="both", ls='--', alpha=0.3)
         axes[3].tick_params(which='both', direction='in')

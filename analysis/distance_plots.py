@@ -88,7 +88,7 @@ def create_residual_distance_plots(df: pd.DataFrame, colors: Dict[str, str],
         ylabel_residual = f'Residual ({method1_name} - {method2_name}) [s]'
     else:
         title_suffix = ''
-        ylabel_residual = 'Residual (Obs - Syn) [s]'
+        ylabel_residual = 'Residual (Est - Syn) [s]'
     
     p_data = df[df['phase'] == 'P']
     s_data = df[df['phase'] == 'S']
@@ -225,7 +225,7 @@ def create_correlation_analysis_plots(df: pd.DataFrame, stats: Dict[str, Any],
         ylabel_residual = f'Residual ({method1_name} - {method2_name}) [s]'
     else:
         title_suffix = ''
-        ylabel_residual = 'Residual (Obs - Syn) [s]'
+        ylabel_residual = 'Residual (Est - Syn) [s]'
     
     p_data = df[df['phase'] == 'P']
     s_data = df[df['phase'] == 'S']
@@ -430,7 +430,7 @@ def create_ratio_distance_plots(df: pd.DataFrame, colors: Dict[str, str],
         ylabel_ratio = f'Ratio ({method2_name}/{method1_name})'
     else:
         title_suffix = ''
-        ylabel_ratio = 'Ratio (Syn/Obs)'
+        ylabel_ratio = 'Ratio (Syn/Est)'
     
     ratio_data['ratio'] = ratio_data['synthetic_tt'] / ratio_data['observed_tt']
     
