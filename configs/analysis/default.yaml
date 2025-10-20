@@ -105,11 +105,14 @@ travel_time_analysis:
 # Velocity analysis configuration
 velocity_analysis:
   enabled: true
-  
+
   # Input files
   model1_csv: "data/processed/velocity_cartesian.csv"
   model2_csv: "data/processed/velocity_cartesian_updated.csv"
   output_dir: "results/analysis/velocity_comparison"
+
+  # Optional: Initial velocity model for reference in vertical profiles (set to null to disable)
+  initial_velocity_model_csv: null  # Path to initial velocity model CSV for grey line overlay
   
   # Comparison mode: "initial_vs_final", "method_comparison", or "custom"
   comparison_mode: "initial_vs_final"

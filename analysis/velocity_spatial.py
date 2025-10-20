@@ -144,22 +144,98 @@ def find_max_min_ratio_change_depths(df1: pd.DataFrame, df2: pd.DataFrame) -> Di
     }
 
 
-def get_depth_slice_data(df1: pd.DataFrame, df2: pd.DataFrame, 
+def find_extreme_ratio_change_profiles(df1: pd.DataFrame, df2: pd.DataFrame,
+                                      config: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Find vertical profiles with maximum positive ratio change and minimum ratio change.
+
+    Args:
+        df1: First velocity model dataframe
+        df2: Second velocity model dataframe
+        config: Configuration dictionary
+
+    Returns:
+        Dictionary with extreme ratio profile information
+    """
+    logger.debug("Finding extreme ratio change profiles")
+
+    # Calculate ratios
+    vp_ratios = df2['vp'].values / df1['vp'].values
+    vs_ratios = df2['vs'].values / df1['vs'].values
+
+    # Add ratios to dataframe for grouping
+    df_with_ratios = df1.copy()
+    df_with_ratios['vp_ratio'] = vp_ratios
+    df_with_ratios['vs_ratio'] = vs_ratios
+    df_with_ratios['vp_ratio_change'] = vp_ratios - 1.0
+    df_with_ratios['vs_ratio_change'] = vs_ratios - 1.0
+    df_with_ratios['combined_ratio_change'] = (df_with_ratios['vp_ratio_change'] +
+                                                df_with_ratios['vs_ratio_change']) / 2.0
+
+    # Group by X,Y coordinates to get vertical profiles
+    profile_stats = df_with_ratios.groupby(['X_grid_km', 'Y_grid_km']).agg({
+        'combined_ratio_change': ['mean', 'max', 'min', 'std'],
+        'vp_ratio_change': ['mean'],
+        'vs_ratio_change': ['mean'],
+        'Z_grid_km': ['min', 'max', 'count']
+    }).round(6)
+
+    # Flatten column names
+    profile_stats.columns = ['_'.join(col).strip() for col in profile_stats.columns]
+
+    # Find profile with maximum positive ratio change (most positive mean)
+    max_positive_profile_coords = profile_stats['combined_ratio_change_mean'].idxmax()
+
+    # Find profile with minimum ratio change (most negative mean)
+    min_ratio_profile_coords = profile_stats['combined_ratio_change_mean'].idxmin()
+
+    # Get profile masks
+    max_positive_mask = ((df1['X_grid_km'] == max_positive_profile_coords[0]) &
+                         (df1['Y_grid_km'] == max_positive_profile_coords[1]))
+    min_ratio_mask = ((df1['X_grid_km'] == min_ratio_profile_coords[0]) &
+                      (df1['Y_grid_km'] == min_ratio_profile_coords[1]))
+
+    # Get profile data
+    max_positive_profile_data = df1[max_positive_mask].copy().sort_values('Z_grid_km')
+    min_ratio_profile_data = df1[min_ratio_mask].copy().sort_values('Z_grid_km')
+
+    max_positive_avg_change = profile_stats.loc[max_positive_profile_coords, 'combined_ratio_change_mean']
+    min_ratio_avg_change = profile_stats.loc[min_ratio_profile_coords, 'combined_ratio_change_mean']
+
+    logger.debug(f"Max positive ratio change profile at ({max_positive_profile_coords[0]:.1f}, "
+                f"{max_positive_profile_coords[1]:.1f}) km, avg change: {max_positive_avg_change:.4f}")
+    logger.debug(f"Min ratio change profile at ({min_ratio_profile_coords[0]:.1f}, "
+                f"{min_ratio_profile_coords[1]:.1f}) km, avg change: {min_ratio_avg_change:.4f}")
+
+    return {
+        'max_positive_coords': max_positive_profile_coords,
+        'min_ratio_coords': min_ratio_profile_coords,
+        'max_positive_mask': max_positive_mask,
+        'min_ratio_mask': min_ratio_mask,
+        'max_positive_profile_data': max_positive_profile_data,
+        'min_ratio_profile_data': min_ratio_profile_data,
+        'max_positive_avg_change': max_positive_avg_change,
+        'min_ratio_avg_change': min_ratio_avg_change,
+        'profile_stats': profile_stats
+    }
+
+
+def get_depth_slice_data(df1: pd.DataFrame, df2: pd.DataFrame,
                         depth: float) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     Extract data for a specific depth slice from both models.
-    
+
     Args:
         df1: First velocity model dataframe
         df2: Second velocity model dataframe
         depth: Depth value to extract
-        
+
     Returns:
         Tuple of (slice_data1, slice_data2)
     """
     slice_data1 = df1[df1['Z_grid_km'] == depth].copy()
     slice_data2 = df2[df2['Z_grid_km'] == depth].copy()
-    
+
     return slice_data1, slice_data2
 
 

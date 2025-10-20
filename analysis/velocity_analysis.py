@@ -20,7 +20,7 @@ from .velocity_statistics import (
     compute_velocity_statistics,
     compute_log_ratios
 )
-from .velocity_spatial import find_extreme_velocity_profiles
+from .velocity_spatial import find_extreme_velocity_profiles, find_extreme_ratio_change_profiles
 from .velocity_plots import (
     create_basic_comparison_plots,
     create_spatial_projection_plots,
@@ -74,13 +74,17 @@ def analyze_velocity_models(config: Dict[str, Any]) -> Dict[str, Any]:
             'vs': compute_log_ratio_statistics(log_ratios['vs_log_ratio'])
         }
     
-    # Find extreme profiles and locations
+    # Find extreme profiles and locations (for domain overview and slice heatmaps)
     logger.info("Finding extreme velocity profiles")
     extremes = find_extreme_velocity_profiles(df1, differences, config)
-    
+
+    # Find extreme ratio change profiles (for vertical profile comparison)
+    logger.info("Finding extreme ratio change profiles")
+    ratio_extremes = find_extreme_ratio_change_profiles(df1, df2, config)
+
     # Create plots
     logger.info("Creating velocity comparison plots")
-    create_all_velocity_plots(df1, df2, differences, extremes, config)
+    create_all_velocity_plots(df1, df2, differences, extremes, ratio_extremes, config)
     
     # Generate summary report
     logger.info("Generating velocity comparison report")
@@ -160,48 +164,50 @@ def compute_log_ratio_statistics(log_ratios: np.ndarray) -> Dict[str, float]:
 def create_all_velocity_plots(df1: pd.DataFrame, df2: pd.DataFrame,
                              differences: Dict[str, np.ndarray],
                              extremes: Dict[str, Any],
+                             ratio_extremes: Dict[str, Any],
                              config: Dict[str, Any]) -> None:
     """
     Create all velocity comparison plots.
-    
+
     Args:
         df1: First velocity model dataframe
-        df2: Second velocity model dataframe  
+        df2: Second velocity model dataframe
         differences: Differences dictionary
-        extremes: Extreme profiles dictionary
+        extremes: Extreme profiles dictionary (difference-based)
+        ratio_extremes: Extreme profiles dictionary (ratio-based)
         config: Configuration dictionary
     """
     output_dir = Path(config['velocity_analysis']['output_dir'])
     plots_dir = output_dir / 'plots'
     ensure_directory_exists(plots_dir)
-    
+
     output_format = config['analysis'].get('output_format', 'png')
-    
+
     # 1. Basic comparison plots (scatter + histograms)
     logger.info("Creating basic comparison plots")
     create_basic_comparison_plots(differences, plots_dir, output_format, config)
-    
+
     # 2. Spatial projection plots (RMS)
     if config['velocity_analysis'].get('enable_spatial_projections', True):
         logger.info("Creating spatial projection plots")
         create_spatial_projection_plots(df1, differences, plots_dir, output_format, config)
-    
-    # 3. Vertical profile plots
+
+    # 3. Vertical profile plots (using ratio-based extremes)
     if config['velocity_analysis'].get('enable_profile_analysis', True):
         logger.info("Creating profile comparison plots")
-        create_profile_comparison_plots(df1, df2, differences, extremes, plots_dir, output_format, config)
-    
-    # 4. Horizontal slice heatmaps
+        create_profile_comparison_plots(df1, df2, differences, ratio_extremes, plots_dir, output_format, config)
+
+    # 4. Horizontal slice heatmaps (using difference-based extremes)
     if config['velocity_analysis'].get('enable_slice_analysis', True):
         logger.info("Creating slice heatmap plots")
         create_slice_heatmap_plots(df1, df2, differences, extremes, plots_dir, output_format, config)
-    
-    # 5. Ratio analysis plots
+
+    # 5. Ratio analysis plots (using difference-based extremes)
     if config['velocity_analysis'].get('compute_geometric_mean_ratios', True):
         logger.info("Creating ratio analysis plots")
         create_ratio_analysis_plots(df1, df2, differences, extremes, plots_dir, output_format, config)
-    
-    # 6. Domain overview
+
+    # 6. Domain overview (using difference-based extremes)
     logger.info("Creating domain overview plot")
     create_domain_overview_plot(df1, extremes, plots_dir, output_format, config)
 

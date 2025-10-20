@@ -21,7 +21,7 @@ from scipy.interpolate import griddata
 import logging
 
 from utils.plot_utils import save_figure, get_color_scheme
-from .velocity_spatial import find_max_min_ratio_change_depths
+from .velocity_spatial import find_max_min_ratio_change_depths, find_extreme_ratio_change_profiles
 
 logger = logging.getLogger(__name__)
 
@@ -286,79 +286,124 @@ def create_profile_comparison_plots(df1: pd.DataFrame, df2: pd.DataFrame,
                                    plots_dir: Path, output_format: str,
                                    config: Dict[str, Any]) -> None:
     """
-    Create vertical profile plots at extreme difference locations.
-    
+    Create vertical profile plots at extreme ratio change locations.
+
     Args:
         df1: First velocity model dataframe
         df2: Second velocity model dataframe
         differences: Differences dictionary
-        extremes: Extreme profiles dictionary
+        extremes: Extreme profiles dictionary (ratio-based)
         plots_dir: Directory to save plots
         output_format: Output format
         config: Configuration dictionary
     """
     from .velocity_plots import get_model_names
     model1_name, model2_name, _ = get_model_names(config)
-    
+
+    # Load initial velocity model if specified
+    initial_model_csv = config['velocity_analysis'].get('initial_velocity_model_csv', None)
+    df_initial = None
+    if initial_model_csv is not None and initial_model_csv:
+        try:
+            df_initial = pd.read_csv(initial_model_csv)
+            logger.info(f"Loaded initial velocity model from {initial_model_csv}")
+        except Exception as e:
+            logger.warning(f"Could not load initial velocity model from {initial_model_csv}: {e}")
+            df_initial = None
+
     fig, axes = plt.subplots(2, 2, figsize=(16, 14))
     axes = axes.flatten()
-    
-    # Get profile data for max difference location
-    max_profile_data1 = df1[extremes['max_profile_mask']].sort_values('Z_grid_km')
-    max_profile_data2 = df2[extremes['max_profile_mask']].sort_values('Z_grid_km')
-    
-    # Get profile data for min difference location  
-    min_profile_data1 = df1[extremes['min_profile_mask']].sort_values('Z_grid_km')
-    min_profile_data2 = df2[extremes['min_profile_mask']].sort_values('Z_grid_km')
-    
-    # Max difference location - Vp profile
+
+    # Get profile data for max ratio change location
+    max_profile_data1 = df1[extremes['max_positive_mask']].sort_values('Z_grid_km')
+    max_profile_data2 = df2[extremes['max_positive_mask']].sort_values('Z_grid_km')
+
+    # Get profile data for min ratio change location
+    min_profile_data1 = df1[extremes['min_ratio_mask']].sort_values('Z_grid_km')
+    min_profile_data2 = df2[extremes['min_ratio_mask']].sort_values('Z_grid_km')
+
+    # max ratio change location - Vp profile
     axes[0].plot(max_profile_data1['vp'], max_profile_data1['Z_grid_km'], 'b-',
                 label=model1_name, linewidth=3, alpha=0.7)
     axes[0].plot(max_profile_data2['vp'], max_profile_data2['Z_grid_km'], 'r-',
                 label=model2_name, linewidth=3, alpha=0.7)
+
+    # Add initial model if available
+    if df_initial is not None:
+        max_initial_mask = ((df_initial['X_grid_km'] == extremes['max_positive_coords'][0]) &
+                           (df_initial['Y_grid_km'] == extremes['max_positive_coords'][1]))
+        max_initial_data = df_initial[max_initial_mask].sort_values('Z_grid_km')
+        if len(max_initial_data) > 0:
+            axes[0].plot(max_initial_data['vp'], max_initial_data['Z_grid_km'], 'gray',
+                        label='Initial Model', linewidth=2, alpha=1, linestyle='--')
+
     axes[0].set_xlabel('Vp (km/s)')
     axes[0].set_ylabel('Depth (km)')
-    axes[0].set_title(f'Vp Profile at Max Diff Location\n({extremes["max_profile_coords"][0]:.1f}, {extremes["max_profile_coords"][1]:.1f}) km')
+    axes[0].set_title(f'Vp Profile at Max Ratio Change\n({extremes["max_positive_coords"][0]:.1f}, {extremes["max_positive_coords"][1]:.1f}) km\nAvg change: {extremes["max_positive_avg_change"]:.4f}')
     axes[0].legend()
     axes[0].grid(True, alpha=0.3)
     axes[0].invert_yaxis()
-    
-    # Max difference location - Vs profile
+
+    # max ratio change location - Vs profile
     axes[1].plot(max_profile_data1['vs'], max_profile_data1['Z_grid_km'], 'b-',
                 label=model1_name, linewidth=3, alpha=0.7)
     axes[1].plot(max_profile_data2['vs'], max_profile_data2['Z_grid_km'], 'r-',
                 label=model2_name, linewidth=3, alpha=0.7)
+
+    # Add initial model if available
+    if df_initial is not None:
+        if len(max_initial_data) > 0:
+            axes[1].plot(max_initial_data['vs'], max_initial_data['Z_grid_km'], 'gray',
+                        label='Initial Model', linewidth=2, alpha=1, linestyle='--')
+
     axes[1].set_xlabel('Vs (km/s)')
     axes[1].set_ylabel('Depth (km)')
-    axes[1].set_title(f'Vs Profile at Max Diff Location\n({extremes["max_profile_coords"][0]:.1f}, {extremes["max_profile_coords"][1]:.1f}) km')
+    axes[1].set_title(f'Vs Profile at Max Ratio Change\n({extremes["max_positive_coords"][0]:.1f}, {extremes["max_positive_coords"][1]:.1f}) km\nAvg change: {extremes["max_positive_avg_change"]:.4f}')
     axes[1].legend()
     axes[1].grid(True, alpha=0.3)
     axes[1].invert_yaxis()
-    
-    # Min difference location - Vp profile
+
+    # Min ratio change location - Vp profile
     axes[2].plot(min_profile_data1['vp'], min_profile_data1['Z_grid_km'], 'b-',
                 label=model1_name, linewidth=3, alpha=0.7)
     axes[2].plot(min_profile_data2['vp'], min_profile_data2['Z_grid_km'], 'r-',
                 label=model2_name, linewidth=3, alpha=0.7)
+
+    # Add initial model if available
+    if df_initial is not None:
+        min_initial_mask = ((df_initial['X_grid_km'] == extremes['min_ratio_coords'][0]) &
+                           (df_initial['Y_grid_km'] == extremes['min_ratio_coords'][1]))
+        min_initial_data = df_initial[min_initial_mask].sort_values('Z_grid_km')
+        if len(min_initial_data) > 0:
+            axes[2].plot(min_initial_data['vp'], min_initial_data['Z_grid_km'], 'gray',
+                        label='Initial Model', linewidth=2, alpha=1, linestyle='--')
+
     axes[2].set_xlabel('Vp (km/s)')
     axes[2].set_ylabel('Depth (km)')
-    axes[2].set_title(f'Vp Profile at Min Diff Location\n({extremes["min_profile_coords"][0]:.1f}, {extremes["min_profile_coords"][1]:.1f}) km')
+    axes[2].set_title(f'Vp Profile at Min Ratio Change\n({extremes["min_ratio_coords"][0]:.1f}, {extremes["min_ratio_coords"][1]:.1f}) km\nAvg change: {extremes["min_ratio_avg_change"]:.4f}')
     axes[2].legend()
     axes[2].grid(True, alpha=0.3)
     axes[2].invert_yaxis()
-    
-    # Min difference location - Vs profile
+
+    # Min ratio change location - Vs profile
     axes[3].plot(min_profile_data1['vs'], min_profile_data1['Z_grid_km'], 'b-',
                 label=model1_name, linewidth=3, alpha=0.7)
     axes[3].plot(min_profile_data2['vs'], min_profile_data2['Z_grid_km'], 'r-',
                 label=model2_name, linewidth=3, alpha=0.7)
+
+    # Add initial model if available
+    if df_initial is not None:
+        if len(min_initial_data) > 0:
+            axes[3].plot(min_initial_data['vs'], min_initial_data['Z_grid_km'], 'gray',
+                        label='Initial Model', linewidth=2, alpha=1, linestyle='--')
+
     axes[3].set_xlabel('Vs (km/s)')
     axes[3].set_ylabel('Depth (km)')
-    axes[3].set_title(f'Vs Profile at Min Diff Location\n({extremes["min_profile_coords"][0]:.1f}, {extremes["min_profile_coords"][1]:.1f}) km')
+    axes[3].set_title(f'Vs Profile at Min Ratio Change\n({extremes["min_ratio_coords"][0]:.1f}, {extremes["min_ratio_coords"][1]:.1f}) km\nAvg change: {extremes["min_ratio_avg_change"]:.4f}')
     axes[3].legend()
     axes[3].grid(True, alpha=0.3)
     axes[3].invert_yaxis()
-    
+
     plt.suptitle(f'Vertical Velocity Profiles: {model1_name} vs {model2_name}', fontsize=20)
     plt.tight_layout()
     save_figure(fig, plots_dir / 'velocity_vertical_profiles', output_format)
