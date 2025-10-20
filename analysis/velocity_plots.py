@@ -814,7 +814,7 @@ def _plot_ratio_row(axes: np.ndarray, depth_data1: pd.DataFrame, depth_data2: pd
                    avg_change_text: str, slice_label: str) -> None:
     """
     Plot a single row of ratio analysis.
-    
+
     Args:
         axes: Array of 4 axes
         depth_data1, depth_data2: Depth slice data for both models
@@ -830,34 +830,34 @@ def _plot_ratio_row(axes: np.ndarray, depth_data1: pd.DataFrame, depth_data2: pd
     """
     if len(depth_data1) == 0 or len(depth_data2) == 0:
         return
-    
+
     # Interpolate velocities
-    Z1 = griddata((depth_data1['X_grid_km'], depth_data1['Y_grid_km']), 
+    Z1 = griddata((depth_data1['X_grid_km'], depth_data1['Y_grid_km']),
                  depth_data1[vel_col], (X, Y), method='linear')
-    Z2 = griddata((depth_data2['X_grid_km'], depth_data2['Y_grid_km']), 
+    Z2 = griddata((depth_data2['X_grid_km'], depth_data2['Y_grid_km']),
                  depth_data2[vel_col], (X, Y), method='linear')
-    
+
     # Find common velocity ranges
     v_min = min(np.nanmin(Z1), np.nanmin(Z2))
     v_max = max(np.nanmax(Z1), np.nanmax(Z2))
     if v_max - v_min < 1e-10:
         v_min, v_max = v_min - 0.1, v_max + 0.1
     norm_v = Normalize(vmin=v_min, vmax=v_max)
-    
+
     # Model 1
     im1 = axes[0].contourf(X, Y, Z1, levels=20, cmap=vel_cmap, vmin=v_min, vmax=v_max)
     axes[0].set_title(f'{model1_name} {vel_label}\nat {depth:.1f} km ({slice_label})')
     axes[0].set_xlabel('X (km)')
     axes[0].set_ylabel('Y (km)')
     plt.colorbar(plt.cm.ScalarMappable(norm=norm_v, cmap=vel_cmap), ax=axes[0], label=f'{vel_label} (km/s)')
-    
+
     # Model 2
     im2 = axes[1].contourf(X, Y, Z2, levels=20, cmap=vel_cmap, vmin=v_min, vmax=v_max)
     axes[1].set_title(f'{model2_name} {vel_label}\nat {depth:.1f} km ({slice_label})')
     axes[1].set_xlabel('X (km)')
     axes[1].set_ylabel('Y (km)')
     plt.colorbar(plt.cm.ScalarMappable(norm=norm_v, cmap=vel_cmap), ax=axes[1], label=f'{vel_label} (km/s)')
-    
+
     # Difference
     Z_diff = Z2 - Z1
     vmax_diff = np.nanmax(np.abs(Z_diff))
@@ -868,7 +868,7 @@ def _plot_ratio_row(axes: np.ndarray, depth_data1: pd.DataFrame, depth_data2: pd
     axes[2].set_xlabel('X (km)')
     axes[2].set_ylabel('Y (km)')
     plt.colorbar(im3, ax=axes[2], label=f'{vel_label} Diff (km/s)')
-    
+
     # Ratio - centered at 1.0
     Z_ratio = np.divide(Z2, Z1, out=np.ones_like(Z2), where=Z1!=0)
     ratio_deviations = np.abs(Z_ratio - 1.0)
@@ -877,10 +877,299 @@ def _plot_ratio_row(axes: np.ndarray, depth_data1: pd.DataFrame, depth_data2: pd
         max_deviation = 0.1
     vmin_ratio = 1.0 - max_deviation
     vmax_ratio = 1.0 + max_deviation
-    
+
     im4 = axes[3].contourf(X, Y, Z_ratio, levels=20, cmap='RdBu_r', vmin=vmin_ratio, vmax=vmax_ratio)
     axes[3].set_title(f'{vel_label} Ratio ({model2_name}/{model1_name})\nat {depth:.1f} km\n{avg_change_text}')
     axes[3].set_xlabel('X (km)')
     axes[3].set_ylabel('Y (km)')
     plt.colorbar(im4, ax=axes[3], label=f'{vel_label} Ratio')
     axes[3].contour(X, Y, Z_ratio, levels=[1.0], colors='black', linewidths=2, linestyles='--')
+
+
+def create_plane_specific_ratio_plots(df1: pd.DataFrame, df2: pd.DataFrame,
+                                      plots_dir: Path, output_format: str,
+                                      config: Dict[str, Any]) -> None:
+    """
+    Create plane-specific ratio plots for user-specified XY, XZ, or YZ planes.
+    Similar to depth_slice_heatmaps but uses ratios instead of differences.
+
+    Args:
+        df1: First velocity model dataframe
+        df2: Second velocity model dataframe
+        plots_dir: Directory to save plots
+        output_format: Output format
+        config: Configuration dictionary
+    """
+    from .velocity_plots import get_model_names
+    model1_name, model2_name, _ = get_model_names(config)
+
+    plane_config = config['velocity_analysis'].get('plane_ratio_plots', {})
+    planes = plane_config.get('planes', [])
+
+    # Get unique coordinates for validation
+    x_unique = np.sort(df1['X_grid_km'].unique())
+    y_unique = np.sort(df1['Y_grid_km'].unique())
+    z_unique = np.sort(df1['Z_grid_km'].unique())
+
+    for plane_spec in planes:
+        plane_type = plane_spec.get('plane_type')
+        coordinates = plane_spec.get('coordinates')
+        label = plane_spec.get('label', '')
+
+        # Skip if coordinates is null, empty, or not specified
+        if not coordinates:
+            logger.debug(f"Skipping {plane_type} plane (no coordinates specified)")
+            continue
+
+        # Ensure coordinates is a list
+        if not isinstance(coordinates, list):
+            coordinates = [coordinates]
+
+        logger.info(f"Creating {len(coordinates)} {plane_type} plane ratio plot(s)")
+
+        for coord in coordinates:
+            if coord is None:
+                continue
+
+            logger.info(f"  - {plane_type} plane at coordinate {coord} km")
+
+            if plane_type == 'xy':
+                # Horizontal slice at specified Z depth
+                _create_xy_plane_ratio_plot(df1, df2, coord, z_unique,
+                                           model1_name, model2_name, label,
+                                           plots_dir, output_format)
+            elif plane_type == 'xz':
+                # Vertical slice at specified Y coordinate
+                _create_xz_plane_ratio_plot(df1, df2, coord, y_unique,
+                                           model1_name, model2_name, label,
+                                           plots_dir, output_format)
+            elif plane_type == 'yz':
+                # Vertical slice at specified X coordinate
+                _create_yz_plane_ratio_plot(df1, df2, coord, x_unique,
+                                           model1_name, model2_name, label,
+                                           plots_dir, output_format)
+            else:
+                logger.warning(f"Unknown plane type: {plane_type}")
+
+
+def _create_xy_plane_ratio_plot(df1: pd.DataFrame, df2: pd.DataFrame,
+                                z_coord: float, z_unique: np.ndarray,
+                                model1_name: str, model2_name: str, label: str,
+                                plots_dir: Path, output_format: str) -> None:
+    """Create XY plane (horizontal slice) ratio plot at specified Z coordinate."""
+    # Find nearest Z coordinate
+    nearest_z = z_unique[np.argmin(np.abs(z_unique - z_coord))]
+
+    if abs(nearest_z - z_coord) > 0.1:
+        logger.warning(f"Requested Z={z_coord} km, using nearest available Z={nearest_z} km")
+
+    # Get data at this depth
+    data1 = df1[df1['Z_grid_km'] == nearest_z]
+    data2 = df2[df2['Z_grid_km'] == nearest_z]
+
+    if len(data1) == 0 or len(data2) == 0:
+        logger.warning(f"No data found at Z={nearest_z} km")
+        return
+
+    # Create meshgrid
+    x_unique = np.sort(data1['X_grid_km'].unique())
+    y_unique = np.sort(data1['Y_grid_km'].unique())
+    X, Y = np.meshgrid(x_unique, y_unique)
+
+    # Create 2x4 figure
+    fig, axes = plt.subplots(2, 4, figsize=(24, 12))
+
+    # TOP ROW: Vp
+    _plot_plane_full_comparison_row(axes[0, :], data1, data2, X, Y, 'vp', 'Vp', 'viridis',
+                                    model1_name, model2_name, nearest_z, label,
+                                    'X (km)', 'Y (km)')
+
+    # BOTTOM ROW: Vs
+    _plot_plane_full_comparison_row(axes[1, :], data1, data2, X, Y, 'vs', 'Vs', 'plasma',
+                                    model1_name, model2_name, nearest_z, label,
+                                    'X (km)', 'Y (km)')
+
+    plt.suptitle(f'XY Plane Analysis at Z={int(nearest_z)} km: {label}', fontsize=20)
+    plt.subplots_adjust(left=0.05, right=0.92, top=0.85, bottom=0.08, wspace=0.3, hspace=0.35)
+    save_figure(fig, plots_dir / f'xy_plane_ratio_z{int(nearest_z)}_km', output_format)
+
+
+def _create_xz_plane_ratio_plot(df1: pd.DataFrame, df2: pd.DataFrame,
+                                y_coord: float, y_unique: np.ndarray,
+                                model1_name: str, model2_name: str, label: str,
+                                plots_dir: Path, output_format: str) -> None:
+    """Create XZ plane (vertical slice) ratio plot at specified Y coordinate."""
+    # Find nearest Y coordinate
+    nearest_y = y_unique[np.argmin(np.abs(y_unique - y_coord))]
+
+    if abs(nearest_y - y_coord) > 0.1:
+        logger.warning(f"Requested Y={y_coord} km, using nearest available Y={nearest_y} km")
+
+    # Get data at this Y
+    data1 = df1[df1['Y_grid_km'] == nearest_y]
+    data2 = df2[df2['Y_grid_km'] == nearest_y]
+
+    if len(data1) == 0 or len(data2) == 0:
+        logger.warning(f"No data found at Y={nearest_y} km")
+        return
+
+    # Create meshgrid
+    x_unique = np.sort(data1['X_grid_km'].unique())
+    z_unique = np.sort(data1['Z_grid_km'].unique())
+    X, Z = np.meshgrid(x_unique, z_unique)
+
+    # Create 2x4 figure
+    fig, axes = plt.subplots(2, 4, figsize=(24, 12))
+
+    # TOP ROW: Vp
+    _plot_plane_full_comparison_row(axes[0, :], data1, data2, X, Z, 'vp', 'Vp', 'viridis',
+                                    model1_name, model2_name, nearest_y, label,
+                                    'X (km)', 'Z (km)', coord1='X_grid_km',
+                                    coord2='Z_grid_km', invert_y=True)
+
+    # BOTTOM ROW: Vs
+    _plot_plane_full_comparison_row(axes[1, :], data1, data2, X, Z, 'vs', 'Vs', 'plasma',
+                                    model1_name, model2_name, nearest_y, label,
+                                    'X (km)', 'Z (km)', coord1='X_grid_km',
+                                    coord2='Z_grid_km', invert_y=True)
+
+    plt.suptitle(f'XZ Plane Analysis at Y={int(nearest_y)} km: {label}', fontsize=20)
+    plt.subplots_adjust(left=0.05, right=0.92, top=0.85, bottom=0.08, wspace=0.3, hspace=0.35)
+    save_figure(fig, plots_dir / f'xz_plane_ratio_y{int(nearest_y)}_km', output_format)
+
+
+def _create_yz_plane_ratio_plot(df1: pd.DataFrame, df2: pd.DataFrame,
+                                x_coord: float, x_unique: np.ndarray,
+                                model1_name: str, model2_name: str, label: str,
+                                plots_dir: Path, output_format: str) -> None:
+    """Create YZ plane (vertical slice) ratio plot at specified X coordinate."""
+    # Find nearest X coordinate
+    nearest_x = x_unique[np.argmin(np.abs(x_unique - x_coord))]
+
+    if abs(nearest_x - x_coord) > 0.1:
+        logger.warning(f"Requested X={x_coord} km, using nearest available X={nearest_x} km")
+
+    # Get data at this X
+    data1 = df1[df1['X_grid_km'] == nearest_x]
+    data2 = df2[df2['X_grid_km'] == nearest_x]
+
+    if len(data1) == 0 or len(data2) == 0:
+        logger.warning(f"No data found at X={nearest_x} km")
+        return
+
+    # Create meshgrid
+    y_unique = np.sort(data1['Y_grid_km'].unique())
+    z_unique = np.sort(data1['Z_grid_km'].unique())
+    Y, Z = np.meshgrid(y_unique, z_unique)
+
+    # Create 2x4 figure
+    fig, axes = plt.subplots(2, 4, figsize=(24, 12))
+
+    # TOP ROW: Vp
+    _plot_plane_full_comparison_row(axes[0, :], data1, data2, Y, Z, 'vp', 'Vp', 'viridis',
+                                    model1_name, model2_name, nearest_x, label,
+                                    'Y (km)', 'Z (km)', coord1='Y_grid_km',
+                                    coord2='Z_grid_km', invert_y=True)
+
+    # BOTTOM ROW: Vs
+    _plot_plane_full_comparison_row(axes[1, :], data1, data2, Y, Z, 'vs', 'Vs', 'plasma',
+                                    model1_name, model2_name, nearest_x, label,
+                                    'Y (km)', 'Z (km)', coord1='Y_grid_km',
+                                    coord2='Z_grid_km', invert_y=True)
+
+    plt.suptitle(f'YZ Plane Analysis at X={int(nearest_x)} km: {label}', fontsize=20)
+    plt.subplots_adjust(left=0.05, right=0.92, top=0.85, bottom=0.08, wspace=0.3, hspace=0.35)
+    save_figure(fig, plots_dir / f'yz_plane_ratio_x{int(nearest_x)}_km', output_format)
+
+
+def _plot_plane_full_comparison_row(axes: np.ndarray, data1: pd.DataFrame, data2: pd.DataFrame,
+                                   X: np.ndarray, Y: np.ndarray, vel_col: str, vel_label: str,
+                                   vel_cmap: str, model1_name: str, model2_name: str,
+                                   coord_value: float, label: str, xlabel: str, ylabel: str,
+                                   coord1: str = 'X_grid_km', coord2: str = 'Y_grid_km',
+                                   invert_y: bool = False) -> None:
+    """
+    Plot a full comparison row (Model 1, Model 2, Difference, Ratio) for a single velocity type.
+    Matches the style of _plot_ratio_row from the existing ratio analysis plots.
+
+    Args:
+        axes: Array of 4 axes for the row
+        data1, data2: Data for both models at the plane
+        X, Y: Meshgrid coordinates
+        vel_col: Velocity column ('vp' or 'vs')
+        vel_label: Velocity label for display
+        vel_cmap: Colormap for velocity
+        model1_name, model2_name: Model names
+        coord_value: Coordinate value for the plane
+        label: Plane label
+        xlabel, ylabel: Axis labels
+        coord1, coord2: Column names for coordinates
+        invert_y: Whether to invert Y axis (for depth)
+    """
+    if len(data1) == 0 or len(data2) == 0:
+        return
+
+    # Interpolate velocities
+    Z1 = griddata((data1[coord1], data1[coord2]),
+                 data1[vel_col], (X, Y), method='linear')
+    Z2 = griddata((data2[coord1], data2[coord2]),
+                 data2[vel_col], (X, Y), method='linear')
+
+    # Find common velocity ranges
+    v_min = min(np.nanmin(Z1), np.nanmin(Z2))
+    v_max = max(np.nanmax(Z1), np.nanmax(Z2))
+    if v_max - v_min < 1e-10:
+        v_min, v_max = v_min - 0.1, v_max + 0.1
+    norm_v = Normalize(vmin=v_min, vmax=v_max)
+
+    # Column 1: Model 1
+    im1 = axes[0].contourf(X, Y, Z1, levels=20, cmap=vel_cmap, vmin=v_min, vmax=v_max)
+    axes[0].set_title(f'{model1_name} {vel_label}\n{label}')
+    axes[0].set_xlabel(xlabel)
+    axes[0].set_ylabel(ylabel)
+    plt.colorbar(plt.cm.ScalarMappable(norm=norm_v, cmap=vel_cmap), ax=axes[0], label=f'{vel_label} (km/s)')
+    if invert_y:
+        axes[0].invert_yaxis()
+
+    # Column 2: Model 2
+    im2 = axes[1].contourf(X, Y, Z2, levels=20, cmap=vel_cmap, vmin=v_min, vmax=v_max)
+    axes[1].set_title(f'{model2_name} {vel_label}\n{label}')
+    axes[1].set_xlabel(xlabel)
+    axes[1].set_ylabel(ylabel)
+    plt.colorbar(plt.cm.ScalarMappable(norm=norm_v, cmap=vel_cmap), ax=axes[1], label=f'{vel_label} (km/s)')
+    if invert_y:
+        axes[1].invert_yaxis()
+
+    # Column 3: Difference
+    Z_diff = Z2 - Z1
+    vmax_diff = np.nanmax(np.abs(Z_diff))
+    if vmax_diff < 1e-10:
+        vmax_diff = 0.1
+    im3 = axes[2].contourf(X, Y, Z_diff, levels=20, cmap='RdBu_r', vmin=-vmax_diff, vmax=vmax_diff)
+    axes[2].set_title(f'{vel_label} Difference\n({model2_name} - {model1_name})')
+    axes[2].set_xlabel(xlabel)
+    axes[2].set_ylabel(ylabel)
+    plt.colorbar(im3, ax=axes[2], label=f'{vel_label} Diff (km/s)')
+    if invert_y:
+        axes[2].invert_yaxis()
+
+    # Column 4: Ratio - centered at 1.0
+    Z_ratio = np.divide(Z2, Z1, out=np.ones_like(Z2), where=Z1!=0)
+    ratio_deviations = np.abs(Z_ratio - 1.0)
+    max_deviation = np.nanmax(ratio_deviations)
+    if max_deviation < 1e-10:
+        max_deviation = 0.1
+    vmin_ratio = 1.0 - max_deviation
+    vmax_ratio = 1.0 + max_deviation
+
+    # Calculate average ratio change for annotation
+    avg_ratio_change = np.nanmean(np.abs(Z_ratio - 1.0))
+
+    im4 = axes[3].contourf(X, Y, Z_ratio, levels=20, cmap='RdBu_r', vmin=vmin_ratio, vmax=vmax_ratio)
+    axes[3].set_title(f'{vel_label} Ratio ({model2_name}/{model1_name})\nAvg change: {avg_ratio_change:.4f}')
+    axes[3].set_xlabel(xlabel)
+    axes[3].set_ylabel(ylabel)
+    plt.colorbar(im4, ax=axes[3], label=f'{vel_label} Ratio')
+    axes[3].contour(X, Y, Z_ratio, levels=[1.0], colors='black', linewidths=2, linestyles='--')
+    if invert_y:
+        axes[3].invert_yaxis()

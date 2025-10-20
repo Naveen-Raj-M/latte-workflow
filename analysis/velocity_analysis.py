@@ -27,7 +27,8 @@ from .velocity_plots import (
     create_profile_comparison_plots,
     create_slice_heatmap_plots,
     create_ratio_analysis_plots,
-    create_domain_overview_plot
+    create_domain_overview_plot,
+    create_plane_specific_ratio_plots
 )
 from .velocity_reports import generate_velocity_comparison_report
 
@@ -203,5 +204,10 @@ def create_all_velocity_plots(df1: pd.DataFrame, df2: pd.DataFrame,
     # 6. Domain overview
     logger.info("Creating domain overview plot")
     create_domain_overview_plot(df1, extremes, plots_dir, output_format, config)
-    
+
+    # 7. Plane-specific ratio plots (optional)
+    if config['velocity_analysis'].get('enable_plane_ratio_plots', False):
+        logger.info("Creating plane-specific ratio plots")
+        create_plane_specific_ratio_plots(df1, df2, plots_dir, output_format, config)
+
     logger.info(f"All plots saved to: {plots_dir}")

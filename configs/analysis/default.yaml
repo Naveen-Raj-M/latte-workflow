@@ -128,6 +128,7 @@ velocity_analysis:
   enable_spatial_projections: true
   enable_profile_analysis: true
   enable_slice_analysis: true
+  enable_plane_ratio_plots: true
   
   # Spatial analysis settings
   interpolation_method: "cubic"  # Options: linear, cubic, nearest
@@ -138,6 +139,25 @@ velocity_analysis:
   velocity_colormap: "viridis"
   difference_colormap: "RdBu_r"
   ratio_colormap: "RdBu_r"
+
+  # Plane-specific ratio plots (optional)
+  plane_ratio_plots:
+    # Specify which planes to plot and at what coordinates
+    # Each entry should have: plane_type (xy, xz, or yz) and coordinates (list)
+    # For xy plane: specify z coordinates (depth) as a list
+    # For xz plane: specify y coordinates as a list
+    # For yz plane: specify x coordinates as a list
+    # Use null or empty list [] to skip a plane type
+    planes:
+      - plane_type: "xy"  # Horizontal slice
+        coordinates: []  # List of Z coordinates in km, e.g., [5.0, 10.0, 15.0]
+        label: "Horizontal Plane (xy)"
+      - plane_type: "xz"  # Vertical slice along X
+        coordinates: []  # List of Y coordinates in km, e.g., [300.0, 400.0]
+        label: "Vertical Plane (xz)"
+      - plane_type: "yz"  # Vertical slice along Y
+        coordinates: []  # List of X coordinates in km, e.g., [350.0, 450.0]
+        label: "Vertical Plane (yz)"
 
 # Distance analysis configuration  
 distance_analysis:
