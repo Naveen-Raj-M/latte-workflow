@@ -272,11 +272,13 @@ def create_synthetic_travel_time_csv(config: DictConfig) -> None:
             # Create records for each station
             for i, (_, gt_row) in enumerate(phase_gt_data_sorted.iterrows()):
                 synthetic_tt = synthetic_times[i]
+                observed_tt = gt_row["observed_tt"]
                 
                 # Apply source correction if enabled
                 if corrected_origin_times is not None:
                     synthetic_tt = synthetic_tt - origin_time_correction
-                
+                    observed_tt = observed_tt - origin_time_correction
+         
                 # Skip unrealistic synthetic values
                 if synthetic_tt > 1e10:
                     print(f"  Warning: Unrealistic synthetic time {synthetic_tt:.2e}s for shot {shot_id}, station {gt_row['station']}")
@@ -290,9 +292,9 @@ def create_synthetic_travel_time_csv(config: DictConfig) -> None:
                     'phase': phase,
                     
                     # Travel times
-                    'observed_tt': gt_row['observed_tt'],
+                    'observed_tt': observed_tt,
                     'synthetic_tt': synthetic_tt,
-                    'residual_s': gt_row['observed_tt'] - synthetic_tt,  # observed - synthetic
+                    'residual_s': observed_tt - synthetic_tt,  # observed - synthetic
                     
                     # Metadata (from ground truth)
                     'weight': gt_row['weight'],
@@ -427,8 +429,8 @@ def create_synthetic_travel_time_csv_with_exchange(config: DictConfig) -> None:
             if travel_times is None:
                 continue
 
-            if not len(travel_times) == 4495:
-                print(f"Length of travel times in binary file ({len(travel_times)}) is not equal to 4495")
+            # if not len(travel_times) == 4495:
+            #     #print(f"Length of travel times in binary file ({len(travel_times)}) is not equal to 4495")
 
             # Process each shot_id (array index with 1-based numbering)
             for shot_id in range(1, len(travel_times) + 1):
@@ -438,11 +440,19 @@ def create_synthetic_travel_time_csv_with_exchange(config: DictConfig) -> None:
                 if synthetic_tt > 1e10 or synthetic_tt < -1e10:
                     print(f"Invalid synthetic travel time: {synthetic_tt}")
                     continue
+
+                # # # TEMPORARY FIX: Skip shot ID 60 due to ground truth inconsistency
+                # if shot_id == 60:
+                #     continue
+
+                # if shot_id > 60:
+                #     shot_id += 1
                 
                 # Apply source correction for this shot_id
                 if corrected_origin_times is not None:
                     origin_correction = corrected_origin_times.get(shot_id, 0.0)
                     synthetic_tt = synthetic_tt - origin_correction
+
                 else:
                     origin_correction = 0.0
                 
@@ -453,16 +463,20 @@ def create_synthetic_travel_time_csv_with_exchange(config: DictConfig) -> None:
                 if gt_row is None:
                     missing_pairs.append(key)
                     continue
-                
+
+                observed_tt = gt_row['observed_tt']
+                if corrected_origin_times is not None:
+                    observed_tt = observed_tt - origin_correction
+
                 # Create output record matching ground truth format exactly
                 record = {
                     'shot_id': shot_id,
                     'event_id': gt_row['event_id'],
                     'station': station_name,
                     'phase': phase,
-                    'observed_tt': gt_row['observed_tt'],
+                    'observed_tt': observed_tt,
                     'synthetic_tt': synthetic_tt,
-                    'residual_s': gt_row['observed_tt'] - synthetic_tt,
+                    'residual_s': observed_tt - synthetic_tt,
                     'weight': gt_row['weight'],
                     'event_longitude': gt_row['event_longitude'],
                     'event_latitude': gt_row['event_latitude'],
