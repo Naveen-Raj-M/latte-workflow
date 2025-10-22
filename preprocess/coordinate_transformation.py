@@ -465,15 +465,17 @@ def transform_coordinates(config: DictConfig) -> None:
         events_df = load_event_data(config.event_file)
         event_file_suffix = ""
 
-    # Load final velocity data if enabled
+    # Load initial velocity data (true initial model from 1D interpolation or user-provided)
+    print(f"Loading INITIAL velocity data from: {config.initial_velocity_file}")
+    velocity_df = load_velocity_data(config.initial_velocity_file)
+    print(f"Loaded {len(velocity_df)} initial velocity points")
+
+    # Load final velocity data if enabled (inverted/updated velocity model)
     final_velocity_df = None
     if config.process_final_velocity:
-        print(f"Loading final velocity data from: {config.final_velocity_file}")
+        print(f"Loading FINAL velocity data from: {config.final_velocity_file}")
         final_velocity_df = load_final_velocity_data(config.final_velocity_file)
         print(f"Loaded {len(final_velocity_df)} final velocity points")
-    
-    print(f"Loading velocity data from: {config.velocity_file}")
-    velocity_df = load_velocity_data(config.velocity_file)
     
     print(f"Loaded {len(events_df)} events, {len(stations_df)} stations, {len(velocity_df)} velocity points")
     
@@ -613,20 +615,21 @@ def transform_coordinates(config: DictConfig) -> None:
     print("\nSample of Processed Velocity Data:")
     print(velocity_processed_df[available_cols].head())
     
-    # Save results
+    # Save results with clear initial/final naming
     print(f"\nSaving results to '{config.output_dir}':")
     stations_processed_df.to_csv(os.path.join(config.output_dir, f"stations_cartesian{method_suffix}.csv"), index=False)
     events_processed_df.to_csv(os.path.join(config.output_dir, f"events_cartesian{method_suffix}{event_file_suffix}.csv"), index=False)
-    velocity_processed_df.to_csv(os.path.join(config.output_dir, f"velocity_cartesian{method_suffix}.csv"), index=False)
 
-    # Save final velocity if processed
-    if config.process_final_velocity and final_velocity_processed_df is not None:
-        final_velocity_processed_df.to_csv(os.path.join(config.output_dir, f"velocity_final_cartesian{method_suffix}.csv"), index=False)
-        print(f"  - velocity_final_cartesian{method_suffix}.csv")
-    
+    # Save INITIAL velocity model (renamed from velocity_cartesian to velocity_initial_cartesian)
+    velocity_processed_df.to_csv(os.path.join(config.output_dir, f"velocity_initial_cartesian{method_suffix}.csv"), index=False)
     print(f"  - stations_cartesian{method_suffix}.csv")
     print(f"  - events_cartesian{method_suffix}{event_file_suffix}.csv")
-    print(f"  - velocity_cartesian{method_suffix}.csv")
+    print(f"  - velocity_initial_cartesian{method_suffix}.csv (INITIAL model)")
+
+    # Save FINAL velocity if processed
+    if config.process_final_velocity and final_velocity_processed_df is not None:
+        final_velocity_processed_df.to_csv(os.path.join(config.output_dir, f"velocity_final_cartesian{method_suffix}.csv"), index=False)
+        print(f"  - velocity_final_cartesian{method_suffix}.csv (FINAL model)")
     
     print(f"\nGrid Dimensions: nx={nx}, ny={ny}, nz={nz}")
     print(f"Grid spacing: dx={config.grid_spacing_km[0]} km, dy={config.grid_spacing_km[1]} km, dz={config.grid_spacing_km[2]} km")

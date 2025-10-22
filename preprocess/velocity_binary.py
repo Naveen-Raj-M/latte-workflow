@@ -120,10 +120,11 @@ def interpolate_internal_gaps(model: np.ndarray, neighbor_threshold: int) -> np.
 def populate_grid_and_write_bins(df: pd.DataFrame, config: DictConfig, nx: int, ny: int, nz: int) -> None:
     """Populate 3D model grid from CSV data and write binary files."""
     print("\nPopulating 3D model grid from CSV data...")
-    
-    # Initialize models with auto-detected dimensions
-    vp_model = np.zeros((nx, ny, nz), dtype=np.float32, order='F')
-    vs_model = np.zeros((nx, ny, nz), dtype=np.float32, order='F')
+
+    # Initialize models with auto-detected dimensions using C-order (row-major)
+    # NOTE: Using C-order to match actual binary file format
+    vp_model = np.zeros((nx, ny, nz), dtype=np.float32, order='C')
+    vs_model = np.zeros((nx, ny, nz), dtype=np.float32, order='C')
     
     points_processed = 0
     points_outside_grid = 0
@@ -172,10 +173,10 @@ def populate_grid_and_write_bins(df: pd.DataFrame, config: DictConfig, nx: int, 
         print(f"Vs file size: {os.path.getsize(config.vs_output)} bytes")
         print(f"Expected size: {nx * ny * nz * 4} bytes (for float32)")
         
-        # Verify the files can be read back correctly
+        # Verify the files can be read back correctly using C-order
         print(f"\nVerification test:")
-        vp_check = np.fromfile(config.vp_output, dtype=np.float32).reshape((nx, ny, nz), order='F')
-        vs_check = np.fromfile(config.vs_output, dtype=np.float32).reshape((nx, ny, nz), order='F')
+        vp_check = np.fromfile(config.vp_output, dtype=np.float32).reshape((nx, ny, nz), order='C')
+        vs_check = np.fromfile(config.vs_output, dtype=np.float32).reshape((nx, ny, nz), order='C')
         print(f"Vp range: {vp_check.min():.1f} - {vp_check.max():.1f} m/s")
         print(f"Vs range: {vs_check.min():.1f} - {vs_check.max():.1f} m/s")
         print(f"Arrays match original: Vp={np.allclose(vp_model_filled, vp_check)}, Vs={np.allclose(vs_model_filled, vs_check)}")
@@ -192,10 +193,10 @@ def create_velocity_binary_files(config: DictConfig) -> None:
     Main function to create velocity binary files from CSV data.
     Can process both initial and final velocity models.
     """
-    print("--- Starting CSV to 3D Binary Velocity Model Conversion (Chapman Workflow) ---")
-    print("Binary format: Fortran stream access (no record markers)")
-    print("Data type: 32-bit float")
-    print("Array order: Fortran column-major")
+    print("--- Starting CSV to 3D Binary Velocity Model Conversion ---")
+    print("Binary format: Raw binary (no record markers)")
+    print("Data type: 32-bit float (float32)")
+    print("Array order: C-order (row-major)")
     
     velocity_type = "Chapman-transformed" if config.use_chapman_velocities else "Original"
     print(f"Velocity type: {velocity_type}")

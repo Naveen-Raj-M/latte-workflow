@@ -22,8 +22,14 @@ coordinate_transform:
   station_file: "${data.base_dir}/stacoords.txt"
   event_file: "${data.base_dir}/phasePickings.txt"
   corrected_event_file: "${data.base_dir}/sphfdloc.dat"
-  velocity_file: "${data.base_dir}/vmodel-PB3D.txt"
-  
+
+  # Velocity model files - IMPORTANT: Use different files for initial vs final!
+  initial_velocity_file: "${initial_3d_model.output_file}"  # TRUE initial model from 1D interpolation
+
+  # Final velocity processing (optional)
+  process_final_velocity: false
+  final_velocity_file: "${data.base_dir}/vmodel-PB3D.txt"  # Path to FINAL/INVERTED velocity model
+
   # Output directory
   output_dir: "/path/to/output"
   
@@ -99,12 +105,18 @@ geometry_traveltime:
 # Velocity binary file generation
 velocity_binary:
   enabled: true
-  
-  # Input/output
-  input_csv: "${coordinate_transform.output_dir}/velocity_cartesian.csv"
-  vp_output: "${data.output_base_dir}/vp_init.bin"
-  vs_output: "${data.output_base_dir}/vs_init.bin"
-  
+
+  # Initial velocity binary (from TRUE initial model)
+  input_csv: "${coordinate_transform.output_dir}/velocity_initial_cartesian.csv"
+  vp_output: "${data.output_base_dir}/model/vp_init.bin"
+  vs_output: "${data.output_base_dir}/model/vs_init.bin"
+
+  # Final velocity binary creation (from INVERTED/FINAL model)
+  create_final_binaries: false
+  final_input_csv: "${coordinate_transform.output_dir}/velocity_final_cartesian.csv"
+  vp_final_output: "${data.output_base_dir}/model/vp_final.bin"
+  vs_final_output: "${data.output_base_dir}/model/vs_final.bin"
+
   # Processing options
   use_chapman_velocities: true
   interpolate: true
@@ -124,13 +136,13 @@ visualization:
   
   # Velocity model visualization
   velocity_vis:
-    csv_file: "${coordinate_transform.output_dir}/velocity_cartesian.csv"
-    bin_file: "${data.output_base_dir}/vp_init.bin"
+    csv_file: "${coordinate_transform.output_dir}/velocity_initial_cartesian.csv"
+    bin_file: "${data.output_base_dir}/model/vp_init.bin"
     coord_system: "flattened"  # "flattened" or "enu"
-    
+
   # Animated visualization
   velocity_animation:
-    bin_file: "${data.output_base_dir}/vp_init.bin"
+    bin_file: "${data.output_base_dir}/model/vp_init.bin"
     output_gif: "${data.output_base_dir}/velocity_animation.gif"
     rotation_frames: 120
     frame_duration: 0.05

@@ -169,7 +169,7 @@ def print_configuration_summary(config: DictConfig) -> None:
         event_type = "corrected" if config.coordinate_transform.use_corrected_phase_pickings else "original"
         event_file = config.coordinate_transform.corrected_event_file if config.coordinate_transform.use_corrected_phase_pickings else config.coordinate_transform.event_file
         print(f"  - Events ({event_type}): {event_file}")
-        print(f"  - Velocity model: {config.coordinate_transform.velocity_file}")
+        print(f"  - Initial velocity model: {config.coordinate_transform.initial_velocity_file}")
     if config.initial_3d_model.enabled:
         print(f"  - 1D model: {config.initial_3d_model.model_1d_file}")
         print(f"  - 3D template: {config.initial_3d_model.template_3d_file}")
@@ -180,7 +180,7 @@ def print_configuration_summary(config: DictConfig) -> None:
         print(f"  - Stations CSV: {config.geometry_traveltime.station_csv}")
         print(f"  - Events CSV: {config.geometry_traveltime.event_csv}")
     if config.velocity_binary.enabled:
-        print(f"  - Velocity CSV: {config.velocity_binary.input_csv}")
+        print(f"  - Initial velocity CSV: {config.velocity_binary.input_csv}")
     if config.coordinate_transform.enabled and config.coordinate_transform.process_final_velocity:
         print(f"  - Final velocity model: {config.coordinate_transform.final_velocity_file}")
     if config.velocity_binary.enabled and config.velocity_binary.create_final_binaries:
