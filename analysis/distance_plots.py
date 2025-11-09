@@ -462,6 +462,7 @@ def create_ratio_distance_plots(df: pd.DataFrame, colors: Dict[str, str],
         axes_flat[1].set_xscale('log')
         axes_flat[1].set_xlabel(f'{distance_label} Distance ({coordinate_type}) [km]')
         axes_flat[1].set_ylabel(ylabel_ratio)
+        axes_flat[1].set_ylim(top=3.0)
         axes_flat[1].set_title('P-wave: Ratio vs Distance (log scale)')
         axes_flat[1].grid(True, which='both', alpha=0.3)
     

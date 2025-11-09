@@ -112,10 +112,7 @@ def calculate_all_distances(df: pd.DataFrame, coordinate_type: str,
         Dataframe with distance columns added
     """
     logger.info(f"Calculating distances using {coordinate_type} coordinates")
-    logger.info(f"Distance types: {distance_types}")
-    
-    # DEBUG: Print all columns to see what's available
-    logger.info(f"Available columns in dataframe: {df.columns.tolist()}")
+    logger.info(f"Distance types: {distance_types}") 
     
    # Get coordinate column names based on coordinate type and what's available
     if coordinate_type == "transformed":
