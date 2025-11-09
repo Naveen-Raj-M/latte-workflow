@@ -202,11 +202,12 @@ def run_preprocessing_pipeline(config: DictConfig) -> None:
     
     # Run processing steps in order
     try:
-        # Step 1: Coordinate transformation
-        run_coordinate_transform(config.coordinate_transform)
         
-        # Step 2: Initial 3D velocity model
+        # Step 1: Initial 3D velocity model
         run_initial_3d_model(config.initial_3d_model)
+
+        # Step 2: Coordinate transformation
+        run_coordinate_transform(config.coordinate_transform)
         
         # Step 3: Geometry and travel time files
         run_geometry_traveltime(config.geometry_traveltime)
