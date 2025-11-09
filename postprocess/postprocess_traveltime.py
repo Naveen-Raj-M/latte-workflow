@@ -197,28 +197,86 @@ def create_ground_truth_lookup(df_ground_truth: pd.DataFrame) -> Dict[Tuple[int,
     return gt_lookup
 
 
+def build_array_index_to_shot_id_mapping(unique_shot_ids: list, removed_shots: list) -> Dict[int, int]:
+    """
+    Build mapping from binary array index (0-based) to actual shot IDs.
+
+    When shots are removed by LATTE during geometry filtering, the binary arrays
+    are compacted, creating a mismatch between array indices and shot IDs.
+
+    Args:
+        unique_shot_ids: Sorted list of all shot IDs that should exist (1-based)
+        removed_shots: List of shot IDs (1-based) that were filtered out by LATTE
+
+    Returns:
+        Dictionary mapping array_index (0-based) -> actual shot_id (1-based)
+
+    Example:
+        If shot 60 is removed from shots [1, 2, ..., 100]:
+        - Array has 99 elements (indices 0-98)
+        - Index 0 -> shot_id 1
+        - Index 59 -> shot_id 61 (shot 60 was removed)
+        - Index 98 -> shot_id 100
+    """
+    print("\nBuilding array index to shot ID mapping...")
+
+    # Convert removed_shots to set for O(1) lookup
+    removed_set = set(removed_shots) if removed_shots else set()
+
+    # Build list of valid shot IDs (those not removed)
+    valid_shot_ids = [sid for sid in unique_shot_ids if sid not in removed_set]
+
+    # Create mapping: array_index (0-based) -> shot_id (1-based)
+    mapping = {idx: shot_id for idx, shot_id in enumerate(valid_shot_ids)}
+
+    print(f"  Total shot IDs in ground truth: {len(unique_shot_ids)}")
+    print(f"  Removed shots: {sorted(removed_set) if removed_set else 'None'}")
+    print(f"  Valid shots after removal: {len(valid_shot_ids)}")
+    print(f"  Expected array size: {len(valid_shot_ids)}")
+
+    if removed_set:
+        print(f"  Example mappings with removed shots:")
+        # Show mappings around removed shots
+        for removed_id in sorted(removed_set)[:3]:  # Show first 3 removed shots
+            # Find the array index that would have been just before the removed shot
+            idx_before = removed_id - 1 - len([r for r in removed_set if r < removed_id])
+            if idx_before > 0 and idx_before - 1 in mapping:
+                print(f"    Array index {idx_before - 1} -> shot_id {mapping[idx_before - 1]}")
+            if idx_before in mapping:
+                print(f"    Array index {idx_before} -> shot_id {mapping[idx_before]} (shot {removed_id} skipped)")
+
+    return mapping
+
+
 def create_synthetic_travel_time_csv(config: DictConfig) -> None:
-    """Create synthetic travel time CSV from binary files."""
-    print("\n=== CREATING SYNTHETIC TRAVEL TIME CSV FROM BINARIES ===")
-    
+    """Create synthetic travel time CSV from binary files (standard mode - no exchange)."""
+    print("\n=== CREATING SYNTHETIC TRAVEL TIME CSV FROM BINARIES (STANDARD MODE) ===")
+
     # Load ground truth CSV for structure and metadata
     print(f"Loading ground truth travel time CSV: {config.ground_truth_csv}")
     df_ground_truth = pd.read_csv(config.ground_truth_csv)
-    
+
     # Load shot mapping
     shot_map = load_shot_mapping(config.shot_map_file)
-    
+
     # Load corrected origin times if source correction is enabled
     corrected_origin_times = None
     if config.get('use_source_correction', False):
         corrected_origin_times = load_source_correction_binaries(config.source_correction_file, mode="standard")
         print("Source correction enabled: Will use corrected origin times")
-    
+
+    # Get removed shots configuration
+    removed_shots = config.get('removed_shots', [])
+    if removed_shots:
+        print(f"\nRemoved shots configuration: {sorted(removed_shots)}")
+        print(f"  Note: In standard mode, missing binary files will be skipped with warnings")
+
     # Prepare data for synthetic CSV
     csv_data = []
-    
-    print("Processing synthetic travel time binaries...")
-    
+    missing_shots = []
+
+    print("\nProcessing synthetic travel time binaries...")
+
     # Get unique shots from ground truth data
     unique_shots = sorted(df_ground_truth['shot_id'].unique())
     
@@ -252,9 +310,11 @@ def create_synthetic_travel_time_csv(config: DictConfig) -> None:
             # Load synthetic travel time binary
             bin_file = os.path.join(config.synthetic_tt_dir, f"shot_{shot_id}_traveltime_{phase_lower}.bin")
             synthetic_times = read_travel_time_binary(bin_file)
-            
+
             if synthetic_times is None:
                 print(f"  Warning: No synthetic data for shot {shot_id}, phase {phase}")
+                if shot_id not in missing_shots:
+                    missing_shots.append(shot_id)
                 continue
             
             # Sort ground truth data by station to ensure consistent ordering
@@ -352,7 +412,26 @@ def create_synthetic_travel_time_csv(config: DictConfig) -> None:
                 print(f"  Origin time correction range: {df_synthetic['corrected_origin_time_s'].min():.3f} to {df_synthetic['corrected_origin_time_s'].max():.3f} s")
         else:
             print(f"  Source correction applied: NO")
-        
+
+        # Report missing shots
+        if missing_shots:
+            missing_shots_sorted = sorted(set(missing_shots))
+            print(f"\n  WARNING: {len(missing_shots_sorted)} shots had missing binary files:")
+            print(f"    Missing shot IDs: {missing_shots_sorted}")
+            if removed_shots:
+                expected_missing = set(removed_shots)
+                actual_missing = set(missing_shots_sorted)
+                if expected_missing != actual_missing:
+                    print(f"    NOTE: This differs from configured removed_shots: {sorted(removed_shots)}")
+                    unexpected = actual_missing - expected_missing
+                    if unexpected:
+                        print(f"    Unexpectedly missing: {sorted(unexpected)}")
+                    missing_from_config = expected_missing - actual_missing
+                    if missing_from_config:
+                        print(f"    Configured but not missing: {sorted(missing_from_config)}")
+                else:
+                    print(f"    This matches the configured removed_shots ✓")
+
     else:
         print("Warning: No synthetic travel time data was processed")
 
@@ -386,13 +465,27 @@ def create_synthetic_travel_time_csv_with_exchange(config: DictConfig) -> None:
     corrected_origin_times = None
     if config.get('use_source_correction', False):
         corrected_origin_times = load_source_correction_binaries(
-            config.source_correction_file, 
+            config.source_correction_file,
             mode="exchange"
         )
         print("Source correction enabled")
-    
+
+    # Build shot ID mapping considering removed shots
+    unique_shot_ids = sorted(df_ground_truth['shot_id'].unique())
+    removed_shots = config.get('removed_shots', [])
+
+    if removed_shots:
+        print(f"\nRemoved shots configuration: {sorted(removed_shots)}")
+        print(f"  WARNING: These shots were filtered by LATTE and will be skipped in binary arrays")
+
+    # Build mapping from array index (0-based) to actual shot ID (1-based)
+    array_index_to_shot_id = build_array_index_to_shot_id_mapping(unique_shot_ids, removed_shots)
+
+    # Expected array size after removing shots
+    expected_array_size = len(array_index_to_shot_id)
+
     # Count binary files to verify
-    bin_files = sorted([f for f in os.listdir(config.synthetic_tt_dir) 
+    bin_files = sorted([f for f in os.listdir(config.synthetic_tt_dir)
                        if f.startswith('shot_') and f.endswith('.bin')])
     print(f"\nFound {len(bin_files)} binary files in {config.synthetic_tt_dir}")
     print(f"Expected {len(virtual_to_station) * 2} files (P and S for each virtual station)")
@@ -422,32 +515,52 @@ def create_synthetic_travel_time_csv_with_exchange(config: DictConfig) -> None:
                 print(f"station_name could not be found for virtual shot id; {virtual_shot_id}")
                 continue
             
-            # Read binary file (array index = shot_id with 1-based indexing)
+            # Read binary file
             bin_path = os.path.join(config.synthetic_tt_dir, bin_file)
             travel_times = read_travel_time_binary(bin_path)
-            
+
             if travel_times is None:
                 continue
 
-            # if not len(travel_times) == 4495:
-            #     #print(f"Length of travel times in binary file ({len(travel_times)}) is not equal to 4495")
+            # CRITICAL: Validate array size matches expected size
+            actual_array_size = len(travel_times)
+            if actual_array_size != expected_array_size:
+                error_msg = (
+                    f"\n{'='*80}\n"
+                    f"ERROR: Array size mismatch for {bin_file}\n"
+                    f"  Expected: {expected_array_size} elements\n"
+                    f"  Actual:   {actual_array_size} elements\n"
+                    f"  Difference: {actual_array_size - expected_array_size}\n"
+                    f"\n"
+                    f"This indicates that the binary file does not match the ground truth.\n"
+                )
+                if removed_shots:
+                    error_msg += (
+                        f"With removed_shots={sorted(removed_shots)}, we expect {expected_array_size} elements.\n"
+                        f"Please verify:\n"
+                        f"  1. The removed_shots configuration is correct\n"
+                        f"  2. The binary files match the LATTE output\n"
+                        f"  3. Check LATTE warnings for filtered shots\n"
+                    )
+                else:
+                    error_msg += (
+                        f"Ground truth has {len(unique_shot_ids)} unique shots.\n"
+                        f"If LATTE filtered some shots, add them to 'removed_shots' config.\n"
+                        f"Example: removed_shots: [60] if shot 60 was removed\n"
+                    )
+                error_msg += f"{'='*80}\n"
+                raise ValueError(error_msg)
 
-            # Process each shot_id (array index with 1-based numbering)
-            for shot_id in range(1, len(travel_times) + 1):
-                synthetic_tt = travel_times[shot_id - 1]  # Convert to 0-based index
-                
+            # Process each array element using proper shot ID mapping
+            for array_idx in range(len(travel_times)):
+                # Map array index (0-based) to actual shot ID (1-based)
+                shot_id = array_index_to_shot_id[array_idx]
+                synthetic_tt = travel_times[array_idx]
+
                 # Skip unrealistic values
                 if synthetic_tt > 1e10 or synthetic_tt < -1e10:
-                    print(f"Invalid synthetic travel time: {synthetic_tt}")
                     continue
 
-                # # # TEMPORARY FIX: Skip shot ID 60 due to ground truth inconsistency
-                # if shot_id == 60:
-                #     continue
-
-                # if shot_id > 60:
-                #     shot_id += 1
-                
                 # Apply source correction for this shot_id
                 if corrected_origin_times is not None:
                     origin_correction = corrected_origin_times.get(shot_id, 0.0)

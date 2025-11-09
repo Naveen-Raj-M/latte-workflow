@@ -82,7 +82,15 @@ travel_time_processing:
   # source correction
   source_correction: false
   source_correction_file: ${data.base_dir}/model/updated_st0.bin
-  
+
+  # Removed shots configuration
+  # If some shots were filtered out by LATTE during geometry loading (e.g., no valid sources/receivers),
+  # specify them here to ensure correct mapping in source-receiver exchange mode.
+  # IMPORTANT: Use 1-based shot IDs (e.g., [60] means shot 60 was removed)
+  # Leave empty [] if no shots were removed or use null
+  # Example: removed_shots: [60, 120, 240]  # These shot IDs were filtered out by LATTE
+  removed_shots: []  # List of 1-based shot IDs that were removed during geometry filtering
+
   # Output file
   synthetic_tt_output_csv: "${data.analysis_output_dir}/synthetic_travel_times_latte_output.csv"
 
