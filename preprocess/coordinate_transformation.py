@@ -442,6 +442,37 @@ def _grid_extents_and_dims(dfs: List[pd.DataFrame]) -> Tuple[int, int, int]:
 # Main Coordinate Transformation Function
 # ============================================================================
 
+def apply_depth_filter(df: pd.DataFrame, max_depth_km: Optional[float], data_type: str = "data") -> pd.DataFrame:
+    """
+    Filter data based on maximum depth after transformation.
+
+    Args:
+        df: DataFrame with Z_grid_km column (depth after transformation)
+        max_depth_km: Maximum depth in km (None = no filtering)
+        data_type: Description of data type for logging
+
+    Returns:
+        Filtered DataFrame
+    """
+    if max_depth_km is None:
+        return df
+
+    initial_count = len(df)
+    filtered_df = df[df['Z_grid_km'] <= max_depth_km].copy()
+    removed_count = initial_count - len(filtered_df)
+
+    if removed_count > 0:
+        print(f"  Depth filtering for {data_type}:")
+        print(f"    - Maximum depth limit: {max_depth_km} km")
+        print(f"    - Points before filtering: {initial_count}")
+        print(f"    - Points removed (depth > {max_depth_km} km): {removed_count}")
+        print(f"    - Points remaining: {len(filtered_df)}")
+    else:
+        print(f"  Depth filtering for {data_type}: No points exceeded {max_depth_km} km limit")
+
+    return filtered_df
+
+
 def transform_coordinates(config: DictConfig) -> None:
     """
     Main function to transform coordinates from geodetic to Cartesian.
@@ -580,7 +611,27 @@ def transform_coordinates(config: DictConfig) -> None:
     else:
         raise ValueError(f"Unknown transformation method: {config.transformation_method}")
     
-    # Calculate final grid dimensions
+    # Apply depth filtering if configured
+    max_depth_km = config.get('max_depth_km', None)
+    if max_depth_km is not None:
+        print(f"\n--- Applying Depth Filtering (max_depth_km = {max_depth_km} km) ---")
+
+        # Filter velocity data (most important for velocity models)
+        velocity_processed_df = apply_depth_filter(velocity_processed_df, max_depth_km, "velocity points")
+
+        # Filter event data (sources)
+        events_processed_df = apply_depth_filter(events_processed_df, max_depth_km, "events/sources")
+
+        # Filter stations (usually at surface, but apply for consistency)
+        stations_processed_df = apply_depth_filter(stations_processed_df, max_depth_km, "stations")
+
+        # Filter final velocity if processed
+        if config.process_final_velocity and final_velocity_processed_df is not None:
+            final_velocity_processed_df = apply_depth_filter(final_velocity_processed_df, max_depth_km, "final velocity points")
+
+        print("Depth filtering completed.")
+
+    # Calculate final grid dimensions (after filtering)
     processed_dfs = [stations_processed_df, events_processed_df, velocity_processed_df]
     if config.process_final_velocity and final_velocity_processed_df is not None:
         processed_dfs.append(final_velocity_processed_df)

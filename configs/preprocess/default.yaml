@@ -17,7 +17,7 @@ data:
 # Coordinate transformation configuration
 coordinate_transform:
   enabled: true
-  
+
   # Input files
   station_file: "${data.base_dir}/stacoords.txt"
   event_file: "${data.base_dir}/phasePickings.txt"
@@ -32,19 +32,24 @@ coordinate_transform:
 
   # Output directory
   output_dir: "/path/to/output"
-  
+
   # Transformation settings
   transformation_method: "flattening"  # "exact" or "flattening"
   use_chapman_flattening: false
   use_corrected_phase_pickings: false
-  
+
   # Origin coordinates
   origin_lon: -108.0
   origin_lat: 34.5
   origin_depth_km: -4.0
-  
+
   # Grid spacing
   grid_spacing_km: [20.0, 20.0, 2.0]  # dx, dy, dz
+
+  # Depth filtering (applied AFTER transformation)
+  # Set to null or comment out to disable depth filtering
+  # When set, removes all data (velocity, sources, stations) beyond this depth
+  max_depth_km: null  # e.g., 40.0 to limit depth to 40 km
   
   # Exact transformation settings (when transformation_method == "exact")
   exact_transform:

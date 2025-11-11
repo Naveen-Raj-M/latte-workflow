@@ -150,6 +150,8 @@ def print_configuration_summary(config: DictConfig) -> None:
     print("\nEnabled processing steps:")
     if config.coordinate_transform.enabled:
         print(f"  ✓ Coordinate transformation ({config.coordinate_transform.transformation_method})")
+        if config.coordinate_transform.get('max_depth_km'):
+            print(f"    + Depth filtering: max_depth_km = {config.coordinate_transform.max_depth_km} km")
         if config.coordinate_transform.process_final_velocity:
             print(f"    + Final velocity text to CSV conversion")
     if config.initial_3d_model.enabled:
