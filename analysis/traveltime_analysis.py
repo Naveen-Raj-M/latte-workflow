@@ -20,7 +20,7 @@ from utils.plot_utils import setup_plot_style, get_color_scheme
 from .traveltime_plots import create_travel_time_plots
 from .traveltime_statistics import compute_travel_time_statistics
 from .traveltime_comparison import prepare_comparison_data
-from . import apply_analysis_filters
+from .filters import apply_analysis_filters
 
 logger = logging.getLogger(__name__)
 

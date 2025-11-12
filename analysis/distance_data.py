@@ -14,7 +14,7 @@ from utils.distance_utils import (
     calculate_all_distances, validate_distance_types,
     get_distance_column_name
 )
-from . import apply_analysis_filters
+from .filters import apply_analysis_filters
 
 logger = logging.getLogger(__name__)
 
