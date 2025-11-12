@@ -8,7 +8,7 @@ Supports source correction for corrected origin times.
 import os
 import numpy as np
 import pandas as pd
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Optional
 from omegaconf import DictConfig
 from tqdm import tqdm
 
@@ -248,9 +248,12 @@ def build_array_index_to_shot_id_mapping(unique_shot_ids: list, removed_shots: l
     return mapping
 
 
-def create_synthetic_travel_time_csv(config: DictConfig) -> None:
+def create_synthetic_travel_time_csv(config: DictConfig, phase_type: str = "both", max_depth_km: Optional[float] = None) -> None:
     """Create synthetic travel time CSV from binary files (standard mode - no exchange)."""
     print("\n=== CREATING SYNTHETIC TRAVEL TIME CSV FROM BINARIES (STANDARD MODE) ===")
+    print(f"Phase type: {phase_type}")
+    if max_depth_km is not None:
+        print(f"Max depth filter: {max_depth_km} km")
 
     # Load ground truth CSV for structure and metadata
     print(f"Loading ground truth travel time CSV: {config.ground_truth_csv}")
@@ -297,8 +300,14 @@ def create_synthetic_travel_time_csv(config: DictConfig) -> None:
         if corrected_origin_times is not None:
             origin_time_correction = corrected_origin_times.get(shot_id, 0.0)
         
-        # Process P and S phases
-        for phase in ['P', 'S']:
+        # Process phases based on phase_type
+        phases_to_process = []
+        if phase_type in ['both', 'p']:
+            phases_to_process.append('P')
+        if phase_type in ['both', 's']:
+            phases_to_process.append('S')
+
+        for phase in phases_to_process:
             phase_lower = phase.lower()
             
             # Get ground truth data for this phase
@@ -391,13 +400,24 @@ def create_synthetic_travel_time_csv(config: DictConfig) -> None:
     # Convert to DataFrame and save
     if csv_data:
         df_synthetic = pd.DataFrame(csv_data)
-        
+
+        # Apply depth filtering if specified
+        if max_depth_km is not None and 'event_z_transformed' in df_synthetic.columns:
+            print(f"\nApplying depth filter: max_depth_km = {max_depth_km} km")
+            initial_count = len(df_synthetic)
+            df_synthetic = df_synthetic[df_synthetic['event_z_transformed'] <= max_depth_km].copy()
+            removed_count = initial_count - len(df_synthetic)
+            print(f"  Records before filtering: {initial_count}")
+            print(f"  Records removed (event depth > {max_depth_km} km): {removed_count}")
+            print(f"  Records remaining: {len(df_synthetic)}")
+
         ensure_directory_exists(os.path.dirname(config.synthetic_tt_output_csv))
         df_synthetic.to_csv(config.synthetic_tt_output_csv, index=False)
-        
-        print(f"Synthetic travel time CSV written: {config.synthetic_tt_output_csv}")
-        print(f"  Total records: {len(csv_data)}")
+
+        print(f"\nSynthetic travel time CSV written: {config.synthetic_tt_output_csv}")
+        print(f"  Total records: {len(df_synthetic)}")
         print(f"  Unique events: {df_synthetic['event_id'].nunique()}")
+        print(f"  Phase type: {phase_type}")
         print(f"  Unique stations: {df_synthetic['station'].nunique()}")
         print(f"  P-wave picks: {len(df_synthetic[df_synthetic['phase'] == 'P'])}")
         print(f"  S-wave picks: {len(df_synthetic[df_synthetic['phase'] == 'S'])}")
@@ -436,9 +456,12 @@ def create_synthetic_travel_time_csv(config: DictConfig) -> None:
         print("Warning: No synthetic travel time data was processed")
 
 
-def create_synthetic_travel_time_csv_with_exchange(config: DictConfig) -> None:
+def create_synthetic_travel_time_csv_with_exchange(config: DictConfig, phase_type: str = "both", max_depth_km: Optional[float] = None) -> None:
     """Create synthetic travel time CSV using source-receiver exchange - OPTIMIZED."""
     print("\n=== CREATING SYNTHETIC TRAVEL TIME CSV WITH SOURCE-RECEIVER EXCHANGE ===")
+    print(f"Phase type: {phase_type}")
+    if max_depth_km is not None:
+        print(f"Max depth filter: {max_depth_km} km")
     
     # Load ground truth CSV
     print(f"Loading ground truth travel time CSV: {config.ground_truth_csv}")
@@ -495,9 +518,16 @@ def create_synthetic_travel_time_csv_with_exchange(config: DictConfig) -> None:
     missing_pairs = []
     
     print("\nProcessing binary files...")
-    
+
+    # Determine phases to process based on phase_type
+    phases_to_process = []
+    if phase_type in ['both', 'p']:
+        phases_to_process.append('P')
+    if phase_type in ['both', 's']:
+        phases_to_process.append('S')
+
     # Process each binary file (one per virtual station per phase)
-    for phase in ['P', 'S']:
+    for phase in phases_to_process:
         phase_lower = phase.lower()
         phase_bin_files = [f for f in bin_files if f.endswith(f'_traveltime_{phase_lower}.bin')]
         
@@ -617,9 +647,19 @@ def create_synthetic_travel_time_csv_with_exchange(config: DictConfig) -> None:
     # Convert to DataFrame
     if output_records:
         df_output = pd.DataFrame(output_records)
-    
+
         # Sort to match ground truth order
         df_output = df_output.sort_values(['shot_id', 'station', 'phase']).reset_index(drop=True)
+
+        # Apply depth filtering if specified
+        if max_depth_km is not None and 'event_z_transformed' in df_output.columns:
+            print(f"\nApplying depth filter: max_depth_km = {max_depth_km} km")
+            initial_count = len(df_output)
+            df_output = df_output[df_output['event_z_transformed'] <= max_depth_km].copy()
+            removed_count = initial_count - len(df_output)
+            print(f"  Records before filtering: {initial_count}")
+            print(f"  Records removed (event depth > {max_depth_km} km): {removed_count}")
+            print(f"  Records remaining: {len(df_output)}")
         
         # Save output
         ensure_directory_exists(os.path.dirname(config.synthetic_tt_output_csv))

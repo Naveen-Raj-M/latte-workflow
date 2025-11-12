@@ -7,6 +7,19 @@ general:
   strict_mode: true  # Stop on first error if true, continue if false
   log_level: INFO
 
+  # Phase type selection (must match preprocessing phase_type)
+  # Options: "both" (default), "p" (P-wave only), "s" (S-wave only)
+  # This controls which files are expected and processed:
+  #   - "both": Expects both P and S travel time binaries and both Vp/Vs velocity binaries
+  #   - "p": Expects only P-wave travel time binaries and only Vp velocity binary
+  #   - "s": Expects only S-wave travel time binaries and only Vs velocity binary
+  phase_type: "both"  # "both", "p", or "s"
+
+  # Depth filtering (applied to output CSVs)
+  # Set to null to disable. When set, filters output CSV to include only data within this depth
+  # NOTE: This should match the max_depth_km used in preprocessing
+  max_depth_km: null  # e.g., 40.0 to limit depth to 40 km
+
 # Data paths
 data:
   base_dir: "/path/to/latte/output"

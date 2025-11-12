@@ -214,17 +214,19 @@ def sample_fine_grid_at_coarse_points(df_coarse: pd.DataFrame,
     # Process exact matches with direct indexing
     if n_exact > 0:
         print("Processing exact matches...")
+        if vp_fine is None and vs_fine is None:
+            print("  Warning: Both Vp and Vs binaries are missing")
         exact_indices = np.where(exact_match)[0]
         
         for idx in exact_indices:
             i, j, k = ix[idx], iy[idx], iz[idx]
-            
+
             # Get values from fine grid
-            vp_val = vp_fine[k, j, i]
-            vs_val = vs_fine[k, j, i]
-            
+            vp_val = vp_fine[k, j, i] if vp_fine is not None else 0
+            vs_val = vs_fine[k, j, i] if vs_fine is not None else 0
+
             # Update Vp
-            if vp_val > 0:
+            if vp_fine is not None and vp_val > 0:
                 if use_chapman:
                     depth = df_output.at[idx, 'depth']
                     vp_val = np.exp(-max(depth, 0.001) / earth_radius) * vp_val
@@ -238,7 +240,7 @@ def sample_fine_grid_at_coarse_points(df_coarse: pd.DataFrame,
                     df_output.at[idx, 'srch_vp'] = auxiliary_fields['vp']['search'][k, j, i]
             
             # Update Vs
-            if vs_val > 0:
+            if vs_fine is not None and vs_val > 0:
                 if use_chapman:
                     depth = df_output.at[idx, 'depth']
                     vs_val = np.exp(-max(depth, 0.001) / earth_radius) * vs_val
@@ -255,16 +257,21 @@ def sample_fine_grid_at_coarse_points(df_coarse: pd.DataFrame,
     if n_interp > 0:
         print("Processing interpolated points...")
         interp_indices = np.where(need_interp)[0]
-        
+
         # Create interpolators
-        interp_vp = RegularGridInterpolator(
-            (fine_grid.z_coords, fine_grid.y_coords, fine_grid.x_coords),
-            vp_fine, method='linear', bounds_error=False, fill_value=0.0
-        )
-        interp_vs = RegularGridInterpolator(
-            (fine_grid.z_coords, fine_grid.y_coords, fine_grid.x_coords),
-            vs_fine, method='linear', bounds_error=False, fill_value=0.0
-        )
+        interp_vp = None
+        interp_vs = None
+
+        if vp_fine is not None:
+            interp_vp = RegularGridInterpolator(
+                (fine_grid.z_coords, fine_grid.y_coords, fine_grid.x_coords),
+                vp_fine, method='linear', bounds_error=False, fill_value=0.0
+            )
+        if vs_fine is not None:
+            interp_vs = RegularGridInterpolator(
+                (fine_grid.z_coords, fine_grid.y_coords, fine_grid.x_coords),
+                vs_fine, method='linear', bounds_error=False, fill_value=0.0
+            )
         
         # Create interpolators for auxiliary fields
         interp_aux = {}
@@ -291,13 +298,13 @@ def sample_fine_grid_at_coarse_points(df_coarse: pd.DataFrame,
         ])
         
         # Interpolate
-        vp_interp = interp_vp(query_pts)
-        vs_interp = interp_vs(query_pts)
+        vp_interp = interp_vp(query_pts) if interp_vp is not None else np.zeros(len(query_pts))
+        vs_interp = interp_vs(query_pts) if interp_vs is not None else np.zeros(len(query_pts))
         
         # Update DataFrame
         for i, idx in enumerate(interp_indices):
             # Update Vp
-            if vp_interp[i] > 0:
+            if interp_vp is not None and vp_interp[i] > 0:
                 vp_val = vp_interp[i]
                 if use_chapman:
                     depth = df_output.at[idx, 'depth']
@@ -314,7 +321,7 @@ def sample_fine_grid_at_coarse_points(df_coarse: pd.DataFrame,
                     df_output.at[idx, 'srch_vp'] = srch_vp
             
             # Update Vs
-            if vs_interp[i] > 0:
+            if interp_vs is not None and vs_interp[i] > 0:
                 vs_val = vs_interp[i]
                 if use_chapman:
                     depth = df_output.at[idx, 'depth']
@@ -460,10 +467,13 @@ def expand_to_fine_grid(df_coarse: pd.DataFrame,
     return df_fine
 
 
-def create_velocity_csv_from_binaries(config: DictConfig) -> None:
+def create_velocity_csv_from_binaries(config: DictConfig, phase_type: str = "both", max_depth_km: Optional[float] = None) -> None:
     """Main function to create velocity CSV from binary files."""
     print("\n=== CREATING VELOCITY CSV FROM BINARIES ===")
-    
+    print(f"Phase type: {phase_type}")
+    if max_depth_km is not None:
+        print(f"Max depth filter: {max_depth_km} km")
+
     # Load original CSV
     print(f"\nLoading original CSV: {config.original_velocity_csv}")
     df_original = pd.read_csv(config.original_velocity_csv)
@@ -491,12 +501,28 @@ def create_velocity_csv_from_binaries(config: DictConfig) -> None:
     )
     print(f"Fine grid: {fine_grid}")
     
-    # Load binary files
+    # Load binary files based on phase_type
     print(f"\nLoading binary files...")
-    vp_fine = load_binary_file(config.vp_binary, fine_grid.nx, fine_grid.ny, fine_grid.nz, 
-                                "Vp", convert_to_kms=True)
-    vs_fine = load_binary_file(config.vs_binary, fine_grid.nx, fine_grid.ny, fine_grid.nz,
-                                "Vs", convert_to_kms=True)
+    vp_fine = None
+    vs_fine = None
+
+    if phase_type in ['both', 'p']:
+        if os.path.exists(config.vp_binary):
+            vp_fine = load_binary_file(config.vp_binary, fine_grid.nx, fine_grid.ny, fine_grid.nz,
+                                        "Vp", convert_to_kms=True)
+        else:
+            print(f"  Warning: Vp binary not found: {config.vp_binary}")
+            if phase_type == 'p':
+                raise FileNotFoundError(f"Vp binary required for phase_type='p' but not found: {config.vp_binary}")
+
+    if phase_type in ['both', 's']:
+        if os.path.exists(config.vs_binary):
+            vs_fine = load_binary_file(config.vs_binary, fine_grid.nx, fine_grid.ny, fine_grid.nz,
+                                        "Vs", convert_to_kms=True)
+        else:
+            print(f"  Warning: Vs binary not found: {config.vs_binary}")
+            if phase_type == 's':
+                raise FileNotFoundError(f"Vs binary required for phase_type='s' but not found: {config.vs_binary}")
     
     # Load auxiliary fields
     params_to_process = config.get('parameters_to_process', [])
@@ -552,12 +578,23 @@ def create_velocity_csv_from_binaries(config: DictConfig) -> None:
             use_chapman, earth_radius
         )
     
+    # Apply depth filtering if specified
+    if max_depth_km is not None and 'Z_grid_km' in df_output.columns:
+        print(f"\nApplying depth filter: max_depth_km = {max_depth_km} km")
+        initial_count = len(df_output)
+        df_output = df_output[df_output['Z_grid_km'] <= max_depth_km].copy()
+        removed_count = initial_count - len(df_output)
+        print(f"  Points before filtering: {initial_count}")
+        print(f"  Points removed (depth > {max_depth_km} km): {removed_count}")
+        print(f"  Points remaining: {len(df_output)}")
+
     # Write output
     ensure_directory_exists(os.path.dirname(config.velocity_output_csv))
     df_output.to_csv(config.velocity_output_csv, index=False)
-    
+
     print(f"\n=== OUTPUT SUMMARY ===")
     print(f"CSV written: {config.velocity_output_csv}")
     print(f"  Rows: {len(df_output):,}")
     print(f"  Mode: {mode}")
+    print(f"  Phase type: {phase_type}")
     print(f"  Chapman transform: {use_chapman}")
