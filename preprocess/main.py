@@ -84,16 +84,19 @@ def run_velocity_binary(config: DictConfig) -> None:
     """Run velocity binary file creation."""
     if not config.enabled:
         return
-        
+
     print("\n" + "="*60)
     print("CREATING VELOCITY BINARY FILES")
     print("="*60)
-    
+
     with ProcessTimer("Velocity Binary Creation"):
         create_velocity_binary_files(config)
-        
-        print(f"✓ Vp binary file created: {config.vp_output}")
-        print(f"✓ Vs binary file created: {config.vs_output}")
+
+        phase_type = config.get('phase_type', 'both')
+        if phase_type in ['both', 'p']:
+            print(f"✓ Vp binary file created: {config.vp_output}")
+        if phase_type in ['both', 's']:
+            print(f"✓ Vs binary file created: {config.vs_output}")
 
 
 def run_visualization(config: DictConfig) -> None:
@@ -157,9 +160,11 @@ def print_configuration_summary(config: DictConfig) -> None:
     if config.initial_3d_model.enabled:
         print("  ✓ Initial 3D velocity model creation")
     if config.geometry_traveltime.enabled:
-        print("  ✓ Geometry and travel time file creation")
+        phase_type = config.geometry_traveltime.get('phase_type', 'both')
+        print(f"  ✓ Geometry and travel time file creation (phase_type: {phase_type})")
     if config.velocity_binary.enabled:
-        print("  ✓ Velocity binary file creation")
+        phase_type = config.velocity_binary.get('phase_type', 'both')
+        print(f"  ✓ Velocity binary file creation (phase_type: {phase_type})")
         if config.velocity_binary.create_final_binaries:
             print("    + Final velocity binary files (vp_final.bin, vs_final.bin)")
     if config.visualization.enabled:

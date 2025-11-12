@@ -207,24 +207,56 @@ def parse_and_filter_data_original(config: DictConfig, station_map: Dict, event_
             except (IndexError, ValueError):
                 pass
 
-    # Final Filtering: Keep only events and stations with BOTH P and S picks
+    # Final Filtering: Based on phase_type configuration
     final_events = {}
-    print("\nFiltering for stations with both valid P and S picks...")
-    for eid, data in temp_events.items():
-        valid_p_stations = set(data['p_picks'].keys())
-        valid_s_stations = set(data['s_picks'].keys())
-        
-        common_stations = sorted(list(valid_p_stations.intersection(valid_s_stations)))
+    phase_type = config.get('phase_type', 'both').lower()
 
-        if common_stations:
-            final_events[eid] = {
-                'header_info': data['header_info'],
-                'origin_time_s': data['origin_time_s'],
-                'p_picks': [data['p_picks'][stn] for stn in common_stations],
-                's_picks': [data['s_picks'][stn] for stn in common_stations]
-            }
-    
-    final_written_pairs = sum(len(data['p_picks']) for data in final_events.values())
+    if phase_type == 'both':
+        print("\nFiltering for stations with both valid P and S picks...")
+        for eid, data in temp_events.items():
+            valid_p_stations = set(data['p_picks'].keys())
+            valid_s_stations = set(data['s_picks'].keys())
+
+            common_stations = sorted(list(valid_p_stations.intersection(valid_s_stations)))
+
+            if common_stations:
+                final_events[eid] = {
+                    'header_info': data['header_info'],
+                    'origin_time_s': data['origin_time_s'],
+                    'p_picks': [data['p_picks'][stn] for stn in common_stations],
+                    's_picks': [data['s_picks'][stn] for stn in common_stations]
+                }
+        final_written_pairs = sum(len(data['p_picks']) for data in final_events.values())
+
+    elif phase_type == 'p':
+        print("\nProcessing P-wave picks only (no S-wave requirement)...")
+        for eid, data in temp_events.items():
+            if data['p_picks']:
+                p_stations = sorted(list(data['p_picks'].keys()))
+                final_events[eid] = {
+                    'header_info': data['header_info'],
+                    'origin_time_s': data['origin_time_s'],
+                    'p_picks': [data['p_picks'][stn] for stn in p_stations],
+                    's_picks': []  # Empty S picks
+                }
+        final_written_pairs = sum(len(data['p_picks']) for data in final_events.values())
+
+    elif phase_type == 's':
+        print("\nProcessing S-wave picks only (no P-wave requirement)...")
+        for eid, data in temp_events.items():
+            if data['s_picks']:
+                s_stations = sorted(list(data['s_picks'].keys()))
+                final_events[eid] = {
+                    'header_info': data['header_info'],
+                    'origin_time_s': data['origin_time_s'],
+                    'p_picks': [],  # Empty P picks
+                    's_picks': [data['s_picks'][stn] for stn in s_stations]
+                }
+        final_written_pairs = sum(len(data['s_picks']) for data in final_events.values())
+
+    else:
+        raise ValueError(f"Invalid phase_type: {phase_type}. Must be 'both', 'p', or 's'")
+
     return final_events, total_picks_in_file, final_written_pairs, unrealistic_velocity_count, discarded_events_count, discarded_stations_count
 
 
@@ -382,25 +414,59 @@ def parse_and_filter_data_corrected(config: DictConfig, station_map: Dict, event
                 print(f"Error parsing pick line: {line}, error: {e}")
                 pass
 
-    # Final Filtering: Keep only events and stations with BOTH P and S picks
+    # Final Filtering: Based on phase_type configuration
     final_events = {}
-    print("\nFiltering for stations with both valid P and S picks...")
-    for eid, data in temp_events.items():
-        valid_p_stations = set(data['p_picks'].keys())
-        valid_s_stations = set(data['s_picks'].keys())
-        
-        common_stations = sorted(list(valid_p_stations.intersection(valid_s_stations)))
+    phase_type = config.get('phase_type', 'both').lower()
 
-        if common_stations:
-            final_events[eid] = {
-                'header_info': data['header_info'],
-                'origin_time_s': data['origin_time_s'],
-                'weighted_rms': data.get('weighted_rms', 0.0),
-                'p_picks': [data['p_picks'][stn] for stn in common_stations],
-                's_picks': [data['s_picks'][stn] for stn in common_stations]
-            }
-    
-    final_written_pairs = sum(len(data['p_picks']) for data in final_events.values())
+    if phase_type == 'both':
+        print("\nFiltering for stations with both valid P and S picks...")
+        for eid, data in temp_events.items():
+            valid_p_stations = set(data['p_picks'].keys())
+            valid_s_stations = set(data['s_picks'].keys())
+
+            common_stations = sorted(list(valid_p_stations.intersection(valid_s_stations)))
+
+            if common_stations:
+                final_events[eid] = {
+                    'header_info': data['header_info'],
+                    'origin_time_s': data['origin_time_s'],
+                    'weighted_rms': data.get('weighted_rms', 0.0),
+                    'p_picks': [data['p_picks'][stn] for stn in common_stations],
+                    's_picks': [data['s_picks'][stn] for stn in common_stations]
+                }
+        final_written_pairs = sum(len(data['p_picks']) for data in final_events.values())
+
+    elif phase_type == 'p':
+        print("\nProcessing P-wave picks only (no S-wave requirement)...")
+        for eid, data in temp_events.items():
+            if data['p_picks']:
+                p_stations = sorted(list(data['p_picks'].keys()))
+                final_events[eid] = {
+                    'header_info': data['header_info'],
+                    'origin_time_s': data['origin_time_s'],
+                    'weighted_rms': data.get('weighted_rms', 0.0),
+                    'p_picks': [data['p_picks'][stn] for stn in p_stations],
+                    's_picks': []  # Empty S picks
+                }
+        final_written_pairs = sum(len(data['p_picks']) for data in final_events.values())
+
+    elif phase_type == 's':
+        print("\nProcessing S-wave picks only (no P-wave requirement)...")
+        for eid, data in temp_events.items():
+            if data['s_picks']:
+                s_stations = sorted(list(data['s_picks'].keys()))
+                final_events[eid] = {
+                    'header_info': data['header_info'],
+                    'origin_time_s': data['origin_time_s'],
+                    'weighted_rms': data.get('weighted_rms', 0.0),
+                    'p_picks': [],  # Empty P picks
+                    's_picks': [data['s_picks'][stn] for stn in s_stations]
+                }
+        final_written_pairs = sum(len(data['s_picks']) for data in final_events.values())
+
+    else:
+        raise ValueError(f"Invalid phase_type: {phase_type}. Must be 'both', 'p', or 's'")
+
     return final_events, total_picks_in_file, final_written_pairs, unrealistic_velocity_count, discarded_events_count, discarded_stations_count
 
 
@@ -509,22 +575,24 @@ def write_output_files(events: Dict, event_map: Dict, config: DictConfig) -> Non
 
     shot_files = []
     id_map_path = os.path.join(config.geometry_dir, "shot_to_source_id_map.txt")
-    
-    print(f"\nWriting consistent output files...")
+    phase_type = config.get('phase_type', 'both').lower()
+
+    print(f"\nWriting consistent output files (phase_type: {phase_type})...")
     with open(id_map_path, "w") as map_f:
         map_f.write("Shot_ID\tOriginal_Event_ID\n")
-        
+
         sorted_events = sorted(events.items(), key=lambda item: item[0])
 
         for idx, (eid, data) in enumerate(sorted_events, start=1):
-            receivers_for_geometry = data['p_picks']
-            
+            # Use P picks for geometry if available, otherwise S picks
+            receivers_for_geometry = data['p_picks'] if data['p_picks'] else data['s_picks']
+
             geom_fname = f"shot_{idx}_geometry.txt"
             shot_files.append(geom_fname)
             map_f.write(f"{idx}\t{eid}\n")
 
             ex, ey, ez = event_map.get(eid, (None, None, None))
-            if ex is None: 
+            if ex is None:
                 continue
 
             # Write Geometry File
@@ -537,19 +605,21 @@ def write_output_files(events: Dict, event_map: Dict, config: DictConfig) -> Non
                     w = pick['weight']
                     out.write(f"{sx:.6f} {sy:.6f} {sz:.6f} {w:.6f}\n")
 
-            # Write P-wave traveltime binary
-            tt_p_fname = os.path.join(config.traveltime_dir, f"shot_{idx}_traveltime_p.bin")
-            p_travel_times = [p['travel_time'] for p in data['p_picks']]
-            p_array = np.array(p_travel_times, dtype='<f4')
-            with open(tt_p_fname, 'wb') as f:
-                f.write(p_array.tobytes())
+            # Write P-wave traveltime binary (if processing P-waves)
+            if phase_type in ['both', 'p'] and data['p_picks']:
+                tt_p_fname = os.path.join(config.traveltime_dir, f"shot_{idx}_traveltime_p.bin")
+                p_travel_times = [p['travel_time'] for p in data['p_picks']]
+                p_array = np.array(p_travel_times, dtype='<f4')
+                with open(tt_p_fname, 'wb') as f:
+                    f.write(p_array.tobytes())
 
-            # Write S-wave traveltime binary
-            tt_s_fname = os.path.join(config.traveltime_dir, f"shot_{idx}_traveltime_s.bin")
-            s_travel_times = [s['travel_time'] for s in data['s_picks']]
-            s_array = np.array(s_travel_times, dtype='<f4')
-            with open(tt_s_fname, 'wb') as f:
-                f.write(s_array.tobytes())
+            # Write S-wave traveltime binary (if processing S-waves)
+            if phase_type in ['both', 's'] and data['s_picks']:
+                tt_s_fname = os.path.join(config.traveltime_dir, f"shot_{idx}_traveltime_s.bin")
+                s_travel_times = [s['travel_time'] for s in data['s_picks']]
+                s_array = np.array(s_travel_times, dtype='<f4')
+                with open(tt_s_fname, 'wb') as f:
+                    f.write(s_array.tobytes())
 
     with open(os.path.join(config.geometry_dir, "geometry.txt"), "w") as idxf:
         for shot in shot_files:
@@ -570,10 +640,12 @@ def write_travel_time_csv(events: Dict, event_map: Dict, config: DictConfig) -> 
     """
     if not config.generate_travel_time_csv:
         return
-        
+
     ensure_directory_exists(config.csv_output_dir)
-    
+    phase_type = config.get('phase_type', 'both').lower()
+
     print(f"\nWriting comprehensive travel time CSV to: {config.csv_output_dir}")
+    print(f"Phase type filter: {phase_type}")
     
     # Load original coordinate data for lat/lon/depth information
     station_df = pd.read_csv(config.station_csv)
@@ -619,9 +691,16 @@ def write_travel_time_csv(events: Dict, event_map: Dict, config: DictConfig) -> 
         # Get P-wave and S-wave picks
         p_picks = data['p_picks']
         s_picks = data['s_picks']
-        
-        # Process both P and S waves
-        for phase, picks in [('P', p_picks), ('S', s_picks)]:
+
+        # Determine which phases to process based on phase_type
+        phases_to_process = []
+        if phase_type in ['both', 'p'] and p_picks:
+            phases_to_process.append(('P', p_picks))
+        if phase_type in ['both', 's'] and s_picks:
+            phases_to_process.append(('S', s_picks))
+
+        # Process selected phases
+        for phase, picks in phases_to_process:
             for pick in picks:
                 station = pick['station']
                 travel_time = pick['travel_time']
@@ -675,7 +754,7 @@ def write_travel_time_csv(events: Dict, event_map: Dict, config: DictConfig) -> 
     if csv_data:
         df = pd.DataFrame(csv_data)
         
-        # Determine filename based on input format
+        # Determine filename based on input format (same naming regardless of phase_type)
         if config.use_corrected_phase_pickings:
             csv_filename = "ground_truth_travel_times_corrected.csv"
         else:
@@ -685,20 +764,23 @@ def write_travel_time_csv(events: Dict, event_map: Dict, config: DictConfig) -> 
         df.to_csv(csv_path, index=False)
         
         print(f"Comprehensive travel time CSV written: {csv_filename}")
+        print(f"  Phase type: {phase_type}")
         print(f"  Total records: {len(csv_data)}")
         print(f"  Unique events: {df['event_id'].nunique()}")
         print(f"  Unique stations: {df['station'].nunique()}")
-        print(f"  P-wave picks: {len(df[df['phase'] == 'P'])}")
-        print(f"  S-wave picks: {len(df[df['phase'] == 'S'])}")
-        
-        # Print sample statistics
-        p_data = df[df['phase'] == 'P']['observed_tt']
-        s_data = df[df['phase'] == 'S']['observed_tt']
-        
-        if not p_data.empty:
-            print(f"  P-wave travel times: {p_data.min():.3f} to {p_data.max():.3f} s (mean: {p_data.mean():.3f} s)")
-        if not s_data.empty:
-            print(f"  S-wave travel times: {s_data.min():.3f} to {s_data.max():.3f} s (mean: {s_data.mean():.3f} s)")
+
+        # Print phase-specific statistics
+        if phase_type in ['both', 'p']:
+            p_data = df[df['phase'] == 'P']
+            if not p_data.empty:
+                print(f"  P-wave picks: {len(p_data)}")
+                print(f"  P-wave travel times: {p_data['observed_tt'].min():.3f} to {p_data['observed_tt'].max():.3f} s (mean: {p_data['observed_tt'].mean():.3f} s)")
+
+        if phase_type in ['both', 's']:
+            s_data = df[df['phase'] == 'S']
+            if not s_data.empty:
+                print(f"  S-wave picks: {len(s_data)}")
+                print(f"  S-wave travel times: {s_data['observed_tt'].min():.3f} to {s_data['observed_tt'].max():.3f} s (mean: {s_data['observed_tt'].mean():.3f} s)")
             
         # Print coordinate range information
         if not df['distance_m'].isna().all():
@@ -722,9 +804,11 @@ def create_geometry_and_traveltime_files(config: DictConfig) -> None:
     Main function to create geometry and travel time files from phase picks.
     """
     print("--- Starting Geometry and Travel Time File Generation ---")
-    
+
     # Display configuration
     print(f"\n--- Input File Configuration ---")
+    phase_type = config.get('phase_type', 'both').lower()
+    print(f"Phase type: {phase_type}")
     if config.use_corrected_phase_pickings:
         input_file = config.corrected_phase_file
         print(f"Using corrected phase pickings: {input_file}")
@@ -782,6 +866,7 @@ def create_geometry_and_traveltime_files(config: DictConfig) -> None:
         write_travel_time_csv(valid_events, event_map, config)
         
         print("\n--- Data Processing Summary ---")
+        print(f"Phase type: {phase_type}")
         print(f"Input file format: {'Corrected (.dat)' if config.use_corrected_phase_pickings else 'Original (.txt)'}")
         print(f"Total P/S picks found in phase file:       {total_picks}")
         print(f"Picks rejected due to unrealistic velocity: {unrealistic_picks}")
@@ -789,11 +874,21 @@ def create_geometry_and_traveltime_files(config: DictConfig) -> None:
             print(f"Events discarded by filter:                 {discarded_events}")
         if config.filter_stations:
             print(f"Station picks discarded by filter:         {discarded_stations}")
-        print(f"Total consistent P/S pairs written:          {written_pairs}")
-        if total_picks > 0:
-            final_picks_written = written_pairs * 2
-            retention_rate = (final_picks_written / total_picks) * 100
-            print(f"Data retention rate:                         {retention_rate:.1f}%")
+
+        if phase_type == 'both':
+            print(f"Total consistent P/S pairs filtered:          {written_pairs}")
+            if total_picks > 0:
+                final_picks_written = written_pairs * 2
+                retention_rate = (final_picks_written / total_picks) * 100
+                print(f"Total picks written (P+S):                    {final_picks_written}")
+                print(f"Data retention rate:                         {retention_rate:.1f}%")
+        else:
+            phase_label = "P-wave" if phase_type == 'p' else "S-wave"
+            print(f"Total {phase_label} picks filtered:              {written_pairs}")
+            if total_picks > 0:
+                retention_rate = (written_pairs / total_picks) * 100
+                print(f"Total {phase_label} picks written:              {written_pairs}")
+                print(f"Data retention rate:                         {retention_rate:.1f}%")
 
         # Show additional info for corrected data
         if config.use_corrected_phase_pickings:

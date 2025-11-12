@@ -121,65 +121,91 @@ def populate_grid_and_write_bins(df: pd.DataFrame, config: DictConfig, nx: int, 
     """Populate 3D model grid from CSV data and write binary files."""
     print("\nPopulating 3D model grid from CSV data...")
 
+    # Get phase_type setting
+    phase_type = config.get('phase_type', 'both').lower()
+    print(f"Phase type: {phase_type}")
+
     # Initialize models with auto-detected dimensions using C-order (row-major)
     # NOTE: Using C-order to match actual binary file format
-    vp_model = np.zeros((nx, ny, nz), dtype=np.float32, order='C')
-    vs_model = np.zeros((nx, ny, nz), dtype=np.float32, order='C')
-    
+    # Only initialize the models we need based on phase_type
+    vp_model = None
+    vs_model = None
+
+    if phase_type in ['both', 'p']:
+        vp_model = np.zeros((nx, ny, nz), dtype=np.float32, order='C')
+    if phase_type in ['both', 's']:
+        vs_model = np.zeros((nx, ny, nz), dtype=np.float32, order='C')
+
     points_processed = 0
     points_outside_grid = 0
-    
+
     for _, row in df.iterrows():
         i = int(row["i"]) - 1
         j = int(row["j"]) - 1
         k = int(row["k"]) - 1
         if 0 <= i < nx and 0 <= j < ny and 0 <= k < nz:
-            vp_model[i, j, k] = row['vp'] * 1000  # Convert km/s to m/s
-            vs_model[i, j, k] = row['vs'] * 1000  # Convert km/s to m/s
+            if vp_model is not None:
+                vp_model[i, j, k] = row['vp'] * 1000  # Convert km/s to m/s
+            if vs_model is not None:
+                vs_model[i, j, k] = row['vs'] * 1000  # Convert km/s to m/s
             points_processed += 1
         else:
             points_outside_grid += 1
-    
+
     print(f"Successfully placed {points_processed} data points into the grid.")
     if points_outside_grid > 0:
         print(f"Warning: {points_outside_grid} points from the CSV were outside the defined grid boundaries and were ignored.")
 
     # Apply interpolation if enabled
+    vp_model_filled = None
+    vs_model_filled = None
+
     if config.interpolate:
-        vp_model_filled = interpolate_internal_gaps(vp_model, config.neighbor_threshold)
-        vs_model_filled = interpolate_internal_gaps(vs_model, config.neighbor_threshold)
+        if vp_model is not None:
+            vp_model_filled = interpolate_internal_gaps(vp_model, config.neighbor_threshold)
+        if vs_model is not None:
+            vs_model_filled = interpolate_internal_gaps(vs_model, config.neighbor_threshold)
     else:
         vp_model_filled = vp_model
         vs_model_filled = vs_model
 
     # Ensure output directories exist
-    ensure_directory_exists(Path(config.vp_output).parent)
-    ensure_directory_exists(Path(config.vs_output).parent)
+    if vp_model_filled is not None:
+        ensure_directory_exists(Path(config.vp_output).parent)
+    if vs_model_filled is not None:
+        ensure_directory_exists(Path(config.vs_output).parent)
 
     try:
-        # Write Vp model (Fortran stream access format)
-        print(f"\nWriting final Vp model to '{config.vp_output}'...")
-        vp_model_filled.astype(np.float32).tofile(config.vp_output)
-        print("Vp model written successfully.")
+        # Write Vp model if processing P-waves
+        if phase_type in ['both', 'p'] and vp_model_filled is not None:
+            print(f"\nWriting Vp model to '{config.vp_output}'...")
+            vp_model_filled.astype(np.float32).tofile(config.vp_output)
+            print("Vp model written successfully.")
+            print(f"  File size: {os.path.getsize(config.vp_output)} bytes")
 
-        # Write Vs model (Fortran stream access format)
-        print(f"Writing final Vs model to '{config.vs_output}'...")
-        vs_model_filled.astype(np.float32).tofile(config.vs_output)
-        print("Vs model written successfully.")
+            # Verify the file
+            vp_check = np.fromfile(config.vp_output, dtype=np.float32).reshape((nx, ny, nz), order='C')
+            print(f"  Vp range: {vp_check.min():.1f} - {vp_check.max():.1f} m/s")
+            print(f"  Verification: {np.allclose(vp_model_filled, vp_check)}")
 
-        # Print verification information
-        print(f"\nFile verification:")
-        print(f"Vp file size: {os.path.getsize(config.vp_output)} bytes")
-        print(f"Vs file size: {os.path.getsize(config.vs_output)} bytes")
-        print(f"Expected size: {nx * ny * nz * 4} bytes (for float32)")
-        
-        # Verify the files can be read back correctly using C-order
-        print(f"\nVerification test:")
-        vp_check = np.fromfile(config.vp_output, dtype=np.float32).reshape((nx, ny, nz), order='C')
-        vs_check = np.fromfile(config.vs_output, dtype=np.float32).reshape((nx, ny, nz), order='C')
-        print(f"Vp range: {vp_check.min():.1f} - {vp_check.max():.1f} m/s")
-        print(f"Vs range: {vs_check.min():.1f} - {vs_check.max():.1f} m/s")
-        print(f"Arrays match original: Vp={np.allclose(vp_model_filled, vp_check)}, Vs={np.allclose(vs_model_filled, vs_check)}")
+        # Write Vs model if processing S-waves
+        if phase_type in ['both', 's'] and vs_model_filled is not None:
+            print(f"\nWriting Vs model to '{config.vs_output}'...")
+            vs_model_filled.astype(np.float32).tofile(config.vs_output)
+            print("Vs model written successfully.")
+            print(f"  File size: {os.path.getsize(config.vs_output)} bytes")
+
+            # Verify the file
+            vs_check = np.fromfile(config.vs_output, dtype=np.float32).reshape((nx, ny, nz), order='C')
+            print(f"  Vs range: {vs_check.min():.1f} - {vs_check.max():.1f} m/s")
+            print(f"  Verification: {np.allclose(vs_model_filled, vs_check)}")
+
+        # Print summary
+        print(f"\nExpected size per file: {nx * ny * nz * 4} bytes (for float32)")
+        if phase_type == 'p':
+            print("NOTE: Only Vp binary created (P-wave mode)")
+        elif phase_type == 's':
+            print("NOTE: Only Vs binary created (S-wave mode)")
 
     except IOError as e:
         print(f"ERROR: Could not write to output file. {e}")

@@ -75,13 +75,13 @@ initial_3d_model:
 # Geometry and travel time file generation
 geometry_traveltime:
   enabled: true
-  
+
   # Input files
   phase_file: "${data.base_dir}/phasePickings.txt"
   corrected_phase_file: "${data.base_dir}/sphfdloc.dat"
   station_csv: "${coordinate_transform.output_dir}/stations_cartesian.csv"
   event_csv: "${coordinate_transform.output_dir}/events_cartesian.csv"
-  
+
   # Output directories
   geometry_dir: "${data.output_base_dir}/geometry"
   traveltime_dir: "${data.output_base_dir}/ground_truth_traveltimes"
@@ -90,12 +90,21 @@ geometry_traveltime:
   # Travel time CSV export
   generate_travel_time_csv: true
   csv_output_dir: "${data.output_base_dir}/geometry_csv"
-  
+
   # Processing options
   use_corrected_phase_pickings: true
   generate_source_binaries: true
   zero_origin_time: true
   source_binary_format: "travel_time"  # "travel_time" or "fortran"
+
+  # Phase type selection
+  # Options: "both" (default), "p" (P-wave only), "s" (S-wave only)
+  # This controls which phase data is filtered and written to output files:
+  #   - "both": Requires both P and S picks. Writes both P and S binary files and CSV data
+  #   - "p": Only requires P-wave picks. Writes only P-wave binaries and CSV data
+  #   - "s": Only requires S-wave picks. Writes only S-wave binaries and CSV data
+  # NOTE: Output file names remain the same regardless of phase_type
+  phase_type: "both"  # "both", "p", or "s"
   
   # Velocity filtering
   p_velocity_range_m_s: [500, 10000]
@@ -126,6 +135,15 @@ velocity_binary:
   use_chapman_velocities: true
   interpolate: true
   neighbor_threshold: 5
+
+  # Phase type selection (should match geometry_traveltime.phase_type)
+  # Options: "both" (default), "p" (P-wave only), "s" (S-wave only)
+  # This controls which velocity binaries are created:
+  #   - "both": Creates both vp_init.bin and vs_init.bin
+  #   - "p": Creates only vp_init.bin
+  #   - "s": Creates only vs_init.bin
+  # NOTE: Output file names remain the same regardless of phase_type
+  phase_type: "both"  # "both", "p", or "s"
 
 # Visualization settings
 visualization:
