@@ -15,6 +15,7 @@ from datetime import datetime
 
 from utils.io_utils import read_csv_file, write_text_file, ensure_directory_exists
 from utils.plot_utils import setup_plot_style, get_color_scheme
+from . import apply_depth_filter
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +86,13 @@ def analyze_velocity_gradients(config: Dict[str, Any]) -> Dict[str, Any]:
     
     logger.info(f"Loading velocity data from: {input_csv}")
     df = read_csv_file(input_csv)
-    
+
+    # Apply depth filtering (velocity gradients use Z_grid_km for depth)
+    max_depth_km = config.get('analysis', {}).get('max_depth_km', None)
+    if max_depth_km is not None:
+        df = apply_depth_filter(df, max_depth_km, depth_column='Z_grid_km',
+                               data_type="velocity gradient data")
+
     # Determine which fields are available
     available_fields = _detect_available_gradient_fields(df, 'velocity')
     
@@ -132,7 +139,13 @@ def analyze_source_gradients(config: Dict[str, Any]) -> Dict[str, Any]:
     
     logger.info(f"Loading source data from: {input_csv}")
     df = read_csv_file(input_csv)
-    
+
+    # Apply depth filtering (source gradients use event_z_transformed for depth)
+    max_depth_km = config.get('analysis', {}).get('max_depth_km', None)
+    if max_depth_km is not None:
+        df = apply_depth_filter(df, max_depth_km, depth_column='event_z_transformed',
+                               data_type="source gradient data")
+
     # Determine which fields are available
     available_fields = _detect_available_gradient_fields(df, 'source')
     

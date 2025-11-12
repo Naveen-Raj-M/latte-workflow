@@ -16,6 +16,7 @@ from datetime import datetime
 
 from utils.io_utils import read_csv_file, write_text_file, ensure_directory_exists
 from utils.plot_utils import setup_plot_style, get_color_scheme, save_figure
+from . import apply_depth_filter
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +69,13 @@ def _analyze_ground_truth_comparison(config: Dict[str, Any]) -> Dict[str, Any]:
     
     logger.info(f"Loading source correction data from: {input_csv}")
     df = read_csv_file(input_csv)
-    
+
+    # Apply depth filtering (source data uses event_z_transformed for depth)
+    max_depth_km = config.get('analysis', {}).get('max_depth_km', None)
+    if max_depth_km is not None:
+        df = apply_depth_filter(df, max_depth_km, depth_column='event_z_transformed',
+                               data_type="source correction data")
+
     # Validate and compute corrections
     df_corrected = compute_source_corrections(df, config, comparison_mode='ground_truth')
     
@@ -113,13 +120,21 @@ def _analyze_method_comparison(config: Dict[str, Any]) -> Dict[str, Any]:
     
     df1 = read_csv_file(method1_csv)
     df2 = read_csv_file(method2_csv)
-    
+
+    # Apply depth filtering to both methods before comparison
+    max_depth_km = config.get('analysis', {}).get('max_depth_km', None)
+    if max_depth_km is not None:
+        df1 = apply_depth_filter(df1, max_depth_km, depth_column='event_z_transformed',
+                                data_type="source Method 1 data")
+        df2 = apply_depth_filter(df2, max_depth_km, depth_column='event_z_transformed',
+                                data_type="source Method 2 data")
+
     # Prepare comparison data
     logger.info("Preparing method comparison data")
     df_comparison = prepare_method_comparison_data(df1, df2, config)
-    
+
     # Compute corrections (differences between methods)
-    df_corrected = compute_source_corrections(df_comparison, config, 
+    df_corrected = compute_source_corrections(df_comparison, config,
                                              comparison_mode='method_comparison')
     
     # Compute statistics

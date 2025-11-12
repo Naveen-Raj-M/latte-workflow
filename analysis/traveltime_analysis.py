@@ -20,6 +20,7 @@ from utils.plot_utils import setup_plot_style, get_color_scheme
 from .traveltime_plots import create_travel_time_plots
 from .traveltime_statistics import compute_travel_time_statistics
 from .traveltime_comparison import prepare_comparison_data
+from . import apply_analysis_filters
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +73,10 @@ def _analyze_ground_truth_comparison(config: Dict[str, Any]) -> Dict[str, Any]:
     
     logger.info(f"Loading travel time data from: {input_csv}")
     df = read_csv_file(input_csv)
-    
+
+    # Apply analysis filters (depth and phase type)
+    df = apply_analysis_filters(df, config, data_type="travel time data")
+
     # Validate and clean data
     df_clean = validate_and_clean_travel_time_data(df, config)
     
@@ -108,10 +112,14 @@ def _analyze_method_comparison(config: Dict[str, Any]) -> Dict[str, Any]:
     
     logger.info(f"Loading Method 1 data from: {method1_csv}")
     logger.info(f"Loading Method 2 data from: {method2_csv}")
-    
+
     df1 = read_csv_file(method1_csv)
     df2 = read_csv_file(method2_csv)
-    
+
+    # Apply analysis filters to both datasets
+    df1 = apply_analysis_filters(df1, config, data_type="Method 1 travel time data")
+    df2 = apply_analysis_filters(df2, config, data_type="Method 2 travel time data")
+
     # Prepare comparison data
     logger.info("Preparing method comparison data")
     df_comparison = prepare_comparison_data(df1, df2, config)

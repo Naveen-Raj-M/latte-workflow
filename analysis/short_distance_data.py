@@ -14,6 +14,7 @@ from utils.distance_utils import (
     calculate_all_distances, validate_distance_types,
     get_distance_column_name
 )
+from . import apply_analysis_filters
 
 logger = logging.getLogger(__name__)
 
@@ -57,10 +58,13 @@ def load_and_filter_short_distance_data(config: Dict[str, Any]) -> pd.DataFrame:
     
     # Calculate distances and filter
     df_filtered = _calculate_and_filter_distances(df_merged, config)
-    
+
     # Apply additional filters
     df_filtered = _apply_additional_filters(df_filtered, config)
-    
+
+    # Apply analysis filters (depth and phase type)
+    df_filtered = apply_analysis_filters(df_filtered, config, data_type="short distance analysis data")
+
     logger.info(f"Final filtered dataset: {len(df_filtered)} records")
     return df_filtered
 
@@ -114,13 +118,16 @@ def prepare_short_distance_comparison_data(config: Dict[str, Any]) -> pd.DataFra
     
     # Calculate distances and filter
     df_filtered = _calculate_and_filter_distances(df_merged, config)
-    
+
     # Apply additional filters
     df_filtered = _apply_additional_filters(df_filtered, config)
-    
+
+    # Apply analysis filters (depth and phase type)
+    df_filtered = apply_analysis_filters(df_filtered, config, data_type="short distance method comparison data")
+
     logger.info(f"Final filtered dataset: {len(df_filtered)} records")
     logger.info(f"Method comparison: {method1_name} vs {method2_name}")
-    
+
     return df_filtered
 
 

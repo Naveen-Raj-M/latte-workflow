@@ -14,6 +14,7 @@ from utils.distance_utils import (
     calculate_all_distances, validate_distance_types,
     get_distance_column_name
 )
+from . import apply_analysis_filters
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +66,10 @@ def load_and_merge_distance_data(config: Dict[str, Any]) -> pd.DataFrame:
     
     # Remove records with missing distances
     df_merged = _remove_missing_distances(df_merged, coordinate_type, distance_types)
-    
+
+    # Apply analysis filters (depth and phase type)
+    df_merged = apply_analysis_filters(df_merged, config, data_type="distance analysis data")
+
     logger.info(f"Final merged dataset: {len(df_merged)} records")
     return df_merged
 
@@ -124,13 +128,16 @@ def prepare_method_comparison_data(config: Dict[str, Any]) -> pd.DataFrame:
     )
     
     df_merged = calculate_all_distances(df_merged, coordinate_type, distance_types)
-    
+
     # Remove records with missing distances
     df_merged = _remove_missing_distances(df_merged, coordinate_type, distance_types)
-    
+
+    # Apply analysis filters (depth and phase type)
+    df_merged = apply_analysis_filters(df_merged, config, data_type="distance method comparison data")
+
     logger.info(f"Final merged dataset: {len(df_merged)} records")
     logger.info(f"Method comparison: {method1_name} vs {method2_name}")
-    
+
     return df_merged
 
 

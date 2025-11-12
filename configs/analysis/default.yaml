@@ -7,6 +7,19 @@ analysis:
   output_format: "png"  # png, pdf, svg
   dpi: 300
   save_intermediate_results: true
+
+  # Phase type selection (must match preprocessing/postprocessing)
+  # Options: "both" (default), "p" (P-wave only), "s" (S-wave only)
+  # This controls which phase data is analyzed:
+  #   - "both": Analyzes both P and S wave data
+  #   - "p": Analyzes only P-wave data
+  #   - "s": Analyzes only S-wave data
+  phase_type: "both"  # "both", "p", or "s"
+
+  # Depth filtering (should match preprocessing/postprocessing)
+  # Set to null to disable. When set, filters data to include only points within this depth
+  # NOTE: This should match the max_depth_km used in preprocessing/postprocessing
+  max_depth_km: null  # e.g., 40.0 to limit depth to 40 km
   
   # Plot styling
   plot_style:
