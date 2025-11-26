@@ -653,16 +653,16 @@ def write_travel_time_csv(events: Dict, event_map: Dict, config: DictConfig) -> 
     
     # Create lookup dictionaries for original coordinates
     station_original_coords = {}
-    if 'longitude' in station_df.columns and 'latitude' in station_df.columns and 'depth_km' in station_df.columns:
+    if 'lon' in station_df.columns and 'lat' in station_df.columns and 'depth' in station_df.columns:
         station_original_coords = {
-            row.station: (row.longitude, row.latitude, row.depth_km) 
+            row.station: (row.lon, row.lat, row.depth)
             for row in station_df.itertuples()
         }
     
     event_original_coords = {}
-    if 'longitude' in event_df.columns and 'latitude' in event_df.columns and 'depth_km' in event_df.columns:
+    if 'lon' in event_df.columns and 'lat' in event_df.columns and 'depth' in event_df.columns:
         event_original_coords = {
-            str(row.event_id): (row.longitude, row.latitude, row.depth_km) 
+            str(row.event_id): (row.lon, row.lat, row.depth)
             for row in event_df.itertuples()
         }
     
