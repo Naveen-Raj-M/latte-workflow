@@ -12,6 +12,10 @@ from omegaconf import DictConfig
 from pathlib import Path
 
 from utils.io_utils import ensure_directory_exists
+from utils.origin_time_utils import (
+    get_origin_time_for_event,
+    save_origin_time_metadata
+)
 
 
 def _calculate_time_in_seconds(jday_str: str, hour_str: str, min_str: str, sec_str: str) -> float:
@@ -88,13 +92,24 @@ def load_stations_to_discard(file_path: str) -> Set[str]:
         return set()
 
 
-def parse_and_filter_data_original(config: DictConfig, station_map: Dict, event_map: Dict, 
+def parse_and_filter_data_original(config: DictConfig, station_map: Dict, event_map: Dict,
                                  events_to_discard_set: Set[str], stations_to_discard_set: Set[str]) -> Tuple:
     """
-    Parses phase picks from original phasePickings.txt format and filters for stations 
+    Parses phase picks from original phasePickings.txt format and filters for stations
     that have BOTH a valid P and a valid S pick.
     """
-    temp_events = defaultdict(lambda: {'origin_time_s': 0.0, 'p_picks': {}, 's_picks': {}, 'header_info': None})
+    temp_events = defaultdict(lambda: {
+        'origin_time_s': 0.0,
+        'original_origin_time_s': 0.0,
+        'year': None,
+        'jday': None,
+        'hour': None,
+        'minute': None,
+        'second': None,
+        'p_picks': {},
+        's_picks': {},
+        'header_info': None
+    })
     total_picks_in_file = 0
     unrealistic_velocity_count = 0
     discarded_events_count = 0
@@ -118,16 +133,44 @@ def parse_and_filter_data_original(config: DictConfig, station_map: Dict, event_
         if len(parts) == 9:  # Event header line
             try:
                 current_event_id = parts[8]
-                
+
                 # Check if event should be discarded
                 if config.filter_events and current_event_id in events_to_discard_set:
                     print(f"# Warning: Event {current_event_id} discarded (reason: in events discard file).")
                     discarded_events_count += 1
                     current_event_id = None
                     continue
-                
-                origin_time_s = _calculate_time_in_seconds(parts[1], parts[2], parts[3], parts[4])
-                temp_events[current_event_id]['origin_time_s'] = origin_time_s
+
+                # Parse time components
+                year = int(parts[0])
+                jday = int(parts[1])
+                hour = int(parts[2])
+                minute = int(parts[3])
+                second = float(parts[4])
+
+                # Calculate original origin time (seconds from start of year)
+                original_origin_time_s = _calculate_time_in_seconds(parts[1], parts[2], parts[3], parts[4])
+
+                # Store time components and original time
+                temp_events[current_event_id]['original_origin_time_s'] = original_origin_time_s
+                temp_events[current_event_id]['year'] = year
+                temp_events[current_event_id]['jday'] = jday
+                temp_events[current_event_id]['hour'] = hour
+                temp_events[current_event_id]['minute'] = minute
+                temp_events[current_event_id]['second'] = second
+
+                # Calculate configured origin time based on mode
+                configured_origin_time = get_origin_time_for_event(
+                    original_time_s=original_origin_time_s,
+                    mode=config.origin_time.mode,
+                    fixed_value=config.origin_time.get('fixed_value', 0.0),
+                    year=year,
+                    jday=jday,
+                    hour=hour,
+                    minute=minute,
+                    second=second
+                )
+                temp_events[current_event_id]['origin_time_s'] = configured_origin_time
                 temp_events[current_event_id]['header_info'] = parts
             except (IndexError, ValueError):
                 current_event_id = None
@@ -156,7 +199,19 @@ def parse_and_filter_data_original(config: DictConfig, station_map: Dict, event_
                     continue
 
                 pick_time_s = _calculate_time_in_seconds(jday, hour, min_time, sec)
-                travel_time = pick_time_s - temp_events[current_event_id]['origin_time_s']
+
+                # For Unix epoch mode, convert pick time to Unix epoch before calculating travel time
+                if hasattr(config, 'origin_time') and config.origin_time and config.origin_time.mode == "unix_epoch":
+                    # Get event year for pick time conversion
+                    event_year = temp_events[current_event_id].get('year')
+                    if event_year:
+                        from utils.origin_time_utils import convert_to_unix_epoch
+                        pick_time_unix = convert_to_unix_epoch(event_year, int(jday), int(hour), int(min_time), float(sec))
+                        travel_time = pick_time_unix - temp_events[current_event_id]['origin_time_s']
+                    else:
+                        travel_time = pick_time_s - temp_events[current_event_id]['origin_time_s']
+                else:
+                    travel_time = pick_time_s - temp_events[current_event_id]['origin_time_s']
                 if travel_time < -43200: 
                     travel_time += 86400.0
                 
@@ -223,6 +278,8 @@ def parse_and_filter_data_original(config: DictConfig, station_map: Dict, event_
                 final_events[eid] = {
                     'header_info': data['header_info'],
                     'origin_time_s': data['origin_time_s'],
+                    'original_origin_time_s': data['original_origin_time_s'],
+                    'year': data.get('year'),
                     'p_picks': [data['p_picks'][stn] for stn in common_stations],
                     's_picks': [data['s_picks'][stn] for stn in common_stations]
                 }
@@ -236,6 +293,8 @@ def parse_and_filter_data_original(config: DictConfig, station_map: Dict, event_
                 final_events[eid] = {
                     'header_info': data['header_info'],
                     'origin_time_s': data['origin_time_s'],
+                    'original_origin_time_s': data['original_origin_time_s'],
+                    'year': data.get('year'),
                     'p_picks': [data['p_picks'][stn] for stn in p_stations],
                     's_picks': []  # Empty S picks
                 }
@@ -249,6 +308,8 @@ def parse_and_filter_data_original(config: DictConfig, station_map: Dict, event_
                 final_events[eid] = {
                     'header_info': data['header_info'],
                     'origin_time_s': data['origin_time_s'],
+                    'original_origin_time_s': data['original_origin_time_s'],
+                    'year': data.get('year'),
                     'p_picks': [],  # Empty P picks
                     's_picks': [data['s_picks'][stn] for stn in s_stations]
                 }
@@ -270,7 +331,19 @@ def parse_and_filter_data_corrected(config: DictConfig, station_map: Dict, event
     - First line: year julian_day hour minute second lat lon depth event_id weighted_rms
     - Following lines: station year julian_day hour minute second phase_type uncertainty residual
     """
-    temp_events = defaultdict(lambda: {'origin_time_s': 0.0, 'p_picks': {}, 's_picks': {}, 'header_info': None, 'weighted_rms': 0.0})
+    temp_events = defaultdict(lambda: {
+        'origin_time_s': 0.0,
+        'original_origin_time_s': 0.0,
+        'year': None,
+        'jday': None,
+        'hour': None,
+        'minute': None,
+        'second': None,
+        'p_picks': {},
+        's_picks': {},
+        'header_info': None,
+        'weighted_rms': 0.0
+    })
     total_picks_in_file = 0
     unrealistic_velocity_count = 0
     discarded_events_count = 0
@@ -313,11 +386,33 @@ def parse_and_filter_data_corrected(config: DictConfig, station_map: Dict, event
                     discarded_events_count += 1
                     current_event_id = None
                     continue
-                
-                current_event_origin_time = _calculate_time_in_seconds(julian_day, hour, minute, second)
-                temp_events[current_event_id]['origin_time_s'] = current_event_origin_time
+
+                # Calculate original origin time (seconds from start of year)
+                original_origin_time_s = _calculate_time_in_seconds(julian_day, hour, minute, second)
+
+                # Store time components and original time
+                temp_events[current_event_id]['original_origin_time_s'] = original_origin_time_s
+                temp_events[current_event_id]['year'] = year
+                temp_events[current_event_id]['jday'] = julian_day
+                temp_events[current_event_id]['hour'] = hour
+                temp_events[current_event_id]['minute'] = minute
+                temp_events[current_event_id]['second'] = second
                 temp_events[current_event_id]['weighted_rms'] = weighted_rms
-                
+
+                # Calculate configured origin time based on mode
+                configured_origin_time = get_origin_time_for_event(
+                    original_time_s=original_origin_time_s,
+                    mode=config.origin_time.mode,
+                    fixed_value=config.origin_time.get('fixed_value', 0.0),
+                    year=year,
+                    jday=julian_day,
+                    hour=hour,
+                    minute=minute,
+                    second=second
+                )
+                current_event_origin_time = configured_origin_time
+                temp_events[current_event_id]['origin_time_s'] = configured_origin_time
+
                 # Create header info in original format for consistency
                 temp_events[current_event_id]['header_info'] = [
                     str(year), str(julian_day), str(hour), str(minute), f"{second:.4f}",
@@ -360,7 +455,18 @@ def parse_and_filter_data_corrected(config: DictConfig, station_map: Dict, event
                     continue
 
                 pick_time_s = _calculate_time_in_seconds(pick_jday, pick_hour, pick_minute, pick_second)
-                travel_time = pick_time_s - current_event_origin_time
+
+                # For Unix epoch mode, convert pick time to Unix epoch before calculating travel time
+                if hasattr(config, 'origin_time') and config.origin_time and config.origin_time.mode == "unix_epoch":
+                    # Get event year for pick time conversion (use pick_year from the pick line)
+                    if pick_year:
+                        from utils.origin_time_utils import convert_to_unix_epoch
+                        pick_time_unix = convert_to_unix_epoch(pick_year, pick_jday, pick_hour, pick_minute, pick_second)
+                        travel_time = pick_time_unix - current_event_origin_time
+                    else:
+                        travel_time = pick_time_s - current_event_origin_time
+                else:
+                    travel_time = pick_time_s - current_event_origin_time
                 if travel_time < -43200: 
                     travel_time += 86400.0
                 
@@ -430,6 +536,8 @@ def parse_and_filter_data_corrected(config: DictConfig, station_map: Dict, event
                 final_events[eid] = {
                     'header_info': data['header_info'],
                     'origin_time_s': data['origin_time_s'],
+                    'original_origin_time_s': data['original_origin_time_s'],
+                    'year': data.get('year'),
                     'weighted_rms': data.get('weighted_rms', 0.0),
                     'p_picks': [data['p_picks'][stn] for stn in common_stations],
                     's_picks': [data['s_picks'][stn] for stn in common_stations]
@@ -444,6 +552,8 @@ def parse_and_filter_data_corrected(config: DictConfig, station_map: Dict, event
                 final_events[eid] = {
                     'header_info': data['header_info'],
                     'origin_time_s': data['origin_time_s'],
+                    'original_origin_time_s': data['original_origin_time_s'],
+                    'year': data.get('year'),
                     'weighted_rms': data.get('weighted_rms', 0.0),
                     'p_picks': [data['p_picks'][stn] for stn in p_stations],
                     's_picks': []  # Empty S picks
@@ -458,6 +568,8 @@ def parse_and_filter_data_corrected(config: DictConfig, station_map: Dict, event
                 final_events[eid] = {
                     'header_info': data['header_info'],
                     'origin_time_s': data['origin_time_s'],
+                    'original_origin_time_s': data['original_origin_time_s'],
+                    'year': data.get('year'),
                     'weighted_rms': data.get('weighted_rms', 0.0),
                     'p_picks': [],  # Empty P picks
                     's_picks': [data['s_picks'][stn] for stn in s_stations]
@@ -490,22 +602,23 @@ def write_source_binary_files(events: Dict, event_map: Dict, config: DictConfig)
     sy_values = []
     sz_values = []
     st0_values = []
-    
+    event_original_times = {}
+
     for eid, data in sorted_events:
         ex, ey, ez = event_map.get(eid, (None, None, None))
         if ex is None:
             print(f"Warning: Event {eid} coordinates not found in event_map, skipping from source binaries")
             continue
-            
+
         sx_values.append(ex)
         sy_values.append(ey)
         sz_values.append(ez)
-        
-        # Handle origin time based on zero_origin_time flag
-        if config.zero_origin_time:
-            st0_values.append(0.0)
-        else:
-            st0_values.append(data['origin_time_s'])
+
+        # Use the configured origin time (already computed based on mode)
+        st0_values.append(data['origin_time_s'])
+
+        # Store original origin time for metadata
+        event_original_times[eid] = data.get('original_origin_time_s', 0.0)
     
     # Convert to numpy arrays
     sx_array = np.array(sx_values, dtype='<f4')  # Little-endian 32-bit float
@@ -550,18 +663,25 @@ def write_source_binary_files(events: Dict, event_map: Dict, config: DictConfig)
     
     print(f"Source binary files written:")
     print(f"  sx.bin: {len(sx_values)} values (x-coordinates)")
-    print(f"  sy.bin: {len(sy_values)} values (y-coordinates)")  
+    print(f"  sy.bin: {len(sy_values)} values (y-coordinates)")
     print(f"  sz.bin: {len(sz_values)} values (z-coordinates)")
-    print(f"  st0.bin: {len(st0_values)} values (origin times{'=0' if config.zero_origin_time else ''})")
-    
+    print(f"  st0.bin: {len(st0_values)} values (origin times in {config.origin_time.mode} mode)")
+
+    # Save origin time metadata for postprocessing
+    save_origin_time_metadata(
+        output_dir=config.source_dir,
+        mode=config.origin_time.mode,
+        fixed_value=config.origin_time.get('fixed_value', 0.0),
+        event_original_times=event_original_times
+    )
+
     # Print summary statistics
     if sx_values:  # Only print if we have values
         print(f"\nSource coordinate ranges:")
         print(f"  X: {min(sx_values):.1f} to {max(sx_values):.1f} m")
         print(f"  Y: {min(sy_values):.1f} to {max(sy_values):.1f} m")
         print(f"  Z: {min(sz_values):.1f} to {max(sz_values):.1f} m")
-        if not config.zero_origin_time:
-            print(f"  Origin times: {min(st0_values):.1f} to {max(st0_values):.1f} s")
+        print(f"  Origin times ({config.origin_time.mode} mode): {min(st0_values):.1f} to {max(st0_values):.1f} s")
 
 
 def write_output_files(events: Dict, event_map: Dict, config: DictConfig) -> None:
@@ -820,7 +940,9 @@ def create_geometry_and_traveltime_files(config: DictConfig) -> None:
     print(f"Generate source binaries: {config.generate_source_binaries}")
     if config.generate_source_binaries:
         print(f"Source directory: {config.source_dir}")
-        print(f"Zero origin time: {config.zero_origin_time}")
+        print(f"Origin time mode: {config.origin_time.mode}")
+        if config.origin_time.mode == "fixed":
+            print(f"Origin time fixed value: {config.origin_time.get('fixed_value', 0.0)} s")
         print(f"Binary format compatibility: {config.source_binary_format}")
     
     print(f"\n--- Filtering Configuration ---")
@@ -907,7 +1029,10 @@ def create_geometry_and_traveltime_files(config: DictConfig) -> None:
         if config.generate_source_binaries:
             print(f"\nSource binary files generated in: {config.source_dir}")
             print(f"  - Format: {config.source_binary_format}")
-            print(f"  - Origin times: {'Zero' if config.zero_origin_time else 'Actual'}")
+            origin_time_desc = f"{config.origin_time.mode}"
+            if config.origin_time.mode == "fixed":
+                origin_time_desc += f" (value={config.origin_time.get('fixed_value', 0.0)}s)"
+            print(f"  - Origin times: {origin_time_desc}")
             print(f"  - Files: sx.bin, sy.bin, sz.bin, st0.bin")
         
         print("\n--- Script finished successfully ---")

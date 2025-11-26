@@ -14,6 +14,18 @@ data:
   base_dir: "/path/to/input/data"
   output_base_dir: "/path/to/output"
 
+# Origin time configuration
+# Controls how event origin times are handled throughout the workflow
+origin_time:
+  # Mode options:
+  #   "fixed": Set all events to a fixed origin time value (e.g., 0s, 10s, 100s)
+  #   "unix_epoch": Convert event times to Unix epoch timestamps (seconds since Jan 1, 1970)
+  mode: "fixed"  # "fixed" or "unix_epoch"
+
+  # Fixed value in seconds (only used when mode is "fixed")
+  # Examples: 0.0 (all events start at t=0), 100.0 (all events start at t=100s)
+  fixed_value: 0.0
+
 # Coordinate transformation configuration
 coordinate_transform:
   enabled: true
@@ -94,7 +106,6 @@ geometry_traveltime:
   # Processing options
   use_corrected_phase_pickings: true
   generate_source_binaries: true
-  zero_origin_time: true
   source_binary_format: "travel_time"  # "travel_time" or "fortran"
 
   # Phase type selection

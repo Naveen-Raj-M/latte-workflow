@@ -16,6 +16,7 @@ from datetime import datetime
 
 from utils.io_utils import read_csv_file, write_text_file, ensure_directory_exists
 from utils.plot_utils import setup_plot_style, get_color_scheme, save_figure
+from utils.origin_time_utils import load_origin_time_metadata
 from . import apply_depth_filter
 
 logger = logging.getLogger(__name__)
@@ -249,10 +250,31 @@ def compute_source_corrections(df: pd.DataFrame,
     df = df.copy()
     
     # Temporal correction
-    if config['source_analysis'].get('zero_initial_origin_time', False):
-        df['delta_time_s'] = df['corrected_origin_time_s']
-    else:
+    # Load origin time metadata to handle different origin time modes
+    try:
+        metadata_dir = config['source_analysis'].get('origin_time_metadata_dir',
+                                                     config.get('model_dir', ''))
+        origin_time_metadata = load_origin_time_metadata(metadata_dir)
+        origin_time_mode = origin_time_metadata['mode']
+
+        logger.info(f"Origin time mode from preprocessing: {origin_time_mode}")
+
+        # Calculate delta_time_s based on mode
+        # For both "fixed" and "unix_epoch" modes, the delta is simply corrected - initial
+        # This works because:
+        # - In "fixed" mode: initial values are all set to the fixed value
+        # - In "unix_epoch" mode: both initial and corrected are in Unix epoch
         df['delta_time_s'] = df['corrected_origin_time_s'] - df['origin_time_s']
+
+    except FileNotFoundError as e:
+        # Fallback to old behavior if metadata not found
+        logger.warning(f"Origin time metadata not found: {e}")
+        logger.warning("Falling back to 'zero_initial_origin_time' config flag")
+
+        if config['source_analysis'].get('zero_initial_origin_time', False):
+            df['delta_time_s'] = df['corrected_origin_time_s']
+        else:
+            df['delta_time_s'] = df['corrected_origin_time_s'] - df['origin_time_s']
     
     # Spatial corrections (in transformed coordinates, assumed to be in meters)
     df['delta_x_km'] = (df['corrected_event_x_transformed'] - df['event_x_transformed']) / 1000

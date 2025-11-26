@@ -312,6 +312,15 @@ source_analysis:
   # Analysis options
   use_log_scale: false  # Set to true for log scale plots
   enable_depth_analysis: true
+
+  # Origin time handling
+  # The system now automatically loads origin time mode from preprocessing metadata
+  # located in origin_time_metadata_dir (typically the model directory)
+  origin_time_metadata_dir: null  # Path to directory containing origin_time_metadata.json
+                                   # If null, uses model_dir from postprocessing
+
+  # DEPRECATED: zero_initial_origin_time is kept for backwards compatibility
+  # but is now automatically determined from metadata when available
   zero_initial_origin_time: true
   
   # Depth binning
