@@ -116,31 +116,14 @@ def calculate_all_distances(df: pd.DataFrame, coordinate_type: str,
     
    # Get coordinate column names based on coordinate type and what's available
     if coordinate_type == "transformed":
-        # Try different column naming patterns
-        if 'X_grid_km_y' in df.columns and 'X_grid_km' in df.columns:
-            # From station/event merge (station has no suffix, event has _y)
-            event_x = df['X_grid_km_y']
-            event_y = df['Y_grid_km_y']
-            event_z = df['Z_grid_km_y']
-            station_x = df['X_grid_km']
-            station_y = df['Y_grid_km']
-            station_z = df['Z_grid_km']
-        elif 'event_x_transformed' in df.columns and 'station_x_transformed' in df.columns:
+        if 'event_x_transformed' in df.columns and 'station_x_transformed' in df.columns:
             # Direct columns without suffixes
-            event_x = df['event_x_transformed']
-            event_y = df['event_y_transformed']
-            event_z = df['event_z_transformed']
-            station_x = df['station_x_transformed']
-            station_y = df['station_y_transformed']
-            station_z = df['station_z_transformed']
-        elif 'event_x_transformed_y' in df.columns:
-            # From merge with _x/_y suffixes
-            event_x = df['event_x_transformed_y']
-            event_y = df['event_y_transformed_y']
-            event_z = df['event_z_transformed_y']
-            station_x = df['station_x_transformed_x']
-            station_y = df['station_y_transformed_x']
-            station_z = df['station_z_transformed_x']
+            event_x = df['event_x_transformed'] / 1000
+            event_y = df['event_y_transformed'] / 1000
+            event_z = df['event_z_transformed'] / 1000
+            station_x = df['station_x_transformed'] / 1000
+            station_y = df['station_y_transformed'] / 1000
+            station_z = df['station_z_transformed'] / 1000
         else:
             raise KeyError("Could not find transformed coordinate columns in dataframe")
     else:  # original
