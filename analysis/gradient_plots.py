@@ -307,8 +307,8 @@ def create_alignment_plots(df: pd.DataFrame, available_fields: Dict[str, List[st
         ax.axvline(0, color='black', linestyle='--', linewidth=1)
         
         # Add quadrant lines
-        ax.plot([grad_data.min(), grad_data.max()], 
-               [grad_data.min(), grad_data.max()],
+        ax.plot([grad_data.min(), grad_data.max()],
+               [-grad_data.min(), -grad_data.max()],
                'r--', alpha=0.5, linewidth=1.5, label='Perfect alignment')
         
         # Labels

@@ -192,6 +192,7 @@ def _format_search_statistics(search_stats: Dict[str, Any],
             "Sign distribution:",
             f"  Positive: {stats['positive_count']} ({stats['positive_count']/stats['count']*100:.1f}%)",
             f"  Negative: {stats['negative_count']} ({stats['negative_count']/stats['count']*100:.1f}%)",
+            f"  Near-zero: {stats['zero_count']} ({stats['zero_count']/stats['count']*100:.1f}%)",
             "",
         ])
     

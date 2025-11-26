@@ -258,7 +258,7 @@ def compute_velocity_gradient_statistics(df: pd.DataFrame,
         for field in available_fields['search']:
             param = field.replace('srch_', '')
             data = df[field].dropna()
-            
+
             if len(data) > 0:
                 stats['search'][param] = {
                     'count': int(len(data)),
@@ -271,7 +271,8 @@ def compute_velocity_gradient_statistics(df: pd.DataFrame,
                     'abs_max': float(data.abs().max()),
                     'rms': float(np.sqrt(np.mean(data**2))),
                     'positive_count': int((data > 0).sum()),
-                    'negative_count': int((data < 0).sum())
+                    'negative_count': int((data < 0).sum()),
+                    'zero_count': int((np.abs(data) < 1e-10).sum())
                 }
     
     # Gradient-search alignment (if both available)
@@ -332,7 +333,7 @@ def compute_source_gradient_statistics(df: pd.DataFrame,
         for field in available_fields['search']:
             param = field.replace('srch_', '')
             data = df[field].dropna()
-            
+
             if len(data) > 0:
                 stats['search'][param] = {
                     'count': int(len(data)),
@@ -343,7 +344,10 @@ def compute_source_gradient_statistics(df: pd.DataFrame,
                     'median': float(data.median()),
                     'abs_mean': float(data.abs().mean()),
                     'abs_max': float(data.abs().max()),
-                    'rms': float(np.sqrt(np.mean(data**2)))
+                    'rms': float(np.sqrt(np.mean(data**2))),
+                    'positive_count': int((data > 0).sum()),
+                    'negative_count': int((data < 0).sum()),
+                    'zero_count': int((np.abs(data) < 1e-10).sum())
                 }
     
     # Gradient-search alignment
