@@ -57,33 +57,35 @@ def read_travel_time_binary(bin_path: str) -> np.ndarray:
         return None
 
 
-def load_source_correction_binaries(source_correction_file: str, mode: str = "standard") -> Dict[int, float]:
+def load_source_correction_binaries(source_correction_file: str, mode: str = "standard",
+                                   st0_precision: str = "single") -> Dict[int, float]:
     """
     Load corrected source origin times from binary files.
-    
+
     Args:
         source_correction_file: Path to source origin time bin file
         mode: "standard" (indices = shots) or "exchange" (indices = shots, applied per shot_id)
-    
+        st0_precision: "single" or "double" - precision of st0 binary file
+
     Returns:
         Dictionary mapping shot_id (1-based) to corrected origin time.
     """
     print(f"\nLoading source correction binaries from: {source_correction_file}")
-    
+    print(f"  Using {st0_precision} precision for st0 (origin time)")
+
     st0_file = source_correction_file
-    
+
     if not os.path.exists(st0_file):
         raise FileNotFoundError(f"Source correction file not found: {st0_file}")
-    
+
     try:
-        # Read binary file with automatic format detection
-        for dtype in [np.float32, np.float64]:
-            try:
-                st0_data = np.fromfile(st0_file, dtype=dtype)
-                if len(st0_data) > 0 and not np.any(np.isnan(st0_data)):
-                    break
-            except:
-                continue
+        # Determine dtype based on precision configuration
+        st0_dtype = np.float64 if st0_precision == 'double' else np.float32
+
+        # Read binary file with configured precision
+        st0_data = np.fromfile(st0_file, dtype=st0_dtype)
+        if len(st0_data) == 0 or np.any(np.isnan(st0_data)):
+            raise ValueError(f"Invalid data in {st0_file}")
         
         # Create mapping from shot_id (1-indexed) to corrected origin time
         corrected_origin_times = {}
@@ -248,7 +250,8 @@ def build_array_index_to_shot_id_mapping(unique_shot_ids: list, removed_shots: l
     return mapping
 
 
-def create_synthetic_travel_time_csv(config: DictConfig, phase_type: str = "both", max_depth_km: Optional[float] = None) -> None:
+def create_synthetic_travel_time_csv(config: DictConfig, phase_type: str = "both", max_depth_km: Optional[float] = None,
+                                     st0_precision: str = "single") -> None:
     """Create synthetic travel time CSV from binary files (standard mode - no exchange)."""
     print("\n=== CREATING SYNTHETIC TRAVEL TIME CSV FROM BINARIES (STANDARD MODE) ===")
     print(f"Phase type: {phase_type}")
@@ -265,7 +268,8 @@ def create_synthetic_travel_time_csv(config: DictConfig, phase_type: str = "both
     # Load corrected origin times if source correction is enabled
     corrected_origin_times = None
     if config.get('use_source_correction', False):
-        corrected_origin_times = load_source_correction_binaries(config.source_correction_file, mode="standard")
+        corrected_origin_times = load_source_correction_binaries(config.source_correction_file, mode="standard",
+                                                                 st0_precision=st0_precision)
         print("Source correction enabled: Will use corrected origin times")
 
     # Get removed shots configuration
@@ -456,40 +460,42 @@ def create_synthetic_travel_time_csv(config: DictConfig, phase_type: str = "both
         print("Warning: No synthetic travel time data was processed")
 
 
-def create_synthetic_travel_time_csv_with_exchange(config: DictConfig, phase_type: str = "both", max_depth_km: Optional[float] = None) -> None:
+def create_synthetic_travel_time_csv_with_exchange(config: DictConfig, phase_type: str = "both", max_depth_km: Optional[float] = None,
+                                                   st0_precision: str = "single") -> None:
     """Create synthetic travel time CSV using source-receiver exchange - OPTIMIZED."""
     print("\n=== CREATING SYNTHETIC TRAVEL TIME CSV WITH SOURCE-RECEIVER EXCHANGE ===")
     print(f"Phase type: {phase_type}")
     if max_depth_km is not None:
         print(f"Max depth filter: {max_depth_km} km")
-    
+
     # Load ground truth CSV
     print(f"Loading ground truth travel time CSV: {config.ground_truth_csv}")
     df_ground_truth = pd.read_csv(config.ground_truth_csv)
-    
+
     print(f"  Ground truth: {len(df_ground_truth)} records")
     print(f"  Unique shots: {df_ground_truth['shot_id'].nunique()}")
     print(f"  Unique stations: {df_ground_truth['station'].nunique()}")
-    
+
     # OPTIMIZATION: Create lookup dictionary for O(1) access
     gt_lookup = create_ground_truth_lookup(df_ground_truth)
-    
+
     # Load shot mapping for event IDs
     shot_map = load_shot_mapping(config.shot_map_file)
-    
+
     # Load virtual station geometry and match to actual station names
     virtual_to_station = load_virtual_station_geometry(
         config.exchange_geometry_file,
         config.ground_truth_csv,
         tolerance=config.get('coordinate_tolerance', 1.0)
     )
-    
+
     # Load source correction if enabled (pre-load all corrections)
     corrected_origin_times = None
     if config.get('use_source_correction', False):
         corrected_origin_times = load_source_correction_binaries(
             config.source_correction_file,
-            mode="exchange"
+            mode="exchange",
+            st0_precision=st0_precision
         )
         print("Source correction enabled")
 

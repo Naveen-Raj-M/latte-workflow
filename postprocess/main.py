@@ -70,6 +70,11 @@ def postprocess_latte_outputs(config: DictConfig) -> None:
         max_depth_km = config.general.get('max_depth_km', None)
         removed_shots = config.travel_time_processing.get('removed_shots', [])
 
+        # Get st0 precision from config
+        st0_precision = 'single'  # default
+        if hasattr(config.general, 'precision') and hasattr(config.general.precision, 'st0'):
+            st0_precision = config.general.precision.st0
+
         # Log removed shots if any
         if removed_shots:
             print(f"  Removed shots (filtered during geometry loading): {removed_shots}")
@@ -91,11 +96,11 @@ def postprocess_latte_outputs(config: DictConfig) -> None:
                 tt_config_dict['exchange_mapping_file'] = config.travel_time_processing.exchange_mapping_file
                 tt_config_dict['virtual_shot_mapping_file'] = config.travel_time_processing.get('virtual_shot_mapping_file', None)
                 tt_config = OmegaConf.create(tt_config_dict)
-                create_synthetic_travel_time_csv_with_exchange(tt_config, phase_type, max_depth_km)
+                create_synthetic_travel_time_csv_with_exchange(tt_config, phase_type, max_depth_km, st0_precision)
             else:
                 print("Using STANDARD mode (no exchange)")
                 tt_config = OmegaConf.create(tt_config_dict)
-                create_synthetic_travel_time_csv(tt_config, phase_type, max_depth_km)
+                create_synthetic_travel_time_csv(tt_config, phase_type, max_depth_km, st0_precision)
         except Exception as e:
             print(f"Error in travel time processing: {e}")
             if config.strict_mode:
@@ -134,6 +139,10 @@ def postprocess_latte_outputs(config: DictConfig) -> None:
                         source_cfg_dict[srch_key] = getattr(config.source_processing, srch_key)
             
             source_cfg = OmegaConf.create(source_cfg_dict)
+            # Set parent to allow access to general.precision settings
+            OmegaConf.set_struct(source_cfg, False)
+            source_cfg._parent = config
+            OmegaConf.set_struct(source_cfg, True)
             process_source_updates(source_cfg)
         except Exception as e:
             print(f"Error in source parameter processing: {e}")

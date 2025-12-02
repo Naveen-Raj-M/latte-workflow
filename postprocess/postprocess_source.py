@@ -96,15 +96,15 @@ def validate_shot_ids(df: pd.DataFrame, ns: int) -> None:
 def process_source_updates(cfg: DictConfig) -> pd.DataFrame:
     """
     Process updated source parameters and merge with travel time CSV.
-    
-    Reads binary files containing updated source coordinates (sx, sy, sz) and 
+
+    Reads binary files containing updated source coordinates (sx, sy, sz) and
     origin times (st0), then merges them with the travel time CSV output.
     Optionally includes gradient and search direction fields.
     Uses 1-based indexing: shot_id N corresponds to binary array index N-1.
-    
+
     Args:
         cfg: Configuration dictionary with paths and parameters
-        
+
     Returns:
         DataFrame with original travel time data plus corrected event parameters
     """
@@ -113,17 +113,30 @@ def process_source_updates(cfg: DictConfig) -> pd.DataFrame:
         return pd.DataFrame()
 
     logger.info("=== PROCESSING SOURCE PARAMETER UPDATES ===")
-    
+
     # Get number of sources
     ns = cfg["grid_dimensions"][0]
     logger.info(f"Number of sources: {ns}")
 
+    # Determine precision for st0 (origin time) from config
+    # Access parent config through OmegaConf structure
+    st0_precision = 'single'  # default
+    if hasattr(cfg, '_parent') and cfg._parent is not None:
+        # Try to get precision from general.precision.st0
+        parent_cfg = cfg._parent
+        if hasattr(parent_cfg, 'general') and hasattr(parent_cfg.general, 'precision'):
+            st0_precision = parent_cfg.general.precision.get('st0', 'single')
+
+    # Determine dtype for st0
+    st0_dtype = np.float64 if st0_precision == 'double' else np.float32
+    logger.info(f"Using {st0_precision} precision for st0 (origin time) - dtype: {st0_dtype.__name__}")
+
     # Read binary files with source corrections (REQUIRED)
     logger.info("\nReading updated source parameter binaries...")
-    sx = read_binary_file(str(cfg["sx_file"]), ns)  # in meters
-    sy = read_binary_file(str(cfg["sy_file"]), ns)  # in meters
-    sz = read_binary_file(str(cfg["sz_file"]), ns)  # in meters
-    st0 = read_binary_file(str(cfg["st0_file"]), ns)  # in seconds
+    sx = read_binary_file(str(cfg["sx_file"]), ns)  # in meters, single precision
+    sy = read_binary_file(str(cfg["sy_file"]), ns)  # in meters, single precision
+    sz = read_binary_file(str(cfg["sz_file"]), ns)  # in meters, single precision
+    st0 = read_binary_file(str(cfg["st0_file"]), ns, dtype=st0_dtype)  # in seconds, configurable precision
 
     # Determine which parameters to process for gradients/search
     params_to_process = cfg.get('parameters_to_process', [])
@@ -145,23 +158,26 @@ def process_source_updates(cfg: DictConfig) -> pd.DataFrame:
             if param not in ['sx', 'sy', 'sz', 'st0']:
                 logger.warning(f"  Unknown parameter '{param}' in parameters_to_process (skipping)")
                 continue
-            
+
             logger.info(f"\n  Processing optional fields for {param.upper()}:")
-            
+
+            # Use st0 precision for st0 gradient/search, single precision for others
+            param_dtype = st0_dtype if param == 'st0' else np.float32
+
             # Load gradient file if specified
             grad_key = f'grad_{param}_file'
             if hasattr(cfg, grad_key):
                 grad_file = getattr(cfg, grad_key)
                 auxiliary_fields[param]['gradient'] = read_optional_binary_file(
-                    str(grad_file), ns, f"{param.upper()} gradient"
+                    str(grad_file), ns, f"{param.upper()} gradient", dtype=param_dtype
                 )
-            
+
             # Load search direction file if specified
             srch_key = f'srch_{param}_file'
             if hasattr(cfg, srch_key):
                 srch_file = getattr(cfg, srch_key)
                 auxiliary_fields[param]['search'] = read_optional_binary_file(
-                    str(srch_file), ns, f"{param.upper()} search direction"
+                    str(srch_file), ns, f"{param.upper()} search direction", dtype=param_dtype
                 )
 
     # Create source corrections lookup (1-based shot_id -> corrections)

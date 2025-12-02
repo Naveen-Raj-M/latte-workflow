@@ -15,6 +15,15 @@ general:
   #   - "s": Expects only S-wave travel time binaries and only Vs velocity binary
   phase_type: "both"  # "both", "p", or "s"
 
+  # Binary file precision configuration
+  # Controls the precision when reading binary files from LATTE output
+  # NOTE: Most LATTE outputs are single precision (real*4 in Fortran)
+  # Only st0 (origin time) files may use double precision if configured in preprocessing
+  precision:
+    default: "single"  # Default precision for most binary files: "single" (4 bytes) or "double" (8 bytes)
+    st0: "single"      # Precision for origin time (st0) files: "single" or "double"
+                       # Set to "double" if preprocessing used origin_time_precision: "double"
+
   # Depth filtering (applied to output CSVs)
   # Set to null to disable. When set, filters output CSV to include only data within this depth
   # NOTE: This should match the max_depth_km used in preprocessing

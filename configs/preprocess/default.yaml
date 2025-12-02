@@ -108,6 +108,12 @@ geometry_traveltime:
   generate_source_binaries: true
   source_binary_format: "travel_time"  # "travel_time" or "fortran"
 
+  # Origin time precision configuration
+  # Controls the precision of origin time (st0.bin) binary files
+  # Options: "single" (4 bytes, real*4) or "double" (8 bytes, real*8)
+  # NOTE: Set to "double" when using latte_traveltime with double precision for origin times
+  origin_time_precision: "single"  # "single" or "double"
+
   # Weight configuration
   apply_default_weights: false  # Set all station weights to default_weight value
   default_weight: 1.0  # Default weight value when apply_default_weights is true

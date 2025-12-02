@@ -617,7 +617,13 @@ def write_source_binary_files(events: Dict, event_map: Dict, config: DictConfig,
     sx_array = np.array(sx_values, dtype='<f4')  # Little-endian 32-bit float
     sy_array = np.array(sy_values, dtype='<f4')
     sz_array = np.array(sz_values, dtype='<f4')
-    st0_array = np.array(st0_values, dtype='<f4')
+
+    # Use configured precision for origin times
+    origin_time_precision = config.get('origin_time_precision', 'double')
+    if origin_time_precision == 'double':
+        st0_array = np.array(st0_values, dtype='<f8')  # Little-endian 64-bit double
+    else:
+        st0_array = np.array(st0_values, dtype='<f4')  # Little-endian 32-bit float
     
     # Write binary files based on format compatibility setting
     if config.source_binary_format == "travel_time":
@@ -654,11 +660,14 @@ def write_source_binary_files(events: Dict, event_map: Dict, config: DictConfig,
         print(f"Warning: Unknown source_binary_format: {config.source_binary_format}")
         return
     
+    # Determine precision description
+    precision_desc = "double precision (8 bytes)" if origin_time_precision == 'double' else "single precision (4 bytes)"
+
     print(f"Source binary files written:")
-    print(f"  sx.bin: {len(sx_values)} values (x-coordinates)")
-    print(f"  sy.bin: {len(sy_values)} values (y-coordinates)")
-    print(f"  sz.bin: {len(sz_values)} values (z-coordinates)")
-    print(f"  st0.bin: {len(st0_values)} values (origin times in {origin_time_config.mode} mode)")
+    print(f"  sx.bin: {len(sx_values)} values (x-coordinates, single precision)")
+    print(f"  sy.bin: {len(sy_values)} values (y-coordinates, single precision)")
+    print(f"  sz.bin: {len(sz_values)} values (z-coordinates, single precision)")
+    print(f"  st0.bin: {len(st0_values)} values (origin times in {origin_time_config.mode} mode, {precision_desc})")
 
     # Save origin time metadata for postprocessing
     save_origin_time_metadata(
