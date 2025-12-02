@@ -473,15 +473,19 @@ def apply_depth_filter(df: pd.DataFrame, max_depth_km: Optional[float], data_typ
     return filtered_df
 
 
-def transform_coordinates(config: DictConfig) -> None:
+def transform_coordinates(full_config: DictConfig) -> None:
     """
     Main function to transform coordinates from geodetic to Cartesian.
     Supports both exact and flattening transformations.
+    Accepts full config and extracts coordinate_transform section.
     """
+    # Extract coordinate_transform section
+    config = full_config.coordinate_transform
+
     print("=" * 60)
     print("COORDINATE TRANSFORMATION")
     print("=" * 60)
-    
+
     # Load data files
     print(f"Loading station data from: {config.station_file}")
     stations_df = load_station_data(config.station_file)

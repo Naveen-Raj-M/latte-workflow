@@ -106,7 +106,7 @@ def get_velocity_for_depth(
     return best_vp, best_vs
 
 
-def create_initial_3d_model(config: DictConfig) -> None:
+def create_initial_3d_model(full_config: DictConfig) -> None:
     """
     Creates the 3D initial model file using configuration.
 
@@ -116,8 +116,11 @@ def create_initial_3d_model(config: DictConfig) -> None:
     new data point to the output file.
 
     Args:
-        config: Configuration containing file paths and formatting options
+        full_config: Full configuration (will extract initial_3d_model section)
     """
+    # Extract initial_3d_model section
+    config = full_config.initial_3d_model
+
     try:
         # Load the 1D model once
         model_1d = load_1d_model(config.model_1d_file)

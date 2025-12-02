@@ -214,16 +214,20 @@ def populate_grid_and_write_bins(df: pd.DataFrame, config: DictConfig, nx: int, 
     print("\n--- Conversion Complete ---")
 
 
-def create_velocity_binary_files(config: DictConfig) -> None:
+def create_velocity_binary_files(full_config: DictConfig) -> None:
     """
     Main function to create velocity binary files from CSV data.
     Can process both initial and final velocity models.
+    Accepts full config and extracts velocity_binary section.
     """
+    # Extract velocity_binary section
+    config = full_config.velocity_binary
+
     print("--- Starting CSV to 3D Binary Velocity Model Conversion ---")
     print("Binary format: Raw binary (no record markers)")
     print("Data type: 32-bit float (float32)")
     print("Array order: C-order (row-major)")
-    
+
     velocity_type = "Chapman-transformed" if config.use_chapman_velocities else "Original"
     print(f"Velocity type: {velocity_type}")
     

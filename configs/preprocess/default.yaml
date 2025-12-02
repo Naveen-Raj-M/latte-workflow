@@ -108,6 +108,10 @@ geometry_traveltime:
   generate_source_binaries: true
   source_binary_format: "travel_time"  # "travel_time" or "fortran"
 
+  # Weight configuration
+  apply_default_weights: false  # Set all station weights to default_weight value
+  default_weight: 1.0  # Default weight value when apply_default_weights is true
+
   # Phase type selection
   # Options: "both" (default), "p" (P-wave only), "s" (S-wave only)
   # This controls which phase data is filtered and written to output files:
