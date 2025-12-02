@@ -203,7 +203,7 @@ def run_gradient_analysis(cfg: DictConfig) -> None:
 def run_single_function(cfg: DictConfig, function_name: str) -> None:
     """
     Run a single analysis function.
-    
+
     Args:
         cfg: Hydra configuration
         function_name: Name of the function to run
@@ -216,25 +216,104 @@ def run_single_function(cfg: DictConfig, function_name: str) -> None:
         'source_analysis': run_source_analysis,
         'gradient_analysis': run_gradient_analysis,
     }
-    
+
     if function_name not in function_map:
         logger.error(f"Unknown function: {function_name}")
         logger.error(f"Available functions: {list(function_map.keys())}")
         sys.exit(1)
-    
+
     logger.info(f"Running single function: {function_name}")
+
+    # Initialize configuration settings
+    initialize_analysis_configuration(cfg)
+
     function_map[function_name](cfg)
+
+
+def initialize_analysis_configuration(cfg: DictConfig) -> None:
+    """
+    Initialize and validate analysis configuration settings.
+
+    Args:
+        cfg: Hydra configuration
+    """
+    logger.info("Initializing analysis configuration...")
+
+    # Initialize and log analysis settings
+    logger.info(f"Output format: {cfg.analysis.output_format}")
+    logger.info(f"DPI: {cfg.analysis.dpi}")
+    logger.info(f"Save intermediate results: {cfg.analysis.save_intermediate_results}")
+    logger.info(f"Phase type: {cfg.analysis.get('phase_type', 'both')}")
+    if cfg.analysis.get('max_depth_km'):
+        logger.info(f"Max depth filter: {cfg.analysis.max_depth_km} km")
+
+    # Initialize plot style settings
+    plot_style = cfg.analysis.plot_style
+    logger.info("Plot style configuration:")
+    logger.info(f"  Font family: {plot_style.font_family}")
+    logger.info(f"  Font size: {plot_style.font_size}")
+    logger.info(f"  Max plot points: {plot_style.max_plot_points}")
+
+    # Initialize paths configuration
+    if hasattr(cfg, 'paths'):
+        logger.info("Path configuration:")
+        logger.info(f"  Input directory: {cfg.paths.input_dir}")
+        logger.info(f"  Output base directory: {cfg.paths.output_base_dir}")
+        logger.info(f"  Plots subdirectory: {cfg.paths.plots_subdir}")
+        logger.info(f"  Statistics subdirectory: {cfg.paths.stats_subdir}")
+        logger.info(f"  Reports subdirectory: {cfg.paths.reports_subdir}")
+
+        # Ensure output directories exist
+        from pathlib import Path
+        output_base = Path(cfg.paths.output_base_dir)
+        ensure_directory_exists(output_base)
+        ensure_directory_exists(output_base / cfg.paths.plots_subdir)
+        ensure_directory_exists(output_base / cfg.paths.stats_subdir)
+        ensure_directory_exists(output_base / cfg.paths.reports_subdir)
+
+    # Initialize performance settings
+    if hasattr(cfg, 'performance'):
+        logger.info("Performance configuration:")
+        logger.info(f"  Max memory: {cfg.performance.max_memory_gb} GB")
+        logger.info(f"  Subsample large datasets: {cfg.performance.subsample_large_datasets}")
+        logger.info(f"  Subsample threshold: {cfg.performance.subsample_threshold} points")
+        logger.info(f"  Parallel processing: {cfg.performance.parallel_processing}")
+        if cfg.performance.parallel_processing:
+            logger.info(f"  Number of jobs: {cfg.performance.n_jobs}")
+
+    # Initialize logging settings
+    if hasattr(cfg, 'logging'):
+        logger.info("Logging configuration:")
+        logger.info(f"  Log to file: {cfg.logging.log_to_file}")
+        if cfg.logging.log_to_file:
+            logger.info(f"  Log file prefix: {cfg.logging.log_file_prefix}")
+        logger.info(f"  Detailed progress: {cfg.logging.detailed_progress}")
+        logger.info(f"  Profile memory: {cfg.logging.profile_memory}")
+        logger.info(f"  Profile timing: {cfg.logging.profile_timing}")
+
+    # Initialize quality control settings
+    if hasattr(cfg, 'quality_control'):
+        logger.info("Quality control configuration:")
+        logger.info(f"  Validate input data: {cfg.quality_control.validate_input_data}")
+        logger.info(f"  Check coordinate consistency: {cfg.quality_control.check_coordinate_consistency}")
+        logger.info(f"  Warn on missing data: {cfg.quality_control.warn_missing_data}")
+        logger.info(f"  Error on empty results: {cfg.quality_control.error_on_empty_results}")
+
+    logger.info("Configuration initialization complete")
 
 
 def run_analysis_pipeline(cfg: DictConfig) -> None:
     """
     Run the complete analysis pipeline.
-    
+
     Args:
         cfg: Hydra configuration
     """
     logger.info("Starting LATTE analysis pipeline")
     logger.info(f"Configuration mode: {cfg.get('mode', 'full_pipeline')}")
+
+    # Initialize configuration settings
+    initialize_analysis_configuration(cfg)
     
     with ProcessTimer("Complete analysis pipeline"):
         analyses = [

@@ -28,14 +28,22 @@ def postprocess_latte_outputs(config: DictConfig) -> None:
     """Main post-processing function."""
     print("=== LATTE POST-PROCESSING: BINARY TO CSV CONVERSION ===")
     print(f"Configuration loaded from: {config.config_file if hasattr(config, 'config_file') else 'default'}")
-    
+
+    # Log data paths
+    print(f"\nData paths:")
+    print(f"  Base directory: {config.data.base_dir}")
+    if hasattr(config.data, 'analysis_output_dir'):
+        print(f"  Analysis output directory: {config.data.analysis_output_dir}")
+        # Ensure analysis output directory exists
+        ensure_directory_exists(config.data.analysis_output_dir)
+
     # Create output directories
     if config.velocity_processing.enabled:
         ensure_directory_exists(os.path.dirname(config.velocity_processing.velocity_output_csv))
-    
+
     if config.travel_time_processing.enabled:
         ensure_directory_exists(os.path.dirname(config.travel_time_processing.synthetic_tt_output_csv))
-    
+
     if hasattr(config, "source_processing") and config.source_processing.enabled:
         ensure_directory_exists(os.path.dirname(config.source_processing.output_csv))
     
@@ -60,13 +68,20 @@ def postprocess_latte_outputs(config: DictConfig) -> None:
         use_source_correction = config.travel_time_processing.get('source_correction', False)
         phase_type = config.general.get('phase_type', 'both')
         max_depth_km = config.general.get('max_depth_km', None)
+        removed_shots = config.travel_time_processing.get('removed_shots', [])
+
+        # Log removed shots if any
+        if removed_shots:
+            print(f"  Removed shots (filtered during geometry loading): {removed_shots}")
+
         try:
             tt_config_dict = {
                 'ground_truth_csv': config.travel_time_processing.ground_truth_csv,
                 'synthetic_tt_dir': config.travel_time_processing.synthetic_tt_dir,
                 'shot_map_file': config.travel_time_processing.shot_map_file,
                 'synthetic_tt_output_csv': config.travel_time_processing.synthetic_tt_output_csv,
-                'use_source_correction': use_source_correction
+                'use_source_correction': use_source_correction,
+                'removed_shots': removed_shots
             }
             if use_source_correction:
                 tt_config_dict['source_correction_file'] = config.travel_time_processing.source_correction_file
