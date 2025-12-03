@@ -686,11 +686,12 @@ def write_source_binary_files(events: Dict, event_map: Dict, config: DictConfig,
         print(f"  Origin times ({origin_time_config.mode} mode): {min(st0_values):.1f} to {max(st0_values):.1f} s")
 
 
-def write_output_files(events: Dict, event_map: Dict, config: DictConfig) -> None:
+def write_output_files(events: Dict, event_map: Dict, config: DictConfig, origin_time_config: DictConfig) -> None:
     """
     Writes geometry files and travel time binary files.
     The binary files are written as a raw stream of little-endian floats to be
     compatible with np.fromfile.
+    The origin time in geometry files uses the configured origin_time mode.
     """
     ensure_directory_exists(config.geometry_dir)
     ensure_directory_exists(config.traveltime_dir)
@@ -718,9 +719,11 @@ def write_output_files(events: Dict, event_map: Dict, config: DictConfig) -> Non
                 continue
 
             # Write Geometry File
+            # Use the configured origin time for this event (same as in st0.bin)
+            origin_time = data.get('origin_time_s', 0.0)
             with open(os.path.join(config.geometry_dir, geom_fname), "w") as out:
                 out.write(f"{idx}\n\n1\n")
-                out.write(f"{ex:.6f} {ey:.6f} {ez:.6f} {0.0:.6f}\n\n")
+                out.write(f"{ex:.6f} {ey:.6f} {ez:.6f} {origin_time:.15f}\n\n")
                 out.write(f"{len(receivers_for_geometry)}\n")
                 for pick in receivers_for_geometry:
                     sx, sy, sz = pick['coords']
@@ -751,6 +754,7 @@ def write_output_files(events: Dict, event_map: Dict, config: DictConfig) -> Non
     print(f"Successfully wrote {len(shot_files)} consistent shots in total.")
     print(f"Geometry index: {os.path.join(config.geometry_dir, 'geometry.txt')}")
     print(f"Source ID map: {id_map_path}")
+    print(f"Origin time mode: {origin_time_config.mode} (written with double precision, 15 decimal places)")
     print(f"\nIMPORTANT: You must update the 'ns' parameter in your Fortran input to {len(shot_files)}")
 
 
@@ -997,9 +1001,9 @@ def create_geometry_and_traveltime_files(full_config: DictConfig) -> None:
     if valid_events:
         # Write source binary files
         write_source_binary_files(valid_events, event_map, config, origin_time_config)
-        
+
         # Write other output files
-        write_output_files(valid_events, event_map, config)
+        write_output_files(valid_events, event_map, config, origin_time_config)
 
         # Write comprehensive travel time CSV
         write_travel_time_csv(valid_events, event_map, config)
