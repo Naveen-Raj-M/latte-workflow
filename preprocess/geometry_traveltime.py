@@ -720,10 +720,17 @@ def write_output_files(events: Dict, event_map: Dict, config: DictConfig, origin
 
             # Write Geometry File
             # Use the configured origin time for this event (same as in st0.bin)
+            # Format based on precision setting: single precision uses 6 decimals, double uses 12
             origin_time = data.get('origin_time_s', 0.0)
+            origin_time_precision = config.get('origin_time_precision', 'single')
+            if origin_time_precision == 'double':
+                origin_time_fmt = f"{origin_time:.12f}"
+            else:
+                origin_time_fmt = f"{origin_time:.6f}"
+
             with open(os.path.join(config.geometry_dir, geom_fname), "w") as out:
                 out.write(f"{idx}\n\n1\n")
-                out.write(f"{ex:.6f} {ey:.6f} {ez:.6f} {origin_time:.15f}\n\n")
+                out.write(f"{ex:.6f} {ey:.6f} {ez:.6f} {origin_time_fmt}\n\n")
                 out.write(f"{len(receivers_for_geometry)}\n")
                 for pick in receivers_for_geometry:
                     sx, sy, sz = pick['coords']
@@ -750,11 +757,16 @@ def write_output_files(events: Dict, event_map: Dict, config: DictConfig, origin
         for shot in shot_files:
             idxf.write(shot + "\n")
     
+    # Get precision info for summary message
+    origin_time_precision = config.get('origin_time_precision', 'single')
+    precision_desc = "double precision (12 decimal places)" if origin_time_precision == 'double' else "single precision (6 decimal places)"
+
     print("\n--- File Generation Summary ---")
     print(f"Successfully wrote {len(shot_files)} consistent shots in total.")
     print(f"Geometry index: {os.path.join(config.geometry_dir, 'geometry.txt')}")
     print(f"Source ID map: {id_map_path}")
-    print(f"Origin time mode: {origin_time_config.mode} (written with double precision, 15 decimal places)")
+    print(f"Origin time mode: {origin_time_config.mode}")
+    print(f"Origin time precision: {precision_desc}")
     print(f"\nIMPORTANT: You must update the 'ns' parameter in your Fortran input to {len(shot_files)}")
 
 
