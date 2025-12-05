@@ -204,30 +204,30 @@ def parse_and_filter_data_original(config: DictConfig, origin_time_config: DictC
 
                 pick_time_s = _calculate_time_in_seconds(jday, hour, min_time, sec)
 
-                # Calculate travel time using ORIGINAL origin time (not the configured one)
-                # This ensures travel times are physically correct regardless of origin_time mode
+                # Step 1: Calculate physical travel time using ORIGINAL origin time
+                # This is needed for accurate velocity checks
                 original_origin_time_s = temp_events[current_event_id]['original_origin_time_s']
-                travel_time = pick_time_s - original_origin_time_s
-                if travel_time < -43200: 
-                    travel_time += 86400.0
-                
-                if travel_time < 0:
-                    print(f"# Warning: Event {current_event_id}, station {station} skipped (reason: negative travel time: {travel_time:.2f}s).")
+                physical_travel_time = pick_time_s - original_origin_time_s
+                if physical_travel_time < -43200:
+                    physical_travel_time += 86400.0
+
+                if physical_travel_time < 0:
+                    print(f"# Warning: Event {current_event_id}, station {station} skipped (reason: negative travel time: {physical_travel_time:.2f}s).")
                     continue
-                
-                # Velocity Check
+
+                # Velocity Check (using physical travel time)
                 ex, ey, ez = event_map.get(current_event_id, (None, None, None))
                 if ex is None:
                     print(f"# Warning: Event {current_event_id}, station {station} skipped (reason: event coordinates not found).")
                     continue
-                
-                if travel_time < 1e-6:  # Avoid division by zero
+
+                if physical_travel_time < 1e-6:  # Avoid division by zero
                     unrealistic_velocity_count += 1
                     print(f"# Warning: Event {current_event_id}, station {station} skipped (reason: travel time is zero).")
                     continue
 
                 distance = np.linalg.norm(np.array([ex, ey, ez]) - np.array([sx, sy, sz]))
-                apparent_velocity = distance / travel_time
+                apparent_velocity = distance / physical_travel_time
 
                 is_realistic = False
                 if phase.upper() == 'P':
@@ -242,10 +242,17 @@ def parse_and_filter_data_original(config: DictConfig, origin_time_config: DictC
                     print(f"# Warning: Event {current_event_id}, station {station} ({phase}-phase) skipped (reason: unrealistic velocity: {apparent_velocity:.1f} m/s).")
                     continue
 
+                # Step 2: Calculate travel times for different purposes
+                # - physical_travel_time: actual wave propagation time (for CSV)
+                # - observed_travel_time: physical_tt + configured_origin_time (for binary files)
+                configured_origin_time = temp_events[current_event_id]['origin_time_s']
+                observed_travel_time = physical_travel_time + configured_origin_time
+
                 pick_data = {
-                    'station': station, 
-                    'coords': (sx, sy, sz), 
-                    'travel_time': travel_time, 
+                    'station': station,
+                    'coords': (sx, sy, sz),
+                    'physical_travel_time': physical_travel_time,
+                    'observed_travel_time': observed_travel_time,
                     'weight': weight,
                     'original_parts': parts,
                     'pick_time_s': pick_time_s
@@ -450,30 +457,30 @@ def parse_and_filter_data_corrected(config: DictConfig, origin_time_config: Dict
 
                 pick_time_s = _calculate_time_in_seconds(pick_jday, pick_hour, pick_minute, pick_second)
 
-                # Calculate travel time using ORIGINAL origin time (not the configured one)
-                # This ensures travel times are physically correct regardless of origin_time mode
+                # Step 1: Calculate physical travel time using ORIGINAL origin time
+                # This is needed for accurate velocity checks
                 original_origin_time_s = temp_events[current_event_id]['original_origin_time_s']
-                travel_time = pick_time_s - original_origin_time_s
-                if travel_time < -43200: 
-                    travel_time += 86400.0
-                
-                if travel_time < 0:
-                    print(f"# Warning: Event {current_event_id}, station {station} skipped (reason: negative travel time: {travel_time:.2f}s).")
+                physical_travel_time = pick_time_s - original_origin_time_s
+                if physical_travel_time < -43200:
+                    physical_travel_time += 86400.0
+
+                if physical_travel_time < 0:
+                    print(f"# Warning: Event {current_event_id}, station {station} skipped (reason: negative travel time: {physical_travel_time:.2f}s).")
                     continue
-                
-                # Velocity Check
+
+                # Velocity Check (using physical travel time)
                 ex, ey, ez = event_map.get(current_event_id, (None, None, None))
                 if ex is None:
                     print(f"# Warning: Event {current_event_id}, station {station} skipped (reason: event coordinates not found).")
                     continue
-                
-                if travel_time < 1e-6:  # Avoid division by zero
+
+                if physical_travel_time < 1e-6:  # Avoid division by zero
                     unrealistic_velocity_count += 1
                     print(f"# Warning: Event {current_event_id}, station {station} skipped (reason: travel time is zero).")
                     continue
 
                 distance = np.linalg.norm(np.array([ex, ey, ez]) - np.array([sx, sy, sz]))
-                apparent_velocity = distance / travel_time
+                apparent_velocity = distance / physical_travel_time
 
                 is_realistic = False
                 if phase.upper() == 'P':
@@ -488,6 +495,12 @@ def parse_and_filter_data_corrected(config: DictConfig, origin_time_config: Dict
                     print(f"# Warning: Event {current_event_id}, station {station} ({phase}-phase) skipped (reason: unrealistic velocity: {apparent_velocity:.1f} m/s).")
                     continue
 
+                # Step 2: Calculate travel times for different purposes
+                # - physical_travel_time: actual wave propagation time (for CSV)
+                # - observed_travel_time: physical_tt + configured_origin_time (for binary files)
+                configured_origin_time = temp_events[current_event_id]['origin_time_s']
+                observed_travel_time = physical_travel_time + configured_origin_time
+
                 # Determine weight to use
                 if config.get('apply_default_weights', False):
                     weight = config.get('default_weight', 1.0)
@@ -497,7 +510,8 @@ def parse_and_filter_data_corrected(config: DictConfig, origin_time_config: Dict
                 pick_data = {
                     'station': station,
                     'coords': (sx, sy, sz),
-                    'travel_time': travel_time,
+                    'physical_travel_time': physical_travel_time,
+                    'observed_travel_time': observed_travel_time,
                     'weight': weight,
                     'residual': residual,
                     'original_parts': parts,
@@ -738,17 +752,19 @@ def write_output_files(events: Dict, event_map: Dict, config: DictConfig, origin
                     out.write(f"{sx:.6f} {sy:.6f} {sz:.6f} {w:.6f}\n")
 
             # Write P-wave traveltime binary (if processing P-waves)
+            # Binary files use observed_travel_time = physical_tt + configured_origin_time
             if phase_type in ['both', 'p'] and data['p_picks']:
                 tt_p_fname = os.path.join(config.traveltime_dir, f"shot_{idx}_traveltime_p.bin")
-                p_travel_times = [p['travel_time'] for p in data['p_picks']]
+                p_travel_times = [p['observed_travel_time'] for p in data['p_picks']]
                 p_array = np.array(p_travel_times, dtype='<f4')
                 with open(tt_p_fname, 'wb') as f:
                     f.write(p_array.tobytes())
 
             # Write S-wave traveltime binary (if processing S-waves)
+            # Binary files use observed_travel_time = physical_tt + configured_origin_time
             if phase_type in ['both', 's'] and data['s_picks']:
                 tt_s_fname = os.path.join(config.traveltime_dir, f"shot_{idx}_traveltime_s.bin")
-                s_travel_times = [s['travel_time'] for s in data['s_picks']]
+                s_travel_times = [s['observed_travel_time'] for s in data['s_picks']]
                 s_array = np.array(s_travel_times, dtype='<f4')
                 with open(tt_s_fname, 'wb') as f:
                     f.write(s_array.tobytes())
@@ -841,28 +857,28 @@ def write_travel_time_csv(events: Dict, event_map: Dict, config: DictConfig) -> 
         for phase, picks in phases_to_process:
             for pick in picks:
                 station = pick['station']
-                travel_time = pick['travel_time']
+                physical_travel_time = pick['physical_travel_time']  # Use physical travel time for CSV
                 weight = pick['weight']
                 sx_transformed, sy_transformed, sz_transformed = pick['coords']
                 residual = pick.get('residual', 0.0)  # Available for corrected data
-                
+
                 # Get original station coordinates
                 station_lon, station_lat, station_depth_km = station_original_coords.get(station, (np.nan, np.nan, np.nan))
-                
+
                 # Calculate distance using transformed coordinates
-                distance_m = np.sqrt((ex_transformed - sx_transformed)**2 + 
-                                   (ey_transformed - sy_transformed)**2 + 
+                distance_m = np.sqrt((ex_transformed - sx_transformed)**2 +
+                                   (ey_transformed - sy_transformed)**2 +
                                    (ez_transformed - sz_transformed)**2)
-                
+
                 csv_data.append({
                     # Identifiers
                     'shot_id': shot_id,
                     'event_id': eid,
                     'station': station,
                     'phase': phase,
-                    
-                    # Travel time data
-                    'observed_tt': travel_time,
+
+                    # Travel time data (CSV uses physical travel time only)
+                    'observed_tt': physical_travel_time,
                     'weight': weight,
                     'residual': residual,
                     
@@ -932,6 +948,9 @@ def write_travel_time_csv(events: Dict, event_map: Dict, config: DictConfig) -> 
         
         print(f"  CSV columns: {', '.join(df.columns)}")
         print("  Note: Shot ID matches binary file numbering - no separate mapping file needed")
+        print()
+        print("  IMPORTANT: CSV 'observed_tt' contains PHYSICAL travel times only")
+        print("             Binary files contain: physical_tt + configured_origin_time")
             
     else:
         print("Warning: No travel time data to write to CSV")

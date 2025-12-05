@@ -252,7 +252,15 @@ def build_array_index_to_shot_id_mapping(unique_shot_ids: list, removed_shots: l
 
 def create_synthetic_travel_time_csv(config: DictConfig, phase_type: str = "both", max_depth_km: Optional[float] = None,
                                      st0_precision: str = "single") -> None:
-    """Create synthetic travel time CSV from binary files (standard mode - no exchange)."""
+    """
+    Create synthetic travel time CSV from binary files (standard mode - no exchange).
+
+    Processing steps:
+    1. Read synthetic travel times from LATTE binary outputs (contain: physical_tt + configured_origin_time)
+    2. Subtract configured origin time to get physical travel time
+    3. Optionally apply source correction if enabled
+    4. Compare with observed travel times (which are already physical travel times from CSV)
+    """
     print("\n=== CREATING SYNTHETIC TRAVEL TIME CSV FROM BINARIES (STANDARD MODE) ===")
     print(f"Phase type: {phase_type}")
     if max_depth_km is not None:
@@ -299,11 +307,14 @@ def create_synthetic_travel_time_csv(config: DictConfig, phase_type: str = "both
         # Get event ID for this shot
         event_id = shot_map.get(shot_id, str(shot_id))
         
-        # Get corrected origin time if available
+        # Get configured origin time from ground truth (used to adjust synthetic times)
+        configured_origin_time = shot_gt_data.iloc[0]['origin_time_s'] if not shot_gt_data.empty else 0.0
+
+        # Get corrected origin time if source correction is enabled
         origin_time_correction = 0.0
         if corrected_origin_times is not None:
             origin_time_correction = corrected_origin_times.get(shot_id, 0.0)
-        
+
         # Process phases based on phase_type
         phases_to_process = []
         if phase_type in ['both', 'p']:
@@ -346,8 +357,14 @@ def create_synthetic_travel_time_csv(config: DictConfig, phase_type: str = "both
             for i, (_, gt_row) in enumerate(phase_gt_data_sorted.iterrows()):
                 synthetic_tt = synthetic_times[i]
                 observed_tt = gt_row["observed_tt"]
-                
-                # Apply source correction if enabled
+
+                # STEP 1: Subtract configured origin time from synthetic travel time
+                # Synthetic TT from LATTE binary contains: physical_tt + configured_origin_time
+                # We need to convert it back to physical_tt for comparison with observed_tt (which is already physical)
+                synthetic_tt = synthetic_tt - configured_origin_time
+
+                # STEP 2: Apply source correction if enabled (for source inversion)
+                # This further adjusts both synthetic and observed by the corrected origin time
                 if corrected_origin_times is not None:
                     synthetic_tt = synthetic_tt - origin_time_correction
                     observed_tt = observed_tt - origin_time_correction
@@ -462,7 +479,15 @@ def create_synthetic_travel_time_csv(config: DictConfig, phase_type: str = "both
 
 def create_synthetic_travel_time_csv_with_exchange(config: DictConfig, phase_type: str = "both", max_depth_km: Optional[float] = None,
                                                    st0_precision: str = "single") -> None:
-    """Create synthetic travel time CSV using source-receiver exchange - OPTIMIZED."""
+    """
+    Create synthetic travel time CSV using source-receiver exchange - OPTIMIZED.
+
+    Processing steps:
+    1. Read synthetic travel times from LATTE binary outputs (contain: physical_tt + configured_origin_time)
+    2. Subtract configured origin time to get physical travel time
+    3. Optionally apply source correction if enabled
+    4. Compare with observed travel times (which are already physical travel times from CSV)
+    """
     print("\n=== CREATING SYNTHETIC TRAVEL TIME CSV WITH SOURCE-RECEIVER EXCHANGE ===")
     print(f"Phase type: {phase_type}")
     if max_depth_km is not None:
@@ -597,25 +622,31 @@ def create_synthetic_travel_time_csv_with_exchange(config: DictConfig, phase_typ
                 if synthetic_tt > 1e10 or synthetic_tt < -1e10:
                     continue
 
-                # Apply source correction for this shot_id
-                if corrected_origin_times is not None:
-                    origin_correction = corrected_origin_times.get(shot_id, 0.0)
-                    synthetic_tt = synthetic_tt - origin_correction
-
-                else:
-                    origin_correction = 0.0
-                
                 # OPTIMIZATION: O(1) lookup instead of DataFrame filtering
                 key = (shot_id, station_name, phase)
                 gt_row = gt_lookup.get(key)
-                
+
                 if gt_row is None:
                     missing_pairs.append(key)
                     continue
 
+                # Get configured origin time for this shot
+                configured_origin_time = gt_row['origin_time_s']
+
+                # STEP 1: Subtract configured origin time from synthetic travel time
+                # Synthetic TT from LATTE binary contains: physical_tt + configured_origin_time
+                # We need to convert it back to physical_tt for comparison with observed_tt (which is already physical)
+                synthetic_tt = synthetic_tt - configured_origin_time
+
+                # STEP 2: Apply source correction if enabled (for source inversion)
+                # This further adjusts both synthetic and observed by the corrected origin time
                 observed_tt = gt_row['observed_tt']
                 if corrected_origin_times is not None:
+                    origin_correction = corrected_origin_times.get(shot_id, 0.0)
+                    synthetic_tt = synthetic_tt - origin_correction
                     observed_tt = observed_tt - origin_correction
+                else:
+                    origin_correction = 0.0
 
                 # Create output record matching ground truth format exactly
                 record = {
