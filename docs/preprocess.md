@@ -8,12 +8,19 @@ Comprehensive guide for the LATTE preprocessing module, which handles all data p
 2. [Quick Start](#quick-start)
 3. [Configuration](#configuration)
 4. [Coordinate Transformation](#coordinate-transformation)
+   - [Depth Filtering](#depth-filtering)
 5. [Initial Velocity Model](#initial-velocity-model)
-6. [Geometry & Travel Time Processing](#geometry--travel-time-processing)
-7. [Velocity Binary Files](#velocity-binary-files)
-8. [Visualization](#visualization)
-9. [File Formats](#file-formats)
-10. [Troubleshooting](#troubleshooting)
+6. [Origin Time Configuration](#origin-time-configuration)
+   - [Modes](#modes)
+   - [Metadata Handling](#metadata-handling)
+7. [Geometry & Travel Time Processing](#geometry--travel-time-processing)
+   - [Phase Type Selection](#phase-type-selection)
+   - [Origin Time Precision](#origin-time-precision)
+   - [Weight Configuration](#weight-configuration)
+8. [Velocity Binary Files](#velocity-binary-files)
+9. [Visualization](#visualization)
+10. [File Formats](#file-formats)
+11. [Troubleshooting](#troubleshooting)
 
 ## Overview
 
@@ -145,9 +152,31 @@ final_velocity_file: "${data.base_dir}/vmodel-final.txt" # 5 columns (optional)
 use_corrected_phase_pickings: false  # Use corrected event data
 process_final_velocity: false        # Process final velocity model
 grid_spacing_km: [20.0, 20.0, 2.0]  # Grid spacing [dx, dy, dz]
+max_depth_km: null                   # Maximum depth threshold (null = no filtering)
 ```
 
 Grid indices (i, j, k) are 1-based for Fortran compatibility.
+
+### Depth Filtering
+
+Apply depth filtering to all transformed data (velocity, sources, stations):
+
+```yaml
+coordinate_transform:
+  max_depth_km: 40.0  # Filter all data deeper than 40 km
+```
+
+**Behavior:**
+- Applied AFTER coordinate transformation
+- Filters velocity model points, events/sources, and stations
+- Uses transformed Z_grid_km coordinate
+- Points with `Z_grid_km > max_depth_km` are removed
+
+**Important Notes:**
+- Set to `null` to disable filtering (default)
+- Should be consistent across preprocessing, postprocessing, and analysis modules
+- Reduces data volume for shallow-focused studies
+- Consider velocity model coverage when setting threshold
 
 ## Initial Velocity Model
 
@@ -161,7 +190,7 @@ initial_3d_model:
   model_1d_file: "${data.base_dir}/vmodel-PB1D.txt"
   template_3d_file: "${data.base_dir}/vmodel-PB3D.txt"
   output_file: "${data.output_base_dir}/initial_3d_model_generated.txt"
-  
+
   precision:
     longitude: 6
     latitude: 7
@@ -170,6 +199,65 @@ initial_3d_model:
     vs: 8
   field_width: 11
 ```
+
+## Origin Time Configuration
+
+Controls how event origin times are handled throughout the preprocessing workflow. The origin time metadata is saved and automatically loaded by postprocessing and analysis modules.
+
+### Configuration
+
+```yaml
+origin_time:
+  mode: "fixed"       # Options: fixed, unix_epoch
+  fixed_value: 0.0    # Used when mode is "fixed" (seconds)
+```
+
+### Modes
+
+#### Fixed Mode (Default)
+
+Sets all event origin times to a fixed value (e.g., 0s, 10s, 100s):
+
+```yaml
+origin_time:
+  mode: "fixed"
+  fixed_value: 0.0  # All events use this origin time
+```
+
+**Use cases:**
+- Synthetic data generation
+- Simplified testing scenarios
+- Cases where absolute origin time is not critical
+
+#### Unix Epoch Mode
+
+Uses actual origin times from input data (seconds from start of year):
+
+```yaml
+origin_time:
+  mode: "unix_epoch"
+```
+
+**Use cases:**
+- Real seismic data processing
+- Time-series analysis
+- Temporal pattern studies
+
+### Metadata Handling
+
+**Automatic Saving:**
+- Origin time configuration is saved to `origin_time_metadata.json`
+- Includes mode, fixed_value, and event-specific original times
+- Located in coordinate transformation output directory
+
+**Automatic Loading:**
+- Postprocessing module automatically reads metadata
+- Analysis module uses metadata for accurate time calculations
+- No manual configuration needed across modules
+
+**Consistency:**
+- Origin time mode must remain consistent throughout workflow
+- Changing modes requires reprocessing from coordinate transformation
 
 ### Velocity Mapping
 
@@ -207,13 +295,22 @@ geometry_traveltime:
   enabled: true
   use_corrected_phase_pickings: false
   generate_source_binaries: true
-  zero_origin_time: true
   source_binary_format: "travel_time"
-  
+
+  # Phase type selection
+  phase_type: "both"  # Options: both, p, s
+
+  # Origin time precision
+  origin_time_precision: "single"  # Options: single, double
+
+  # Weight configuration
+  apply_default_weights: false
+  default_weight: 1.0
+
   # Velocity filtering
   p_velocity_range_m_s: [500, 10000]
   s_velocity_range_m_s: [500, 6000]
-  
+
   # Event/station filtering
   filter_events: false
   events_to_discard_file: "${data.base_dir}/events_to_discard.txt"
@@ -234,6 +331,133 @@ geometry_traveltime:
 **Manual Filtering:**
 - Discard specific events by ID
 - Discard specific stations by name
+
+### Phase Type Selection
+
+Controls which seismic phases are processed and which binary files are created:
+
+```yaml
+geometry_traveltime:
+  phase_type: "both"  # Options: both, p, s
+```
+
+#### Options
+
+| Option | Description | Binaries Created | Requirements |
+|--------|-------------|------------------|--------------|
+| `both` | Process both P and S waves | `src_rec_p.bin`, `src_rec_s.bin` | Events must have both P and S picks |
+| `p` | Process only P waves | `src_rec_p.bin` only | Events must have P picks |
+| `s` | Process only S waves | `src_rec_s.bin` only | Events must have S picks |
+
+**Important Notes:**
+- When `phase_type: "both"`, events missing either P or S picks are filtered out
+- Phase type setting must be consistent across all modules (preprocessing, postprocessing, analysis)
+- The velocity binary generation (`velocity_binary` section) must use matching `phase_type`
+- Mismatched phase types between modules will cause runtime errors
+
+**Example Configurations:**
+
+P-wave only study:
+```yaml
+geometry_traveltime:
+  phase_type: "p"
+
+velocity_binary:
+  phase_type: "p"  # Must match
+```
+
+Full P and S wave study:
+```yaml
+geometry_traveltime:
+  phase_type: "both"
+
+velocity_binary:
+  phase_type: "both"  # Must match
+```
+
+### Origin Time Precision
+
+Controls the precision of origin times in source binary files:
+
+```yaml
+geometry_traveltime:
+  origin_time_precision: "single"  # Options: single, double
+```
+
+#### Precision Types
+
+| Type | Bytes | Precision | Use Case |
+|------|-------|-----------|----------|
+| `single` | 4 | ~7 decimal digits | Standard LATTE workflows, smaller file sizes |
+| `double` | 8 | ~15 decimal digits | High-precision timing, long time series |
+
+**Critical Requirement:**
+Must match the `precision.st0` setting in postprocessing configuration:
+
+```yaml
+# Preprocessing
+geometry_traveltime:
+  origin_time_precision: "single"
+
+# Postprocessing (must match!)
+precision:
+  st0: "single"
+```
+
+**When to Use Double Precision:**
+- Long-duration monitoring (years of data)
+- Sub-millisecond timing requirements
+- Matching LATTE binary precision requirements
+- High-precision earthquake location studies
+
+**Trade-offs:**
+- Double precision increases source binary file sizes by ~33%
+- No significant performance impact during processing
+- Most studies work well with single precision
+
+### Weight Configuration
+
+Control how station weights are applied to phase picks:
+
+```yaml
+geometry_traveltime:
+  apply_default_weights: false  # Override station-specific weights
+  default_weight: 1.0           # Weight value to apply
+```
+
+#### Behavior
+
+**Default (apply_default_weights: false):**
+- Uses station weights from input phase picking file
+- Preserves original quality assessments
+- Typical for real data with expert-assigned weights
+
+**Override Mode (apply_default_weights: true):**
+- Replaces all station weights with `default_weight` value
+- Useful for synthetic data or testing
+- Example use cases:
+  - Uniform weighting for synthetic tests
+  - Removing bias from questionable weight assignments
+  - Sensitivity studies with equal station importance
+
+**Example Configurations:**
+
+Use original weights:
+```yaml
+apply_default_weights: false  # Station weights from data files
+```
+
+Equal weighting for all stations:
+```yaml
+apply_default_weights: true
+default_weight: 1.0  # All stations weighted equally
+```
+
+Downweight all stations uniformly:
+```yaml
+apply_default_weights: true
+default_weight: 0.5  # All picks weighted at 50%
+```
 
 ### Output Files
 
@@ -294,11 +518,13 @@ velocity_binary:
   input_csv: "${coordinate_transform.output_dir}/velocity_cartesian.csv"
   vp_output: "${data.output_base_dir}/vp_init.bin"
   vs_output: "${data.output_base_dir}/vs_init.bin"
-  
+
+  phase_type: "both"  # Options: both, p, s (must match geometry_traveltime)
+
   use_chapman_velocities: true
   interpolate: true
   neighbor_threshold: 5
-  
+
   # Final velocity processing (optional)
   create_final_binaries: false
   final_input_csv: "${coordinate_transform.output_dir}/velocity_final_cartesian.csv"
@@ -307,6 +533,13 @@ velocity_binary:
 ```
 
 ### Processing Features
+
+**Phase Type Selection:**
+- Must match `geometry_traveltime.phase_type` setting
+- Controls which velocity binaries are created:
+  - `both`: Creates both `vp_init.bin` and `vs_init.bin`
+  - `p`: Creates only `vp_init.bin`
+  - `s`: Creates only `vs_init.bin`
 
 **Grid Dimensions:**
 - Auto-detected from CSV data

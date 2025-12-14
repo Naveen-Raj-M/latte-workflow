@@ -10,6 +10,7 @@ The analysis module provides comprehensive visualization and statistical analysi
 
 ### Analysis Components
 
+- **Gradient Analysis**: Velocity and source gradient/search direction analysis with depth-dependent statistics
 - **Travel Time Analysis**: Residual distributions, phase-specific statistics, and logarithmic ratio analysis
 - **Velocity Model Comparison**: Spatial projections, vertical profiles, and statistical comparisons between models
 - **Distance-Dependent Analysis**: Correlation studies and residual patterns as functions of source-receiver distance
@@ -74,7 +75,13 @@ analysis:
   output_format: png           # png | pdf | svg
   dpi: 300                     # Resolution for plots
   save_intermediate_results: true
-  
+
+  # Phase filtering
+  phase_type: both             # both | p | s
+
+  # Depth filtering
+  max_depth_km: null           # Maximum depth in km (null to disable)
+
   plot_style:
     font_family: sans-serif
     font_size: 14
@@ -85,24 +92,86 @@ analysis:
       event_color: "#ff6b35"
 ```
 
+**Key Parameters**:
+- `phase_type`: Filter data by wave type. Must match preprocessing/postprocessing settings.
+  - `both`: Analyze P and S waves together
+  - `p`: P-waves only
+  - `s`: S-waves only
+- `max_depth_km`: Filter events by depth. Set to `null` to disable. Should match preprocessing/postprocessing configuration.
+
+### Gradient Analysis
+
+```yaml
+gradient_analysis:
+  enabled: false
+  analysis_type: ["velocity", "source"]  # velocity | source
+
+  # Velocity gradient analysis
+  velocity_input_csv: "path/to/postprocessed/velocity_gradients.csv"
+  velocity_output_dir: "results/analysis/velocity_gradient"
+
+  # Source gradient analysis
+  source_input_csv: "path/to/postprocessed/source_gradients.csv"
+  source_output_dir: "results/analysis/source_gradient"
+
+  # Analysis parameters
+  histogram_bins: 50
+  depth_bins: 10
+  min_points_per_bin: 10
+
+  # Output options
+  generate_report: true
+  create_histograms: true
+  create_alignment_plots: true
+  create_spatial_plots: true
+  create_depth_profiles: true
+```
+
+**Purpose**: Analyze gradients and search directions from postprocessed inversion results.
+
+**Analysis Types**:
+- `velocity`: Velocity model gradients and update directions
+- `source`: Source parameter gradients and update directions
+
+**Key Visualizations**:
+- Gradient magnitude histograms
+- Alignment between gradients and search directions
+- Depth-dependent gradient statistics
+- Spatial distribution of gradient magnitudes
+
+**Requirements**: Postprocessed gradient/search direction CSV files from velocity or source updates.
+
 ### Travel Time Analysis
 
 ```yaml
 travel_time_analysis:
   enabled: true
+  comparison_mode: "ground_truth"  # ground_truth | method_comparison
+
+  # Ground truth mode (compare observed vs synthetic)
   input_csv: "path/to/synthetic_travel_times_latte_output.csv"
   output_dir: "results/analysis/travel_time"
-  
+
+  # Method comparison mode (compare two methods)
+  method1_csv: "path/to/method1_travel_times.csv"
+  method2_csv: "path/to/method2_travel_times.csv"
+  method1_name: "Method 1"
+  method2_name: "Method 2"
+
   # Analysis options
   enable_log_log_plots: true
   enable_ln_ratio_analysis: true
   outlier_threshold_sigma: 3.0
   histogram_bins: 50
   max_plot_points: 50000
-  
+
   # Report generation
   generate_summary_report: true
 ```
+
+**Comparison Modes**:
+- `ground_truth`: Compare observed vs synthetic travel times (standard LATTE workflow)
+- `method_comparison`: Compare travel time predictions from two different methods
 
 **Key Parameters**:
 - `enable_log_log_plots`: Log-scale visualizations for dynamic range assessment
@@ -117,23 +186,40 @@ velocity_analysis:
   model1_csv: "path/to/velocity_cartesian_initial.csv"
   model2_csv: "path/to/velocity_cartesian_latte_output.csv"
   output_dir: "results/analysis/velocity_comparison"
-  
+
+  # Optional reference model for vertical profiles
+  initial_velocity_model_csv: "path/to/initial_velocity.csv"
+
   # Comparison settings
   comparison_mode: "initial_vs_final"  # initial_vs_final | method_comparison | custom
   model1_name: "Initial Model"
   model2_name: "Final Model"
-  
+
   # Analysis features
   compute_log_ratios: true
   compute_geometric_mean_ratios: true
   enable_spatial_projections: true
   enable_profile_analysis: true
   enable_slice_analysis: true
-  
+  enable_plane_ratio_plots: true
+
   # Spatial settings
   interpolation_method: "cubic"  # linear | cubic | nearest
   grid_resolution: 100
   contour_levels: 20
+
+  # Plane ratio plots configuration
+  plane_ratio_plots:
+    planes:
+      - plane_type: "xy"  # xy | xz | yz
+        coordinates: [10.0, 20.0, 30.0]  # Slice positions in km
+        label: "Horizontal Plane (xy)"
+      - plane_type: "xz"
+        coordinates: [400.0, 500.0]
+        label: "Vertical Plane (xz)"
+      - plane_type: "yz"
+        coordinates: [300.0, 400.0]
+        label: "Vertical Plane (yz)"
 ```
 
 **Comparison Modes**:
@@ -141,56 +227,95 @@ velocity_analysis:
 - `method_comparison`: Compare results from different methods
 - `custom`: Use custom titles specified in configuration
 
+**Plane Ratio Plots**:
+- `plane_type`: Orientation of slice plane
+  - `xy`: Horizontal plane at specified depth coordinates
+  - `xz`: Vertical plane at specified y coordinates
+  - `yz`: Vertical plane at specified x coordinates
+- `coordinates`: List of positions where slices are taken (in km)
+- `initial_velocity_model_csv`: Optional reference model overlaid on vertical profiles
+
 ### Distance Analysis
 
 ```yaml
 distance_analysis:
   enabled: true
+  comparison_mode: "ground_truth"  # ground_truth | method_comparison
+
+  # Ground truth mode
   travel_time_csv: "path/to/synthetic_travel_times_latte_output.csv"
   station_csv: "path/to/stations_cartesian.csv"
   events_csv: "path/to/events_cartesian.csv"
   output_dir: "results/analysis/distance"
-  
+
+  # Method comparison mode
+  method1_csv: "path/to/method1_travel_times.csv"
+  method2_csv: "path/to/method2_travel_times.csv"
+  method1_name: "Method 1"
+  method2_name: "Method 2"
+
   # Coordinate system
   coordinate_type: "transformed"  # transformed | original
-  
+
+  # Distance calculation
+  distance_types: ["hypocentral"]  # hypocentral | epicentral
+
   # Analysis options
   enable_ratio_analysis: true
   enable_binned_analysis: true
   enable_correlation_analysis: true
   distance_bins: 20
-  
+
   # Plotting options
   enable_log_plots: true
   correlation_method: "pearson"  # pearson | spearman
   fit_polynomial_degree: 1
 ```
 
+**Distance Types**:
+- `hypocentral`: 3D distance including depth (default)
+- `epicentral`: 2D horizontal distance only
+- Can specify both: `distance_types: ["hypocentral", "epicentral"]`
+
+**Comparison Modes**:
+- `ground_truth`: Analyze residuals vs distance
+- `method_comparison`: Compare two methods' distance-dependent performance
+
 ### Short Distance Analysis
 
 ```yaml
 short_distance_analysis:
   enabled: true
+  comparison_mode: "ground_truth"  # ground_truth | method_comparison
+
+  # Ground truth mode
   travel_time_csv: "path/to/synthetic_travel_times_latte_output.csv"
   station_csv: "path/to/stations_cartesian.csv"
   events_csv: "path/to/events_cartesian.csv"
   output_dir: "results/analysis/short_distance"
-  
+
+  # Method comparison mode
+  method1_csv: "path/to/method1_travel_times.csv"
+  method2_csv: "path/to/method2_travel_times.csv"
+  method1_name: "Method 1"
+  method2_name: "Method 2"
+
   # Distance settings
   distance_cutoff_km: 20.0
   coordinate_type: "transformed"
+  distance_types: ["hypocentral"]  # hypocentral | epicentral
   phase_filter: null  # null | "P" | "S"
-  
+
   # Display options
   show_events: true
   show_stations: true
   show_travel_paths: true
-  
+
   # Analysis features
   enable_detailed_stats: true
   enable_residual_histograms: true
   enable_zoom_clusters: true
-  
+
   # Zoom clusters for detailed regional analysis
   zoom_clusters:
     - name: "Central_Region"
@@ -201,31 +326,61 @@ short_distance_analysis:
       description: "Dense cluster in central region"
 ```
 
+**Distance Types**:
+- `hypocentral`: 3D distance including depth
+- `epicentral`: 2D horizontal distance only
+
+**Comparison Modes**:
+- `ground_truth`: Analyze short-distance residual patterns
+- `method_comparison`: Compare two methods at short distances
+
 ### Source Correction Analysis
 
 ```yaml
 source_analysis:
   enabled: true
+  comparison_mode: "ground_truth"  # ground_truth | method_comparison
+
+  # Ground truth mode
   input_csv: "path/to/source_updated_travel_times.csv"
   output_dir: "results/analysis/source_corrections"
-  
+
+  # Method comparison mode
+  method1_csv: "path/to/method1_source.csv"
+  method2_csv: "path/to/method2_source.csv"
+  method1_name: "Method 1"
+  method2_name: "Method 2"
+
   # Analysis options
   use_log_scale: false
   enable_depth_analysis: true
-  zero_initial_origin_time: true
-  
+
+  # Origin time metadata (preferred method)
+  origin_time_metadata_dir: "path/to/preprocessing/metadata"
+
+  # Deprecated: Manual origin time zeroing
+  zero_initial_origin_time: true  # Kept for backwards compatibility
+
   # Depth binning
   depth_bins: 10
   min_events_per_bin: 5
-  
+
   # Plotting options
   histogram_bins: 50
   max_arrows_map: 5000
-  
+
   # Output options
   generate_summary_report: true
   save_corrected_data: true
 ```
+
+**Origin Time Metadata**:
+- `origin_time_metadata_dir`: Automatically loads origin times from preprocessing metadata (recommended)
+- `zero_initial_origin_time`: Deprecated but retained for backwards compatibility. Use `origin_time_metadata_dir` instead.
+
+**Comparison Modes**:
+- `ground_truth`: Evaluate source corrections from inversion
+- `method_comparison`: Compare source corrections from two different methods
 
 ---
 
@@ -241,6 +396,9 @@ python -m analysis.main
 ### Single Module Execution
 
 ```bash
+# Run only gradient analysis
+python -m analysis.main single_function=gradient_analysis
+
 # Run only travel time analysis
 python -m analysis.main single_function=travel_time_analysis
 
@@ -270,6 +428,17 @@ python -m analysis.main \
   velocity_analysis.comparison_mode=custom \
   velocity_analysis.custom_title1="Method A" \
   velocity_analysis.custom_title2="Method B"
+
+# Method comparison for travel times
+python -m analysis.main \
+  travel_time_analysis.comparison_mode=method_comparison \
+  travel_time_analysis.method1_csv=data/method1.csv \
+  travel_time_analysis.method2_csv=data/method2.csv
+
+# Filter by phase type and depth
+python -m analysis.main \
+  analysis.phase_type=p \
+  analysis.max_depth_km=30.0
 ```
 
 ### Custom Configuration Files
@@ -285,6 +454,26 @@ python -m analysis.main --config-path=/custom/config/path
 ---
 
 ## Output Files
+
+### Gradient Analysis
+
+**Directory**: `{output_dir}/gradient_analysis/`
+
+**Plots**:
+- `gradient_magnitude_histogram_{type}.png`: Distribution of gradient magnitudes
+- `search_direction_histogram_{type}.png`: Distribution of search direction magnitudes
+- `alignment_scatter_{type}.png`: Gradient vs search direction alignment
+- `spatial_gradient_map_{type}.png`: Geographic distribution of gradient magnitudes
+- `depth_profile_{type}.png`: Gradient statistics by depth
+
+**Reports**:
+- `gradient_analysis_report_{type}.txt`: Statistical summary of gradients and search directions
+
+**Key Metrics**:
+- Gradient magnitude statistics (mean, median, RMS)
+- Search direction statistics
+- Alignment angles between gradients and search directions
+- Depth-dependent gradient characteristics
 
 ### Travel Time Analysis
 
@@ -388,6 +577,26 @@ python -m analysis.main --config-path=/custom/config/path
 ---
 
 ## Analysis Details
+
+### Gradient Analysis
+
+**Purpose**: Analyze gradients and search directions from velocity or source inversion updates.
+
+**Workflow**:
+1. Load postprocessed gradient and search direction CSV files
+2. Compute magnitude statistics for gradients and search directions
+3. Calculate alignment between gradients and search directions
+4. Analyze depth-dependent gradient patterns
+5. Generate spatial distribution maps
+6. Create comprehensive statistical reports
+
+**Key Visualizations**:
+- Gradient magnitude histograms showing distribution of update strengths
+- Alignment scatter plots revealing optimization behavior
+- Spatial maps showing geographic patterns in gradients
+- Depth profiles identifying depth-dependent gradient characteristics
+
+**Requirements**: Postprocessed CSV files containing gradient and search direction data from velocity or source parameter updates.
 
 ### Travel Time Analysis
 
@@ -671,6 +880,11 @@ project/
 ## API Reference
 
 ### Main Analysis Functions
+
+#### `analyze_gradients(config: Dict[str, Any])`
+Gradient and search direction analysis for velocity or source parameters.
+
+**Outputs**: Gradient histograms, alignment plots, spatial maps, depth profiles, and statistical reports
 
 #### `analyze_travel_time_residuals(config: Dict[str, Any])`
 Comprehensive travel time residual analysis.
