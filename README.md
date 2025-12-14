@@ -61,7 +61,11 @@ Complete data preparation pipeline for tomographic inversion:
 - **Visualization** - Generate quality control plots and animations
 
 **Key Features:**
-- Multiple coordinate transformation methods
+- Multiple coordinate transformation methods (exact, flattening, Chapman)
+- Phase type selection (both P+S, P-only, S-only)
+- Origin time modes (fixed, unix_epoch)
+- Configurable binary precision (single/double)
+- Depth filtering capabilities
 - Automated velocity model generation
 - Quality control filtering
 - LATTE-compatible binary outputs
@@ -75,13 +79,18 @@ Converts LATTE tomography binary outputs to analysis-ready CSV format:
 - **Velocity Model Conversion** - Extract updated Vp and Vs models from binary outputs
 - **Synthetic Travel Time Processing** - Combine synthetic travel times with ground truth metadata
 - **Source Parameter Updates** - Process updated source locations and origin times
+- **Gradient & Search Direction Processing** - Optional extraction of optimization gradients and search directions
 - **Coordinate Transformation Support** - Optional Chapman inverse transformation for spherical coordinates
 - **Source-Receiver Exchange** - Support for reciprocity-based inversions
 
 **Key Features:**
 - Self-contained CSV outputs requiring no additional mapping files
+- Phase type configuration matching preprocessing
+- Configurable binary precision (single/double for all files)
+- Interpolation modes (sample at coarse points or expand to fine grid)
 - Automatic residual calculation (observed - synthetic)
 - Support for source correction and location updates
+- Gradient/search direction extraction for sensitivity analysis
 - Comprehensive metadata preservation
 
 For detailed post-processing documentation, see [Post-Processing Guide](docs/postprocess.md).
@@ -90,6 +99,7 @@ For detailed post-processing documentation, see [Post-Processing Guide](docs/pos
 
 Comprehensive analysis and visualization of tomographic inversion results:
 
+- **Gradient Analysis** - Analyze optimization gradients and search directions for velocity and source parameters
 - **Travel Time Analysis** - Residual statistics, phase comparisons, and logarithmic ratio analysis
 - **Velocity Model Comparison** - Spatial projections, profile analysis, and statistical comparisons
 - **Distance-Dependent Analysis** - Correlation studies and binned statistics by source-receiver distance
@@ -97,7 +107,11 @@ Comprehensive analysis and visualization of tomographic inversion results:
 - **Source Correction Analysis** - Hypocenter relocation evaluation and correction magnitude assessment
 
 **Key Features:**
-- Professional publication-quality visualizations
+- Professional publication-quality visualizations (PNG, PDF, SVG)
+- Method comparison modes (ground truth vs method-to-method)
+- Distance type selection (3D hypocentral or 2D epicentral)
+- Phase-specific analysis (P-wave, S-wave, or combined)
+- Plane-based ratio plots at custom coordinates
 - Comprehensive statistical reporting
 - Modular analysis with flexible configuration
 - Multi-scale spatial analysis
@@ -123,38 +137,76 @@ Input Data              Binary Outputs           Analysis-Ready CSVs       Resul
 ## Repository Structure
 
 ```
-latte_toolkit/
-├── preprocess/              # Preprocessing pipeline
+latte-workflow/
+├── preprocess/                      # Preprocessing pipeline
+│   ├── __init__.py
 │   ├── main.py
 │   ├── coordinate_transformation.py
 │   ├── initial_velocity_model.py
 │   ├── geometry_traveltime.py
 │   ├── velocity_binary.py
 │   └── visualization.py
-├── postprocess/             # Post-processing pipeline
+│
+├── postprocess/                     # Post-processing pipeline
+│   ├── __init__.py
 │   ├── main.py
 │   ├── postprocess_velocity.py
 │   ├── postprocess_traveltime.py
 │   └── postprocess_source.py
-├── analysis/                # Analysis pipeline
+│
+├── analysis/                        # Analysis pipeline
+│   ├── __init__.py
 │   ├── main.py
-│   ├── traveltime_analysis.py
-│   ├── velocity_analysis.py
-│   ├── distance_analysis.py
-│   ├── short_distance_analysis.py
-│   └── source_analysis.py
-├── utils/                   # Shared utilities
+│   ├── filters.py
+│   ├── gradient_analysis.py         # Gradient & search direction analysis
+│   ├── gradient_plots.py
+│   ├── gradient_reports.py
+│   ├── traveltime_analysis.py       # Travel time residual analysis
+│   ├── traveltime_comparison.py
+│   ├── traveltime_plots.py
+│   ├── traveltime_statistics.py
+│   ├── velocity_analysis.py         # Velocity model comparison
+│   ├── velocity_plots.py
+│   ├── velocity_reports.py
+│   ├── velocity_spatial.py
+│   ├── velocity_statistics.py
+│   ├── distance_analysis.py         # Distance-dependent analysis
+│   ├── distance_data.py
+│   ├── distance_plots.py
+│   ├── distance_reports.py
+│   ├── distance_statistics.py
+│   ├── short_distance_analysis.py   # Short-distance focused analysis
+│   ├── short_distance_data.py
+│   ├── short_distance_plots.py
+│   ├── short_distance_reports.py
+│   ├── short_distance_statistics.py
+│   ├── source_analysis.py           # Source correction analysis
+│   └── source_plots.py
+│
+├── utils/                           # Shared utilities
+│   ├── __init__.py
 │   ├── io_utils.py
 │   ├── logging_utils.py
-│   └── plot_utils.py
-├── configs/                 # Configuration files
+│   ├── plot_utils.py
+│   ├── distance_utils.py
+│   └── origin_time_utils.py
+│
+├── configs/                         # Configuration files
 │   ├── preprocess/
-│   │   └── default.yaml
+│   │   ├── default.yaml
+│   │   └── README.md
 │   ├── postprocess/
-│   │   └── default.yaml
+│   │   ├── default.yaml
+│   │   └── README.md
 │   └── analysis/
-│       └── default.yaml
-└── docs/                    # Documentation
+│       ├── default.yaml
+│       ├── config.yaml
+│       ├── high_quality.yaml
+│       ├── traveltime_only.yaml
+│       ├── velocity_only.yaml
+│       └── README.md
+│
+└── docs/                            # Documentation
     ├── preprocess.md
     ├── postprocess.md
     └── analysis.md
@@ -176,6 +228,9 @@ ls results/analysis/
 ### Run Single Analysis Module
 
 ```bash
+# Gradient analysis only
+python -m analysis.main single_function=gradient_analysis
+
 # Travel time analysis only
 python -m analysis.main single_function=travel_time_analysis
 
@@ -206,6 +261,15 @@ python -m analysis.main \
 python -m analysis.main \
   velocity_analysis.enable_spatial_projections=true \
   velocity_analysis.compute_geometric_mean_ratios=true
+
+# Method comparison mode
+python -m analysis.main \
+  travel_time_analysis.comparison_mode=method_comparison \
+  travel_time_analysis.method1_csv=/path/to/method1.csv \
+  travel_time_analysis.method2_csv=/path/to/method2.csv
+
+# Phase-specific analysis
+python -m analysis.main analysis.phase_type=p
 
 # Disable log-scale plots
 python -m analysis.main \
