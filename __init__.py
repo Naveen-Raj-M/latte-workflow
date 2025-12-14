@@ -47,13 +47,14 @@ try:
     
     # Analysis functions
     from .analysis import (
+        analyze_gradients_and_search,
         analyze_travel_time_residuals,
         analyze_velocity_models,
         analyze_distance_dependent_residuals,
         analyze_short_distance_residuals,
         analyze_source_corrections
     )
-    
+
     # Add to __all__ if successfully imported
     __all__.extend([
         # Preprocessing
@@ -69,6 +70,7 @@ try:
         'create_synthetic_travel_time_csv_with_exchange',
         'process_source_updates',
         # Analysis
+        'analyze_gradients_and_search',
         'analyze_travel_time_residuals',
         'analyze_velocity_models',
         'analyze_distance_dependent_residuals',
