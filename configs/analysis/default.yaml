@@ -1,27 +1,14 @@
 # Default configuration for LATTE analysis module
-# This file contains all detailed configuration options
 
 analysis:
-  # Global settings
-  log_level: "DEBUG"  # DEBUG, INFO, WARNING, ERROR
-  output_format: "png"  # png, pdf, svg
+  log_level: "DEBUG"  # Options: DEBUG, INFO, WARNING, ERROR
+  output_format: "png"  # Options: png, pdf, svg
   dpi: 300
   save_intermediate_results: true
 
-  # Phase type selection (must match preprocessing/postprocessing)
-  # Options: "both" (default), "p" (P-wave only), "s" (S-wave only)
-  # This controls which phase data is analyzed:
-  #   - "both": Analyzes both P and S wave data
-  #   - "p": Analyzes only P-wave data
-  #   - "s": Analyzes only S-wave data
-  phase_type: "both"  # "both", "p", or "s"
+  phase_type: "both"  # Options: both, p, s
+  max_depth_km: null
 
-  # Depth filtering (should match preprocessing/postprocessing)
-  # Set to null to disable. When set, filters data to include only points within this depth
-  # NOTE: This should match the max_depth_km used in preprocessing/postprocessing
-  max_depth_km: null  # e.g., 40.0 to limit depth to 40 km
-  
-  # Plot styling
   plot_style:
     font_family: "sans-serif"
     font_size: 14
@@ -34,9 +21,8 @@ analysis:
     marker_size: 4
     alpha: 0.7
     grid_alpha: 0.3
-    max_plot_points: 100000  # Subsample if more points
-    
-    # Color schemes
+    max_plot_points: 100000
+
     colors:
       p_wave_dark: "#1f4e79"
       p_wave_light: "#5b9bd5"
@@ -50,215 +36,126 @@ analysis:
       negative_residual: "#4444ff"
       zero_line: "#000000"
 
-# Gradient and search direction analysis configuration
 gradient_analysis:
-  enabled: false  # Set to true to enable gradient analysis
-  
-  # Analysis type: "velocity" or "source"
-  analysis_type: ["velocity", "source"]
-  
-  # Input/Output
-  velocity_input_csv: /path/to/postprocessed/velocity/csv  # CSV file with gradient and/or search direction columns
+  enabled: false
+  analysis_type: ["velocity", "source"]  # Options: velocity, source
+  velocity_input_csv: /path/to/postprocessed/velocity/csv
   velocity_output_dir: "/path/to/velocity_gradient_analysis"
-  source_input_csv: /path/to/postprocessed/source/csv  # CSV file with gradient and/or search direction columns
+  source_input_csv: /path/to/postprocessed/source/csv
   source_output_dir: "/path/to/source_gradient_analysis"
-  
-  # Analysis options
   histogram_bins: 50
-  depth_bins: 10  # For velocity analysis
+  depth_bins: 10
   min_points_per_bin: 10
-  
-  # Report generation
   generate_report: true
-  
-  # Plotting options
   create_histograms: true
   create_alignment_plots: true
   create_spatial_plots: true
-  create_depth_profiles: true  # For velocity only
+  create_depth_profiles: true
 
-# Travel time analysis configuration
 travel_time_analysis:
   enabled: true
-  
-  # Comparison mode: "ground_truth" or "method_comparison"
-  comparison_mode: "ground_truth"
-  
-  # Input/Output
-  # For ground_truth mode:
-  input_csv: null  # Will be set by config.yaml
-  output_dir: null # Will be set by config.yaml
-  
-  # For method_comparison mode:
-  method1_csv: null  # Path to first method's travel time CSV
-  method2_csv: null  # Path to second method's travel time CSV
-  method1_name: "Method 1"  # Custom name for first method
-  method2_name: "Method 2"  # Custom name for second method
-  
-  # Analysis options
+  comparison_mode: "ground_truth"  # Options: ground_truth, method_comparison
+  input_csv: null
+  output_dir: null
+  method1_csv: null
+  method2_csv: null
+  method1_name: "Method 1"
+  method2_name: "Method 2"
   enable_log_log_plots: true
   enable_ln_ratio_analysis: true
   enable_corrected_format: true
-  
-  # Statistical thresholds
   outlier_threshold_sigma: 3.0
   min_residual_threshold: -10.0
   max_residual_threshold: 10.0
-  
-  # Plotting options
   histogram_bins: 50
   scatter_alpha: 0.6
   scatter_size: 15
-  
-  # Report generation
   generate_summary_report: true
   include_mismatch_log: true
   include_unrealistic_log: true
 
-# Velocity analysis configuration
 velocity_analysis:
   enabled: true
-
-  # Input files
   model1_csv: "data/processed/velocity_cartesian.csv"
   model2_csv: "data/processed/velocity_cartesian_updated.csv"
   output_dir: "results/analysis/velocity_comparison"
-
-  # Optional: Initial velocity model for reference in vertical profiles (set to null to disable)
-  initial_velocity_model_csv: null  # Path to initial velocity model CSV for grey line overlay
-  
-  # Comparison mode: "initial_vs_final", "method_comparison", or "custom"
-  comparison_mode: "initial_vs_final"
-  
-  # Model names (used when comparison_mode is not "initial_vs_final" or "method_comparison")
+  initial_velocity_model_csv: null
+  comparison_mode: "initial_vs_final"  # Options: initial_vs_final, method_comparison, custom
   model1_name: "Initial Model"
   model2_name: "Final Model"
-  
-  # Custom titles (only used when comparison_mode = "custom")
   custom_title1: "Model A"
   custom_title2: "Model B"
-  
-  # Analysis features
   compute_log_ratios: true
   compute_geometric_mean_ratios: true
   enable_spatial_projections: true
   enable_profile_analysis: true
   enable_slice_analysis: true
   enable_plane_ratio_plots: true
-  
-  # Spatial analysis settings
   interpolation_method: "cubic"  # Options: linear, cubic, nearest
   grid_resolution: 100
-  
-  # Plotting settings
   contour_levels: 20
   velocity_colormap: "viridis"
   difference_colormap: "RdBu_r"
   ratio_colormap: "RdBu_r"
 
-  # Plane-specific ratio plots (optional)
   plane_ratio_plots:
-    # Specify which planes to plot and at what coordinates
-    # Each entry should have: plane_type (xy, xz, or yz) and coordinates (list)
-    # For xy plane: specify z coordinates (depth) as a list
-    # For xz plane: specify y coordinates as a list
-    # For yz plane: specify x coordinates as a list
-    # Use null or empty list [] to skip a plane type
     planes:
-      - plane_type: "xy"  # Horizontal slice
-        coordinates: []  # List of Z coordinates in km, e.g., [5.0, 10.0, 15.0]
+      - plane_type: "xy"  # Options: xy, xz, yz
+        coordinates: []
         label: "Horizontal Plane (xy)"
-      - plane_type: "xz"  # Vertical slice along X
-        coordinates: []  # List of Y coordinates in km, e.g., [300.0, 400.0]
+      - plane_type: "xz"  # Options: xy, xz, yz
+        coordinates: []
         label: "Vertical Plane (xz)"
-      - plane_type: "yz"  # Vertical slice along Y
-        coordinates: []  # List of X coordinates in km, e.g., [350.0, 450.0]
+      - plane_type: "yz"  # Options: xy, xz, yz
+        coordinates: []
         label: "Vertical Plane (yz)"
 
-# Distance analysis configuration  
 distance_analysis:
   enabled: true
-  
-  # Comparison mode: "ground_truth" or "method_comparison"
-  comparison_mode: "ground_truth"
-  
-  # Input/Output
-  # For ground_truth mode:
+  comparison_mode: "ground_truth"  # Options: ground_truth, method_comparison
   travel_time_csv: null
   station_csv: null
   events_csv: null
   output_dir: null
-  
-  # For method_comparison mode:
-  method1_csv: null  # Path to first method's travel time CSV
-  method2_csv: null  # Path to second method's travel time CSV
-  method1_name: "Method 1"  # Custom name for first method
-  method2_name: "Method 2"  # Custom name for second method
-  
-  # Coordinate system: "transformed" or "original"
-  coordinate_type: "transformed"
-  
-  # Distance calculation types: ["hypocentral", "epicentral"] or ["hypocentral"] or ["epicentral"]
-  distance_types: ["hypocentral"]  # Options: hypocentral (3D), epicentral (2D horizontal only)
-  
-  # Analysis options
+  method1_csv: null
+  method2_csv: null
+  method1_name: "Method 1"
+  method2_name: "Method 2"
+  coordinate_type: "transformed"  # Options: transformed, original
+  distance_types: ["hypocentral"]  # Options: hypocentral, epicentral
   enable_ratio_analysis: true
   enable_binned_analysis: true
   enable_correlation_analysis: true
   distance_bins: 20
-  
-  # Plotting options
   enable_log_plots: true
-  max_distance_plot: null  # km, null for auto
-  min_distance_plot: 0.0   # km
-  
-  # Statistical analysis
-  correlation_method: "pearson"  # pearson, spearman
+  max_distance_plot: null
+  min_distance_plot: 0.0
+  correlation_method: "pearson"  # Options: pearson, spearman
   fit_polynomial_degree: 1
 
-# Short distance analysis configuration
 short_distance_analysis:
   enabled: true
-  
-  # Comparison mode: "ground_truth" or "method_comparison"
-  comparison_mode: "ground_truth"
-  
-  # Input/Output
-  # For ground_truth mode:
+  comparison_mode: "ground_truth"  # Options: ground_truth, method_comparison
   travel_time_csv: null
   station_csv: null
   events_csv: null
   output_dir: null
-  
-  # For method_comparison mode:
-  method1_csv: null  # Path to first method's travel time CSV
-  method2_csv: null  # Path to second method's travel time CSV
-  method1_name: "Method 1"  # Custom name for first method
-  method2_name: "Method 2"  # Custom name for second method
-  
-  # Distance cutoff
+  method1_csv: null
+  method2_csv: null
+  method1_name: "Method 1"
+  method2_name: "Method 2"
   distance_cutoff_km: 20.0
-  coordinate_type: "transformed"  # "transformed" or "original"
-  
-  # Distance calculation types: ["hypocentral", "epicentral"] or ["hypocentral"] or ["epicentral"]
-  distance_types: ["hypocentral"]  # Options: hypocentral (3D), epicentral (2D horizontal only)
-  
-  # Filtering options
-  phase_filter: null  # null for both P and S, or "P" or "S"
+  coordinate_type: "transformed"  # Options: transformed, original
+  distance_types: ["hypocentral"]  # Options: hypocentral, epicentral
+  phase_filter: null  # Options: null, P, S
   min_residual_threshold: -5.0
   max_residual_threshold: 5.0
-  
-  # Display options
   show_events: true
-  show_stations: true  
+  show_stations: true
   show_travel_paths: true
-  
-  # Analysis features
   enable_detailed_stats: true
   enable_residual_histograms: true
   enable_zoom_clusters: true
-  
-  # Zoom cluster definitions
   zoom_clusters:
     - name: "Cluster_A"
       x_min: 350.0
@@ -279,89 +176,45 @@ short_distance_analysis:
       y_max: 220.0
       description: "Northwestern region"
 
-# Source correction analysis configuration
 source_analysis:
-  enabled: false  # Set to true to enable
-  
-  # Comparison mode: "ground_truth" or "method_comparison"
-  comparison_mode: "ground_truth"
-  
-  # Input/Output
-  # For ground_truth mode:
-  input_csv: null  # CSV with before/after correction columns
+  enabled: false
+  comparison_mode: "ground_truth"  # Options: ground_truth, method_comparison
+  input_csv: null
   output_dir: "results/analysis/source_corrections"
-  
-  # For method_comparison mode:
-  method1_csv: null  # Path to first method's source parameters CSV
-  method2_csv: null  # Path to second method's source parameters CSV
-  method1_name: "Method 1"  # Custom name for first method
-  method2_name: "Method 2"  # Custom name for second method
-  
-  # Column names in input CSV (for ground_truth mode)
-  # Before correction columns:
-  #   - event_x_transformed
-  #   - event_y_transformed
-  #   - event_z_transformed
-  #   - origin_time_s
-  # After correction columns:
-  #   - corrected_event_x_transformed
-  #   - corrected_event_y_transformed
-  #   - corrected_event_z_transformed
-  #   - corrected_origin_time_s
-  
-  # Analysis options
-  use_log_scale: false  # Set to true for log scale plots
+  method1_csv: null
+  method2_csv: null
+  method1_name: "Method 1"
+  method2_name: "Method 2"
+  use_log_scale: false
   enable_depth_analysis: true
-
-  # Origin time handling
-  # The system now automatically loads origin time mode from preprocessing metadata
-  # located in origin_time_metadata_dir (typically the model directory)
-  origin_time_metadata_dir: null  # Path to directory containing origin_time_metadata.json
-                                   # If null, uses model_dir from postprocessing
-
-  # DEPRECATED: zero_initial_origin_time is kept for backwards compatibility
-  # but is now automatically determined from metadata when available
+  origin_time_metadata_dir: null
   zero_initial_origin_time: true
-  
-  # Depth binning
   depth_bins: 10
   min_events_per_bin: 5
-  
-  # Plotting options
   histogram_bins: 50
-  max_arrows_map: 5000  # Maximum arrows to draw on geographic map
-  
-  # Output options
+  max_arrows_map: 5000
   generate_summary_report: true
-  save_corrected_data: true  # Save CSV with computed deltas
+  save_corrected_data: true
 
-# File paths and naming
 paths:
-  # Base directories
   input_dir: "data/processed"
   output_base_dir: "results/analysis"
-  
-  # File naming patterns
   travel_time_csv_pattern: "travel_time_residuals*.csv"
   velocity_csv_pattern: "velocity_cartesian*.csv"
   station_csv_name: "stations_cartesian.csv"
   events_csv_name: "events_cartesian*.csv"
   source_csv_pattern: "source_corrections*.csv"
-  
-  # Output subdirectories
   plots_subdir: "plots"
   stats_subdir: "statistics"
   reports_subdir: "reports"
 
-# Performance and memory management
 performance:
   max_memory_gb: 8.0
   subsample_large_datasets: true
-  subsample_threshold: 100000  # Number of points
-  parallel_processing: false   # Not implemented yet
+  subsample_threshold: 100000
+  parallel_processing: false
   n_jobs: 1
 
-# Logging and debugging
 logging:
   log_to_file: true
   log_file_prefix: "analysis"
@@ -369,14 +222,11 @@ logging:
   profile_memory: false
   profile_timing: false
 
-# Quality control
 quality_control:
   validate_input_data: true
   check_coordinate_consistency: true
   warn_missing_data: true
   error_on_empty_results: true
-  
-  # Data validation thresholds
   max_velocity_km_s: 15.0
   min_velocity_km_s: 0.5
   max_travel_time_s: 1000.0

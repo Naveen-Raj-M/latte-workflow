@@ -1,154 +1,73 @@
 # configs/postprocess/default.yaml
-# Post-processing configuration for LATTE tomography outputs
-# Converts binary files to CSV format for analysis
 
-# General settings
 general:
-  strict_mode: true  # Stop on first error if true, continue if false
-  log_level: INFO
-
-  # Phase type selection (must match preprocessing phase_type)
-  # Options: "both" (default), "p" (P-wave only), "s" (S-wave only)
-  # This controls which files are expected and processed:
-  #   - "both": Expects both P and S travel time binaries and both Vp/Vs velocity binaries
-  #   - "p": Expects only P-wave travel time binaries and only Vp velocity binary
-  #   - "s": Expects only S-wave travel time binaries and only Vs velocity binary
-  phase_type: "both"  # "both", "p", or "s"
-
-  # Binary file precision configuration
-  # Controls the precision when reading binary files from LATTE output
-  # NOTE: Most LATTE outputs are single precision (real*4 in Fortran)
-  # Only st0 (origin time) files may use double precision if configured in preprocessing
+  strict_mode: true
+  log_level: INFO  # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  phase_type: "both"  # Options: both, p, s
   precision:
-    default: "single"  # Default precision for most binary files: "single" (4 bytes) or "double" (8 bytes)
-    st0: "single"      # Precision for origin time (st0) files: "single" or "double"
-                       # Set to "double" if preprocessing used origin_time_precision: "double"
+    default: "single"  # Options: single, double
+    st0: "single"  # Options: single, double
+  max_depth_km: null
 
-  # Depth filtering (applied to output CSVs)
-  # Set to null to disable. When set, filters output CSV to include only data within this depth
-  # NOTE: This should match the max_depth_km used in preprocessing
-  max_depth_km: null  # e.g., 40.0 to limit depth to 40 km
-
-# Data paths
 data:
   base_dir: "/path/to/latte/output"
   analysis_output_dir: "/path/to/analysis/output"
 
-# Velocity processing configuration
 velocity_processing:
   enabled: true
-  
-  # Input files (full paths)
   original_velocity_csv: "/full/path/to/velocity_cartesian_final.csv"
   vp_binary: "${data.base_dir}/model/updated_vp.bin"
   vs_binary: "${data.base_dir}/model/updated_vs.bin"
-
-  # Fine grid parameters (from LATTE binary files)
   fine_grid:
     nx: 401
     ny: 361
     nz: 43
-    dx: 0.5      # km
-    dy: 0.5      # km
-    dz: 0.5      # km
-    origin_x: 0.0  # km
-    origin_y: 0.0  # km
-    origin_z: 0.0  # km
-  
-  # Optional: Coarse grid dimensions (auto-detected from CSV if not provided)
-  # coarse_grid:
-  #   nx: 41
-  #   ny: 37
-  #   nz: 43
-  
-  # Processing mode:
-  #   "sample_at_coarse" - Sample fine grid at coarse points (output = coarse size)
-  #   "expand_to_fine"   - Expand to full fine grid (output = fine size)
-  interpolation_mode: "sample_at_coarse"
-  
-  # Output file
+    dx: 0.5
+    dy: 0.5
+    dz: 0.5
+    origin_x: 0.0
+    origin_y: 0.0
+    origin_z: 0.0
+  interpolation_mode: "sample_at_coarse"  # Options: sample_at_coarse, expand_to_fine
   velocity_output_csv: "${data.analysis_output_dir}/velocity_cartesian_latte_output.csv"
-  
-  # Processing options
-  use_chapman_inverse: false  # Set to true if velocities need Chapman inverse transform
-  earth_radius_km: 6371.0    # Earth radius for Chapman transformation
-
-  # Optional: Gradient and search direction files
-  # Set parameters_to_process to include gradients/search directions for specific parameters
-  # Options: ["vp", "vs"] or empty list [] to skip
-  parameters_to_process: ["vp", "vs"]  # Process gradients/search for vp and vs
-  
-  # Gradient files (optional - only processed if parameter is in parameters_to_process)
+  use_chapman_inverse: false
+  earth_radius_km: 6371.0
+  parameters_to_process: ["vp", "vs"]  # Options: vp, vs
   grad_vp_binary: "${data.base_dir}/model/grad_vp.bin"
   grad_vs_binary: "${data.base_dir}/model/grad_vs.bin"
-  
-  # Search direction files (optional - only processed if parameter is in parameters_to_process)
   srch_vp_binary: "${data.base_dir}/model/srch_vp.bin"
   srch_vs_binary: "${data.base_dir}/model/srch_vs.bin"
 
-# Travel time processing configuration
 travel_time_processing:
   enabled: true
-  
-  # Input files (full paths)
   ground_truth_csv: "/full/path/to/ground_truth_travel_times_corrected.csv"
   synthetic_tt_dir: "${data.base_dir}/synthetic_traveltimes"
   shot_map_file: "/full/path/to/shot_to_source_id_map.txt"
-
-  # reciprocity-based inversion
   source_receiver_exchange: false
-  exchange_mapping_file: ${data.base_dir}/exchange_mapping.txt  # required if source_receiver_exchange=true
+  exchange_mapping_file: ${data.base_dir}/exchange_mapping.txt
   exchange_geometry_file: ${data.base_dir}/exchange_geometry.txt
-  virtual_shot_mapping_file: ${data.base_dir}/shot_mapping.txt  # OPTIONAL
-
-  # source correction
+  virtual_shot_mapping_file: ${data.base_dir}/shot_mapping.txt
   source_correction: false
   source_correction_file: ${data.base_dir}/model/updated_st0.bin
-
-  # Removed shots configuration
-  # If some shots were filtered out by LATTE during geometry loading (e.g., no valid sources/receivers),
-  # specify them here to ensure correct mapping in source-receiver exchange mode.
-  # IMPORTANT: Use 1-based shot IDs (e.g., [60] means shot 60 was removed)
-  # Leave empty [] if no shots were removed or use null
-  # Example: removed_shots: [60, 120, 240]  # These shot IDs were filtered out by LATTE
-  removed_shots: []  # List of 1-based shot IDs that were removed during geometry filtering
-
-  # Output file
+  removed_shots: []
   synthetic_tt_output_csv: "${data.analysis_output_dir}/synthetic_travel_times_latte_output.csv"
 
-# Source parameter processing
 source_processing:
   enabled: true
-  
-  # Input files for updated parameters
   sx_file: "${data.base_dir}/model/updated_sx.bin"
   sy_file: "${data.base_dir}/model/updated_sy.bin"
   sz_file: "${data.base_dir}/model/updated_sz.bin"
   st0_file: "${data.base_dir}/model/updated_st0.bin"
-
-  # Grid dimensions (number of sources)
   grid_dimensions: [4495]
-
-  # Output file
   output_csv: "${data.analysis_output_dir}/source_parameters_latte_output.csv"
-
-  # Optional: Gradient and search direction files
-  # Set parameters_to_process to include gradients/search directions for specific parameters
-  # Options: ["sx", "sy", "sz", "st0"] or empty list [] to skip
-  # Example: ["sz", "st0"] to only process depth and origin time
-  parameters_to_process: ["sx", "sy", "sz", "st0"]  # Process all source parameters
-  
-  # Gradient files (optional - only processed if parameter is in parameters_to_process)
+  parameters_to_process: ["sx", "sy", "sz", "st0"]  # Options: sx, sy, sz, st0
   grad_sx_file: "${data.base_dir}/model/grad_sx.bin"
   grad_sy_file: "${data.base_dir}/model/grad_sy.bin"
   grad_sz_file: "${data.base_dir}/model/grad_sz.bin"
   grad_st0_file: "${data.base_dir}/model/grad_st0.bin"
-  
-  # Search direction files (optional - only processed if parameter is in parameters_to_process)
   srch_sx_file: "${data.base_dir}/model/srch_sx.bin"
   srch_sy_file: "${data.base_dir}/model/srch_sy.bin"
   srch_sz_file: "${data.base_dir}/model/srch_sz.bin"
   srch_st0_file: "${data.base_dir}/model/srch_st0.bin"
 
-# Strict mode setting (global)
 strict_mode: true

@@ -1,81 +1,46 @@
 # configs/preprocess/default.yaml
-# Main preprocessing configuration for LATTE tomography package
 
 defaults:
   - _self_
 
-# General preprocessing settings
 preprocessing:
   output_dir: "/path/to/output/files"
-  log_level: INFO
-  
-# Data paths configuration
+  log_level: INFO  # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
+
 data:
   base_dir: "/path/to/input/data"
   output_base_dir: "/path/to/output"
 
-# Origin time configuration
-# Controls how event origin times are handled throughout the workflow
 origin_time:
-  # Mode options:
-  #   "fixed": Set all events to a fixed origin time value (e.g., 0s, 10s, 100s)
-  #   "unix_epoch": Convert event times to Unix epoch timestamps (seconds since Jan 1, 1970)
-  mode: "fixed"  # "fixed" or "unix_epoch"
-
-  # Fixed value in seconds (only used when mode is "fixed")
-  # Examples: 0.0 (all events start at t=0), 100.0 (all events start at t=100s)
+  mode: "fixed"  # Options: fixed, unix_epoch
   fixed_value: 0.0
 
-# Coordinate transformation configuration
 coordinate_transform:
   enabled: true
-
-  # Input files
   station_file: "${data.base_dir}/stacoords.txt"
   event_file: "${data.base_dir}/phasePickings.txt"
   corrected_event_file: "${data.base_dir}/sphfdloc.dat"
-
-  # Velocity model files - IMPORTANT: Use different files for initial vs final!
-  initial_velocity_file: "${initial_3d_model.output_file}"  # TRUE initial model from 1D interpolation
-
-  # Final velocity processing (optional)
+  initial_velocity_file: "${initial_3d_model.output_file}"
   process_final_velocity: false
-  final_velocity_file: "${data.base_dir}/vmodel-PB3D.txt"  # Path to FINAL/INVERTED velocity model
-
-  # Output directory
+  final_velocity_file: "${data.base_dir}/vmodel-PB3D.txt"
   output_dir: "/path/to/output"
-
-  # Transformation settings
-  transformation_method: "flattening"  # "exact" or "flattening"
+  transformation_method: "flattening"  # Options: exact, flattening
   use_chapman_flattening: false
   use_corrected_phase_pickings: false
-
-  # Origin coordinates
   origin_lon: -108.0
   origin_lat: 34.5
   origin_depth_km: -4.0
-
-  # Grid spacing
-  grid_spacing_km: [20.0, 20.0, 2.0]  # dx, dy, dz
-
-  # Depth filtering (applied AFTER transformation)
-  # Set to null or comment out to disable depth filtering
-  # When set, removes all data (velocity, sources, stations) beyond this depth
-  max_depth_km: null  # e.g., 40.0 to limit depth to 40 km
-  
-  # Exact transformation settings (when transformation_method == "exact")
+  grid_spacing_km: [20.0, 20.0, 2.0]
+  max_depth_km: null
   exact_transform:
     rotate_to_enu: true
     align_to_geocentric_normal: false
 
-# Initial 3D velocity model configuration
 initial_3d_model:
   enabled: true
   model_1d_file: "${data.base_dir}/vmodel-PB1D.txt"
   template_3d_file: "${data.base_dir}/vmodel-PB3D.txt"
   output_file: "${data.output_base_dir}/initial_3d_model_generated.txt"
-  
-  # Formatting settings (preserved from original)
   precision:
     longitude: 6
     latitude: 7
@@ -84,107 +49,57 @@ initial_3d_model:
     vs: 8
   field_width: 11
 
-# Geometry and travel time file generation
 geometry_traveltime:
   enabled: true
-
-  # Input files
   phase_file: "${data.base_dir}/phasePickings.txt"
   corrected_phase_file: "${data.base_dir}/sphfdloc.dat"
   station_csv: "${coordinate_transform.output_dir}/stations_cartesian.csv"
   event_csv: "${coordinate_transform.output_dir}/events_cartesian.csv"
-
-  # Output directories
   geometry_dir: "${data.output_base_dir}/geometry"
   traveltime_dir: "${data.output_base_dir}/ground_truth_traveltimes"
   source_dir: "${data.output_base_dir}/model"
-
-  # Travel time CSV export
   generate_travel_time_csv: true
   csv_output_dir: "${data.output_base_dir}/geometry_csv"
-
-  # Processing options
   use_corrected_phase_pickings: true
   generate_source_binaries: true
-  source_binary_format: "travel_time"  # "travel_time" or "fortran"
-
-  # Origin time precision configuration
-  # Controls the precision of origin time (st0.bin) binary files
-  # Options: "single" (4 bytes, real*4) or "double" (8 bytes, real*8)
-  # NOTE: Set to "double" when using latte_traveltime with double precision for origin times
-  origin_time_precision: "single"  # "single" or "double"
-
-  # Weight configuration
-  apply_default_weights: false  # Set all station weights to default_weight value
-  default_weight: 1.0  # Default weight value when apply_default_weights is true
-
-  # Phase type selection
-  # Options: "both" (default), "p" (P-wave only), "s" (S-wave only)
-  # This controls which phase data is filtered and written to output files:
-  #   - "both": Requires both P and S picks. Writes both P and S binary files and CSV data
-  #   - "p": Only requires P-wave picks. Writes only P-wave binaries and CSV data
-  #   - "s": Only requires S-wave picks. Writes only S-wave binaries and CSV data
-  # NOTE: Output file names remain the same regardless of phase_type
-  phase_type: "both"  # "both", "p", or "s"
-  
-  # Velocity filtering
+  source_binary_format: "travel_time"  # Options: travel_time, fortran
+  origin_time_precision: "single"  # Options: single, double
+  apply_default_weights: false
+  default_weight: 1.0
+  phase_type: "both"  # Options: both, p, s
   p_velocity_range_m_s: [500, 10000]
   s_velocity_range_m_s: [500, 6000]
-  
-  # Event and station filtering
   filter_events: false
   events_to_discard_file: "${data.base_dir}/events_to_discard.txt"
   filter_stations: false
   stations_to_discard_file: "${data.base_dir}/stations_to_discard.txt"
 
-# Velocity binary file generation
 velocity_binary:
   enabled: true
-
-  # Initial velocity binary (from TRUE initial model)
   input_csv: "${coordinate_transform.output_dir}/velocity_initial_cartesian.csv"
   vp_output: "${data.output_base_dir}/model/vp_init.bin"
   vs_output: "${data.output_base_dir}/model/vs_init.bin"
-
-  # Final velocity binary creation (from INVERTED/FINAL model)
   create_final_binaries: false
   final_input_csv: "${coordinate_transform.output_dir}/velocity_final_cartesian.csv"
   vp_final_output: "${data.output_base_dir}/model/vp_final.bin"
   vs_final_output: "${data.output_base_dir}/model/vs_final.bin"
-
-  # Processing options
-  use_chapman_velocities: true
+  use_chapman_velocities: false
   interpolate: true
   neighbor_threshold: 5
+  phase_type: "both"  # Options: both, p, s
 
-  # Phase type selection (should match geometry_traveltime.phase_type)
-  # Options: "both" (default), "p" (P-wave only), "s" (S-wave only)
-  # This controls which velocity binaries are created:
-  #   - "both": Creates both vp_init.bin and vs_init.bin
-  #   - "p": Creates only vp_init.bin
-  #   - "s": Creates only vs_init.bin
-  # NOTE: Output file names remain the same regardless of phase_type
-  phase_type: "both"  # "both", "p", or "s"
-
-# Visualization settings
 visualization:
   enabled: true
-  
-  # Station and event visualization
   station_event_vis:
     station_file: "${coordinate_transform.output_dir}/stations_cartesian.csv"
     event_file: "${coordinate_transform.output_dir}/events_cartesian.csv"
     output_image: "${data.output_base_dir}/visualization_station_events.pdf"
-    view_from_direction: "southeast"
+    view_from_direction: "southeast"  # Options: south, east, west, north, southeast
     view_elevation: 20
-  
-  # Velocity model visualization
   velocity_vis:
     csv_file: "${coordinate_transform.output_dir}/velocity_initial_cartesian.csv"
     bin_file: "${data.output_base_dir}/model/vp_init.bin"
-    coord_system: "flattened"  # "flattened" or "enu"
-
-  # Animated visualization
+    coord_system: "flattened"  # Options: flattened, enu
   velocity_animation:
     bin_file: "${data.output_base_dir}/model/vp_init.bin"
     output_gif: "${data.output_base_dir}/velocity_animation.gif"
