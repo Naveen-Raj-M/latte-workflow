@@ -330,7 +330,7 @@ def validate_preprocessing_config(cfg: DictConfig) -> None:
     logger.info("Configuration validation passed")
 
 
-@hydra.main(version_base=None, config_path="../configs/preprocess", config_name="default")
+@hydra.main(version_base=None, config_path="../configs/preprocess_huang", config_name="default")
 def main(cfg: DictConfig) -> None:
     """
     Main entry point for preprocessing with Hydra.

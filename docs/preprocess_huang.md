@@ -1,6 +1,6 @@
 # LATTE Preprocessing Guide
 
-Comprehensive guide for the LATTE preprocessing module, which handles all data preparation for seismic tomography inversion.
+Comprehensive guide for the LATTE preprocessing module, which handles all data preparation for seismic tomography inversion for the Huang et al., 2019 data.
 
 ## Table of Contents
 
