@@ -3,7 +3,7 @@ LATTE - Los Alamos Traveltime Tomography based on Eikonal Equation
 A comprehensive package for seismic tomography preprocessing, post-processing, and analysis.
 """
 
-__version__ = "1.0.0"
+__version__ = "2.0.0"
 __author__ = "Naveen Raj Manoharan"
 __email__ = "nm35335@my.utexas.edu"
 

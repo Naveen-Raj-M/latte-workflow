@@ -910,8 +910,3 @@ Focused short-distance analysis with spatial visualization.
 Source parameter correction analysis.
 
 **Outputs**: Correction magnitude plots and statistical report
-
----
-
-**Version:** 1.0.0  
-**Last Updated:** 2025

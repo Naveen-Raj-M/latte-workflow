@@ -7,7 +7,7 @@ and gradient/search direction analysis.
 Updated to support method comparison mode for distance and short distance analysis.
 """
 
-__version__ = "1.1.0"
+__version__ = "2.0.0"
 __author__ = "Naveen Raj Manoharan"
 
 __all__ = [
