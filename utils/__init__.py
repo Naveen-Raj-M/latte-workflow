@@ -9,18 +9,14 @@ from .distance_utils import (
     validate_distance_types,
     calculate_hypocentral_distance,
     calculate_epicentral_distance,
-    calculate_distances
 )
 from .origin_time_utils import (
-    process_origin_times,
     load_origin_time_metadata,
     save_origin_time_metadata
 )
 from .plot_utils import (
     setup_plot_style,
     save_figure,
-    create_colorbar,
-    format_axis_labels
 )
 
 __all__ = [
@@ -50,16 +46,12 @@ __all__ = [
     'validate_distance_types',
     'calculate_hypocentral_distance',
     'calculate_epicentral_distance',
-    'calculate_distances',
 
     # Origin time utilities
-    'process_origin_times',
     'load_origin_time_metadata',
     'save_origin_time_metadata',
 
     # Plot utilities
     'setup_plot_style',
-    'save_figure',
-    'create_colorbar',
-    'format_axis_labels',
+    'save_figure'
 ]
