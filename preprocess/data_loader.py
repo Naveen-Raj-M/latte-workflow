@@ -165,13 +165,13 @@ def apply_filters_to_dataframes(events_df: pd.DataFrame, stations_df: pd.DataFra
                 print("  Warning: Distance filters specified but distance columns "
                       "not found in arrivals. Skipping distance filtering.")
 
-    # 4. Filter picks based on valid arrivals (which already include valid events and stations)
-    if not picks_df.empty and not arrivals_df.empty:
-        valid_pick_ids = set(arrivals_df['pick_id'])
-        picks_df = picks_df[picks_df['pick_id'].isin(valid_pick_ids)].copy()
-    elif not arrivals_df.empty:
-        # If no picks, create empty dataframe
-        picks_df = pd.DataFrame()
+    # 4. Filter picks based on valid events and stations (not by arrivals)
+    # This preserves all picks from filtered events/stations, not just those with arrivals
+    if not picks_df.empty:
+        picks_df = picks_df[
+            picks_df['event_id'].isin(valid_event_ids) &
+            picks_df['station_id'].isin(valid_station_ids)
+        ].copy()
 
     return events_df, stations_df, arrivals_df, picks_df
 
