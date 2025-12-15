@@ -1,0 +1,162 @@
+# configs/preprocess/default.yaml
+# Configuration for preprocessing QuakeML seismic data
+
+defaults:
+  - _self_
+
+preprocessing:
+  output_dir: "/path/to/output/files"
+  log_level: INFO  # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
+
+data:
+  # Input data source - choose one method
+  use_hdf5: true  # If true, load from HDF5; if false, load directly from QuakeML
+  hdf5_file: "/path/to/seismic_data.h5"  # Pre-generated HDF5 file
+
+  # For direct QuakeML loading (when use_hdf5 is false)
+  quakeml_dir: "/path/to/quakeml/files"
+  station_file: "/path/to/station_list.txt"
+
+  # Output directory
+  output_base_dir: "/path/to/output"
+
+  # QuakeML processing options
+  max_files: null  # null = process all files, or set a number for testing
+  years: null  # null = all years, or list like [2020, 2021, 2022]
+  use_preferred_origin: true
+  use_preferred_magnitude: true
+  save_all_picks: false  # If false, only picks associated with selected origin
+
+# Parallel processing
+parallel:
+  num_workers: null  # null = use all CPU cores, or set a specific number
+  chunk_size: 100  # Number of events to process per chunk
+
+# Filtering options
+filters:
+  # Magnitude filters (null = no filter)
+  magnitude_min: null
+  magnitude_max: null
+
+  # Geographic filters (degrees, null = no filter)
+  lat_min: null
+  lat_max: null
+  lon_min: null
+  lon_max: null
+
+  # Depth filter (km, positive = below MSL, null = no filter)
+  depth_min: null
+  depth_max: null
+
+  # Distance filters (km, null = no filter)
+  # Note: Only applied if station coordinates are available
+  hypocentral_distance_min: null
+  hypocentral_distance_max: null
+  epicentral_distance_min: null
+  epicentral_distance_max: null
+
+origin_time:
+  mode: "fixed"  # Options: fixed, unix_epoch
+  fixed_value: 0.0
+
+# Coordinate transformation (flattening)
+coordinate_transform:
+  enabled: true
+  # Origin point in geographic coordinates
+  origin_lon: -108.0  # degrees
+  origin_lat: 34.5    # degrees
+  origin_depth_km: 0.0  # km, positive = below MSL
+  # Grid spacing in Cartesian coordinates (km)
+  grid_spacing_km: [1.0, 1.0, 1.0]  # [dx, dy, dz] in km
+  # Y-axis direction control
+  # If true: positive y as latitude decreases (origin at top, y increases going south)
+  # If false: positive y as latitude increases (origin at bottom, y increases going north)
+  invert_y_axis: true  # true = positive y when moving south from origin
+  # Output directory for transformed coordinates
+  output_dir: "${data.output_base_dir}/coordinate_transform"
+
+# Geometry and travel time file generation
+geometry_traveltime:
+  enabled: true
+  # Input files (from coordinate transformation)
+  events_csv: "${coordinate_transform.output_dir}/events_cartesian.csv"
+  stations_csv: "${coordinate_transform.output_dir}/stations_cartesian.csv"
+  # Output directories
+  geometry_dir: "${data.output_base_dir}/geometry"
+  traveltime_dir: "${data.output_base_dir}/ground_truth_traveltimes"
+  source_dir: "${data.output_base_dir}/model"
+  # CSV output for debugging/inspection
+  generate_travel_time_csv: true
+  csv_output_dir: "${data.output_base_dir}/geometry_csv"
+  # Source binary generation
+  generate_source_binaries: true
+  source_binary_format: "travel_time"  # Options: travel_time, fortran
+  origin_time_precision: "single"  # Options: single, double
+  # Phase and weight settings
+  apply_default_weights: false
+  default_weight: 1.0
+  phase_type: "both"  # Options: both, p, s
+  # Velocity range filters (m/s)
+  p_velocity_range_m_s: [500, 10000]
+  s_velocity_range_m_s: [500, 6000]
+
+# Initial velocity model creation
+initial_velocity_model:
+  enabled: true
+  # IASP91 velocity model from CSV
+  iasp91_model_file: "/path/to/IASP91.csv"
+  # Maximum depth to use from IASP91 model
+  max_depth_km: 100.0  # Only use IASP91 data up to this depth
+
+  # Domain definition
+  # Origin and grid spacing from coordinate_transform section
+  origin_lon: "${coordinate_transform.origin_lon}"
+  origin_lat: "${coordinate_transform.origin_lat}"
+  origin_depth_km: "${coordinate_transform.origin_depth_km}"
+  grid_spacing_km: "${coordinate_transform.grid_spacing_km}"
+
+  # Domain bounds (auto-computed from events/stations or manually specified)
+  use_auto_bounds: true  # If true, compute from transformed events/stations
+  # Manual bounds (only used if use_auto_bounds is false)
+  # Bounds in Cartesian coordinates (km, relative to origin)
+  x_min: null
+  x_max: null
+  y_min: null
+  y_max: null
+  z_min: null
+  z_max: null
+
+  # Output files
+  output_csv: "${data.output_base_dir}/velocity_model_cartesian.csv"
+  vp_binary: "${data.output_base_dir}/model/vp_init.bin"
+  vs_binary: "${data.output_base_dir}/model/vs_init.bin"
+
+  # Binary file generation options
+  interpolate: true
+  neighbor_threshold: 5
+  phase_type: "both"  # Options: both, p, s
+
+# Visualization
+visualization:
+  enabled: true
+  # Station and event visualization (map view and cross-sections)
+  station_event_vis:
+    output_dir: "${data.output_base_dir}/visualizations"
+    figure_dpi: 150
+    figure_size: [12, 10]
+    source_marker: "*"
+    source_size: 100
+    source_color: "red"
+    receiver_marker: "^"
+    receiver_size: 30
+    receiver_color: "blue"
+    plot_pick_lines: true
+    pick_alpha: 0.3
+  # Velocity model visualization
+  velocity_model_vis:
+    enabled: true
+    output_dir: "${data.output_base_dir}/visualizations"
+    plot_depth_slices: true
+    depth_slices: [5, 10, 20, 30, 40, 50]  # Depths in km
+    plot_profiles: true
+    profile_type: "both"  # Options: lat, lon, both
