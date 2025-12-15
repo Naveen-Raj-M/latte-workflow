@@ -294,10 +294,8 @@ def create_synthetic_travel_time_csv(config: DictConfig, phase_type: str = "both
 
     # Get unique shots from ground truth data
     unique_shots = sorted(df_ground_truth['shot_id'].unique())
-    
-    for shot_id in unique_shots:
-        print(f"Processing shot {shot_id}...")
-        
+
+    for shot_id in tqdm(unique_shots, desc="Processing shots"):
         # Get ground truth data for this shot
         shot_gt_data = df_ground_truth[df_ground_truth['shot_id'] == shot_id]
         
