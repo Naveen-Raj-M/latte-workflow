@@ -120,8 +120,8 @@ def get_velocity_for_depth(target_depth: float,
         raise ValueError("The 1D model data is empty.")
 
     depths = model_df['depth'].values
-    vp_values = model_df['vp'].values
-    vs_values = model_df['vs'].values
+    vp_values = model_df['vp'].values * 1000 # convert to m/s
+    vs_values = model_df['vs'].values * 1000 # convert to m/s
 
     # For depths above MSL (negative), clamp to MSL (depth=0) and use shallowest layer
     if target_depth <= 0:
