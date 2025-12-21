@@ -17,6 +17,102 @@ from omegaconf import DictConfig
 from utils.io_utils import ensure_directory_exists
 
 
+def _load_basin_boundaries(config: DictConfig) -> Dict:
+    """Load basin boundary data from CSV files.
+
+    Args:
+        config: Basin boundaries configuration.
+
+    Returns:
+        Dictionary with basin name -> {'lons': array, 'lats': array, 'label': str}
+    """
+    if not config.get('enabled', False):
+        return {}
+
+    basin_data = {}
+    data_dir = Path(config.data_dir)
+
+    for basin in config.basins:
+        csv_file = data_dir / basin['file']
+
+        if not csv_file.exists():
+            logging.getLogger(__name__).warning(
+                f"Basin boundary file not found: {csv_file}"
+            )
+            continue
+
+        # Read space-delimited file (despite .csv extension)
+        df = pd.read_csv(csv_file, delim_whitespace=True)
+
+        # Extract longitude and latitude
+        lons = df['POINT_X'].values
+        lats = df['POINT_Y'].values
+
+        # Extract basin name from file or label
+        basin_name = basin.get('label', basin['file'].replace('.csv', ''))
+
+        basin_data[basin_name] = {
+            'lons': lons,
+            'lats': lats,
+            'label': basin.get('label', basin_name)
+        }
+
+    return basin_data
+
+
+def _plot_basin_boundary(ax, basin_data: Dict, config: DictConfig,
+                         xlim: Optional[tuple] = None,
+                         ylim: Optional[tuple] = None) -> None:
+    """Plot basin boundaries on map view axis.
+
+    Args:
+        ax: Matplotlib axis.
+        basin_data: Dictionary from _load_basin_boundaries().
+        config: Basin boundaries configuration.
+        xlim: X-axis limits (lon_min, lon_max).
+        ylim: Y-axis limits (lat_min, lat_max).
+    """
+    for basin_name, data in basin_data.items():
+        lons = data['lons']
+        lats = data['lats']
+        label = data['label']
+
+        # Plot boundary polygon
+        ax.plot(lons, lats,
+               color=config.line_color,
+               linewidth=config.line_width,
+               linestyle=config.line_style,
+               alpha=config.line_alpha,
+               zorder=4)
+
+        # Calculate centroid for label placement
+        centroid_lon = np.mean(lons)
+        centroid_lat = np.mean(lats)
+
+        # Apply offsets
+        label_x = centroid_lon + config.label_offset_x
+        label_y = centroid_lat + config.label_offset_y
+
+        # Only plot label if within bounds
+        plot_label = True
+        if xlim is not None:
+            if label_x < xlim[0] or label_x > xlim[1]:
+                plot_label = False
+        if ylim is not None:
+            if label_y < ylim[0] or label_y > ylim[1]:
+                plot_label = False
+
+        if plot_label:
+            ax.text(label_x, label_y, label,
+                   fontsize=config.label_fontsize,
+                   fontweight=config.label_fontweight,
+                   color=config.line_color,
+                   ha='center', va='center',
+                   bbox=dict(boxstyle='round,pad=0.3', facecolor='white',
+                            edgecolor=config.line_color, alpha=0.7),
+                   zorder=5)
+
+
 def create_station_event_visualization(config: DictConfig,
                                        events_df: pd.DataFrame,
                                        stations_df: pd.DataFrame,
@@ -47,6 +143,13 @@ def create_station_event_visualization(config: DictConfig,
     output_dir = Path(vis_config.output_dir)
     ensure_directory_exists(output_dir)
 
+    # Load basin boundaries if enabled
+    basin_boundaries = {}
+    if hasattr(vis_config, 'basin_boundaries'):
+        basin_boundaries = _load_basin_boundaries(vis_config.basin_boundaries)
+        if basin_boundaries:
+            logger.info(f"Loaded {len(basin_boundaries)} basin boundaries")
+
     # Extract data
     # Use 'lat' and 'lon' if available, otherwise 'latitude' and 'longitude'
     lat_col = 'lat' if 'lat' in events_df.columns else 'latitude'
@@ -75,7 +178,7 @@ def create_station_event_visualization(config: DictConfig,
         source_lons, source_lats, source_depths, source_mags,
         receiver_lons, receiver_lats,
         output_dir / 'map_view_lat_lon.png',
-        vis_config
+        vis_config, config, basin_boundaries
     )
 
     # Figure 2: Cross-section (Latitude vs Depth)
@@ -83,7 +186,7 @@ def create_station_event_visualization(config: DictConfig,
         source_lats, source_depths, source_mags,
         receiver_lats, receiver_depths,
         output_dir / 'cross_section_lat_depth.png',
-        vis_config
+        vis_config, config
     )
 
     # Figure 3: Cross-section (Longitude vs Depth)
@@ -91,7 +194,7 @@ def create_station_event_visualization(config: DictConfig,
         source_lons, source_depths, source_mags,
         receiver_lons, receiver_depths,
         output_dir / 'cross_section_lon_depth.png',
-        vis_config
+        vis_config, config
     )
 
     logger.info(f"Visualizations saved to: {output_dir}")
@@ -100,48 +203,87 @@ def create_station_event_visualization(config: DictConfig,
 def _plot_map_view(source_lons: np.ndarray, source_lats: np.ndarray,
                   source_depths: np.ndarray, source_mags: np.ndarray,
                   receiver_lons: np.ndarray, receiver_lats: np.ndarray,
-                  output_file: Path, config: DictConfig) -> None:
+                  output_file: Path, vis_config: DictConfig,
+                  full_config: DictConfig, basin_boundaries: Dict) -> None:
     """Create map view plot."""
     fig, ax = plt.subplots(
-        figsize=tuple(config.figure_size),
-        dpi=config.figure_dpi
+        figsize=tuple(vis_config.figure_size),
+        dpi=vis_config.figure_dpi
     )
+
+    # Get fontsize config
+    fontsize = vis_config.get('fontsize', {})
+    fs_title = fontsize.get('title', 14)
+    fs_axis_label = fontsize.get('axis_label', 12)
+    fs_axis_ticks = fontsize.get('axis_ticks', 10)
+    fs_legend = fontsize.get('legend', 9)
+    fs_cbar_label = fontsize.get('colorbar_label', 12)
+    fs_cbar_ticks = fontsize.get('colorbar_ticks', 10)
 
     # Plot events (colored by depth, sized by magnitude)
     if len(source_lons) > 0:
-        sizes = source_mags**2 * config.source_size / 9
+        sizes = source_mags**2 * vis_config.source_size / 9
         scatter = ax.scatter(
             source_lons, source_lats,
             s=sizes, c=source_depths, cmap='hot_r',
-            marker=config.source_marker, alpha=0.7,
+            marker=vis_config.source_marker, alpha=0.7,
             edgecolors='black', linewidths=0.5,
             label=f'Events (n={len(source_lons)})',
             vmin=0, zorder=3
         )
-        plt.colorbar(scatter, ax=ax, label='Depth (km)')
+        cbar = plt.colorbar(scatter, ax=ax, label='Depth (km)')
+        cbar.set_label('Depth (km)', fontsize=fs_cbar_label)
+        cbar.ax.tick_params(labelsize=fs_cbar_ticks)
 
     # Plot receivers
     if len(receiver_lons) > 0:
         ax.scatter(
             receiver_lons, receiver_lats,
-            s=config.receiver_size, c=config.receiver_color,
-            marker=config.receiver_marker, alpha=0.8,
+            s=vis_config.receiver_size, c=vis_config.receiver_color,
+            marker=vis_config.receiver_marker, alpha=0.8,
             edgecolors='black', linewidths=0.5,
             label=f'Receivers (n={len(receiver_lons)})',
             zorder=2
         )
 
-    ax.set_xlabel('Longitude (°)', fontsize=12)
-    ax.set_ylabel('Latitude (°)', fontsize=12)
-    ax.set_title('Event Locations - Map View', fontsize=14, fontweight='bold')
+    ax.set_xlabel('Longitude (°)', fontsize=fs_axis_label)
+    ax.set_ylabel('Latitude (°)', fontsize=fs_axis_label)
+    ax.set_title('Event Locations - Map View', fontsize=fs_title, fontweight='bold')
+    ax.tick_params(axis='both', labelsize=fs_axis_ticks)
     ax.grid(True, alpha=0.3)
-    ax.legend(fontsize=9)
+    ax.legend(fontsize=fs_legend)
 
     if len(source_lons) > 0 or len(receiver_lons) > 0:
         ax.axis('equal')
 
+    # Apply geographic filters to axis limits if specified
+    filters = full_config.get('filters', {})
+    if filters.get('lon_min') is not None or filters.get('lon_max') is not None:
+        current_xlim = ax.get_xlim()
+        new_xlim = [
+            filters.get('lon_min') if filters.get('lon_min') is not None else current_xlim[0],
+            filters.get('lon_max') if filters.get('lon_max') is not None else current_xlim[1]
+        ]
+        ax.set_xlim(new_xlim)
+
+    if filters.get('lat_min') is not None or filters.get('lat_max') is not None:
+        current_ylim = ax.get_ylim()
+        new_ylim = [
+            filters.get('lat_min') if filters.get('lat_min') is not None else current_ylim[0],
+            filters.get('lat_max') if filters.get('lat_max') is not None else current_ylim[1]
+        ]
+        ax.set_ylim(new_ylim)
+
+    # Plot basin boundaries if enabled
+    if basin_boundaries and hasattr(vis_config, 'basin_boundaries'):
+        if vis_config.basin_boundaries.get('enabled', False):
+            xlim = ax.get_xlim()
+            ylim = ax.get_ylim()
+            _plot_basin_boundary(ax, basin_boundaries, vis_config.basin_boundaries,
+                               xlim=xlim, ylim=ylim)
+
     plt.tight_layout()
-    fig.savefig(output_file, dpi=config.figure_dpi, bbox_inches='tight')
+    fig.savefig(output_file, dpi=vis_config.figure_dpi, bbox_inches='tight')
     plt.close(fig)
 
     logging.getLogger(__name__).info(f"Saved: {output_file}")
@@ -150,47 +292,78 @@ def _plot_map_view(source_lons: np.ndarray, source_lats: np.ndarray,
 def _plot_cross_section_lat(source_lats: np.ndarray, source_depths: np.ndarray,
                             source_mags: np.ndarray, receiver_lats: np.ndarray,
                             receiver_depths: np.ndarray, output_file: Path,
-                            config: DictConfig) -> None:
+                            vis_config: DictConfig, full_config: DictConfig) -> None:
     """Create latitude vs depth cross-section plot."""
     fig, ax = plt.subplots(
-        figsize=tuple(config.figure_size),
-        dpi=config.figure_dpi
+        figsize=tuple(vis_config.figure_size),
+        dpi=vis_config.figure_dpi
     )
+
+    # Get fontsize config
+    fontsize = vis_config.get('fontsize', {})
+    fs_title = fontsize.get('title', 14)
+    fs_axis_label = fontsize.get('axis_label', 12)
+    fs_axis_ticks = fontsize.get('axis_ticks', 10)
+    fs_legend = fontsize.get('legend', 9)
+    fs_cbar_label = fontsize.get('colorbar_label', 12)
+    fs_cbar_ticks = fontsize.get('colorbar_ticks', 10)
 
     # Plot events (colored by magnitude, sized by magnitude)
     if len(source_lats) > 0:
-        sizes = source_mags**2 * config.source_size / 9
+        sizes = source_mags**2 * vis_config.source_size / 9
         scatter = ax.scatter(
             source_lats, source_depths,
             s=sizes, c=source_mags, cmap='viridis',
-            marker=config.source_marker, alpha=0.7,
+            marker=vis_config.source_marker, alpha=0.7,
             edgecolors='black', linewidths=0.5,
             label=f'Events (n={len(source_lats)})',
             zorder=3
         )
-        plt.colorbar(scatter, ax=ax, label='Magnitude')
+        cbar = plt.colorbar(scatter, ax=ax, label='Magnitude')
+        cbar.set_label('Magnitude', fontsize=fs_cbar_label)
+        cbar.ax.tick_params(labelsize=fs_cbar_ticks)
 
     # Plot receivers
     if len(receiver_lats) > 0:
         ax.scatter(
             receiver_lats, receiver_depths,
-            s=config.receiver_size, c=config.receiver_color,
-            marker=config.receiver_marker, alpha=0.8,
+            s=vis_config.receiver_size, c=vis_config.receiver_color,
+            marker=vis_config.receiver_marker, alpha=0.8,
             edgecolors='black', linewidths=0.5,
             label=f'Receivers (n={len(receiver_lats)})',
             zorder=2
         )
 
-    ax.set_xlabel('Latitude (°)', fontsize=12)
-    ax.set_ylabel('Depth (km)', fontsize=12)
+    ax.set_xlabel('Latitude (°)', fontsize=fs_axis_label)
+    ax.set_ylabel('Depth (km)', fontsize=fs_axis_label)
     ax.set_title('Event Locations - Latitude vs Depth',
-                fontsize=14, fontweight='bold')
+                fontsize=fs_title, fontweight='bold')
+    ax.tick_params(axis='both', labelsize=fs_axis_ticks)
     ax.invert_yaxis()  # Depth increases downward
     ax.grid(True, alpha=0.3)
-    ax.legend(fontsize=9)
+    ax.legend(fontsize=fs_legend)
+
+    # Apply latitude filter to x-axis
+    filters = full_config.get('filters', {})
+    if filters.get('lat_min') is not None or filters.get('lat_max') is not None:
+        current_xlim = ax.get_xlim()
+        new_xlim = [
+            filters.get('lat_min') if filters.get('lat_min') is not None else current_xlim[0],
+            filters.get('lat_max') if filters.get('lat_max') is not None else current_xlim[1]
+        ]
+        ax.set_xlim(new_xlim)
+
+    # Apply depth filter to y-axis (inverted)
+    if filters.get('depth_min') is not None or filters.get('depth_max') is not None:
+        current_ylim = ax.get_ylim()
+        new_ylim = [
+            filters.get('depth_max') if filters.get('depth_max') is not None else current_ylim[0],
+            filters.get('depth_min') if filters.get('depth_min') is not None else current_ylim[1]
+        ]
+        ax.set_ylim(new_ylim)
 
     plt.tight_layout()
-    fig.savefig(output_file, dpi=config.figure_dpi, bbox_inches='tight')
+    fig.savefig(output_file, dpi=vis_config.figure_dpi, bbox_inches='tight')
     plt.close(fig)
 
     logging.getLogger(__name__).info(f"Saved: {output_file}")
@@ -199,47 +372,78 @@ def _plot_cross_section_lat(source_lats: np.ndarray, source_depths: np.ndarray,
 def _plot_cross_section_lon(source_lons: np.ndarray, source_depths: np.ndarray,
                             source_mags: np.ndarray, receiver_lons: np.ndarray,
                             receiver_depths: np.ndarray, output_file: Path,
-                            config: DictConfig) -> None:
+                            vis_config: DictConfig, full_config: DictConfig) -> None:
     """Create longitude vs depth cross-section plot."""
     fig, ax = plt.subplots(
-        figsize=tuple(config.figure_size),
-        dpi=config.figure_dpi
+        figsize=tuple(vis_config.figure_size),
+        dpi=vis_config.figure_dpi
     )
+
+    # Get fontsize config
+    fontsize = vis_config.get('fontsize', {})
+    fs_title = fontsize.get('title', 14)
+    fs_axis_label = fontsize.get('axis_label', 12)
+    fs_axis_ticks = fontsize.get('axis_ticks', 10)
+    fs_legend = fontsize.get('legend', 9)
+    fs_cbar_label = fontsize.get('colorbar_label', 12)
+    fs_cbar_ticks = fontsize.get('colorbar_ticks', 10)
 
     # Plot events (colored by magnitude, sized by magnitude)
     if len(source_lons) > 0:
-        sizes = source_mags**2 * config.source_size / 9
+        sizes = source_mags**2 * vis_config.source_size / 9
         scatter = ax.scatter(
             source_lons, source_depths,
             s=sizes, c=source_mags, cmap='viridis',
-            marker=config.source_marker, alpha=0.7,
+            marker=vis_config.source_marker, alpha=0.7,
             edgecolors='black', linewidths=0.5,
             label=f'Events (n={len(source_lons)})',
             zorder=3
         )
-        plt.colorbar(scatter, ax=ax, label='Magnitude')
+        cbar = plt.colorbar(scatter, ax=ax, label='Magnitude')
+        cbar.set_label('Magnitude', fontsize=fs_cbar_label)
+        cbar.ax.tick_params(labelsize=fs_cbar_ticks)
 
     # Plot receivers
     if len(receiver_lons) > 0:
         ax.scatter(
             receiver_lons, receiver_depths,
-            s=config.receiver_size, c=config.receiver_color,
-            marker=config.receiver_marker, alpha=0.8,
+            s=vis_config.receiver_size, c=vis_config.receiver_color,
+            marker=vis_config.receiver_marker, alpha=0.8,
             edgecolors='black', linewidths=0.5,
             label=f'Receivers (n={len(receiver_lons)})',
             zorder=2
         )
 
-    ax.set_xlabel('Longitude (°)', fontsize=12)
-    ax.set_ylabel('Depth (km)', fontsize=12)
+    ax.set_xlabel('Longitude (°)', fontsize=fs_axis_label)
+    ax.set_ylabel('Depth (km)', fontsize=fs_axis_label)
     ax.set_title('Event Locations - Longitude vs Depth',
-                fontsize=14, fontweight='bold')
+                fontsize=fs_title, fontweight='bold')
+    ax.tick_params(axis='both', labelsize=fs_axis_ticks)
     ax.invert_yaxis()  # Depth increases downward
     ax.grid(True, alpha=0.3)
-    ax.legend(fontsize=9)
+    ax.legend(fontsize=fs_legend)
+
+    # Apply longitude filter to x-axis
+    filters = full_config.get('filters', {})
+    if filters.get('lon_min') is not None or filters.get('lon_max') is not None:
+        current_xlim = ax.get_xlim()
+        new_xlim = [
+            filters.get('lon_min') if filters.get('lon_min') is not None else current_xlim[0],
+            filters.get('lon_max') if filters.get('lon_max') is not None else current_xlim[1]
+        ]
+        ax.set_xlim(new_xlim)
+
+    # Apply depth filter to y-axis (inverted)
+    if filters.get('depth_min') is not None or filters.get('depth_max') is not None:
+        current_ylim = ax.get_ylim()
+        new_ylim = [
+            filters.get('depth_max') if filters.get('depth_max') is not None else current_ylim[0],
+            filters.get('depth_min') if filters.get('depth_min') is not None else current_ylim[1]
+        ]
+        ax.set_ylim(new_ylim)
 
     plt.tight_layout()
-    fig.savefig(output_file, dpi=config.figure_dpi, bbox_inches='tight')
+    fig.savefig(output_file, dpi=vis_config.figure_dpi, bbox_inches='tight')
     plt.close(fig)
 
     logging.getLogger(__name__).info(f"Saved: {output_file}")

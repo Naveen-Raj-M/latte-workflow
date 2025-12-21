@@ -152,6 +152,38 @@ visualization:
     receiver_color: "blue"
     plot_pick_lines: true
     pick_alpha: 0.3
+
+    # Basin boundaries (optional, only shown on map view)
+    basin_boundaries:
+      enabled: false  # Set to true to enable basin boundaries
+      data_dir: "/lambda1b/rajmanoharann/Latest_data/basin_boundaries"
+      # Basin files
+      basins:
+        - file: "CentralBasin_Verticies_WGS84.csv"
+          label: "Central Basin"
+        - file: "DelawareBasin_Verticies_WGS84.csv"
+          label: "Delaware Basin"
+        - file: "MidlandBasin_Verticies_WGS84.csv"
+          label: "Midland Basin"
+      # Common styling (applies to all basins)
+      line_color: "darkgreen"
+      line_width: 2
+      line_style: "-"
+      line_alpha: 0.8
+      label_fontsize: 12
+      label_fontweight: "bold"
+      label_offset_x: 0.0  # Degrees offset from centroid
+      label_offset_y: 0.0  # Degrees offset from centroid
+
+    # Font size settings
+    fontsize:
+      title: 16
+      axis_label: 16
+      axis_ticks: 14
+      legend: 12
+      colorbar_label: 14
+      colorbar_ticks: 14
+      
   # Velocity model visualization
   velocity_model_vis:
     enabled: true
