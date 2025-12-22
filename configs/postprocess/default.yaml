@@ -72,6 +72,7 @@ source_processing:
 
 ray_path_visualization:
   enabled: false
+  phase_type: "both"  # Options: both, p, s
   gradient_dir: "${data.base_dir}/gradient"  # Directory containing gradient files
   ground_truth_csv: "/full/path/to/ground_truth_travel_times_corrected.csv"
   shot_map_file: "/full/path/to/shot_to_source_id_map.txt"
