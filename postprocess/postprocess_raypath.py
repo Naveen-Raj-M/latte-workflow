@@ -244,6 +244,10 @@ def plot_ray_paths_projection(ray_paths: List[np.ndarray],
     ax.grid(config.plot.grid, alpha=0.3)
     ax.set_aspect('equal' if config.plot.equal_aspect else 'auto')
 
+    # Invert z-axis to have depth increase downwards
+    if plane in ['xz', 'yz']:
+        ax.invert_yaxis()
+
     plt.tight_layout()
     plt.savefig(output_file, dpi=config.plot.dpi, bbox_inches='tight')
     plt.close()
@@ -303,7 +307,7 @@ def create_ray_path_visualizations(config: DictConfig) -> None:
         receivers_all = []
 
         # Get unique shots
-        unique_shots = df_gt['event_id'].unique() if 'event_id' in df_gt.columns else df_gt['shot_id'].unique()
+        unique_shots = df_gt['shot_id'].unique()
 
         # Limit number of shots if specified
         if config.max_shots > 0:
@@ -324,8 +328,7 @@ def create_ray_path_visualizations(config: DictConfig) -> None:
                 )
 
                 # Get source-receiver pairs for this shot
-                shot_data = df_gt[df_gt['event_id'] == shot_id] if 'event_id' in df_gt.columns \
-                           else df_gt[df_gt['shot_id'] == shot_id]
+                shot_data = df_gt[df_gt['shot_id'] == shot_id]
 
                 if len(shot_data) == 0:
                     continue

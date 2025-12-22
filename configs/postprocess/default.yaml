@@ -14,7 +14,7 @@ data:
   analysis_output_dir: "/path/to/analysis/output"
 
 velocity_processing:
-  enabled: true
+  enabled: false
   original_velocity_csv: "/full/path/to/velocity_cartesian_final.csv"
   vp_binary: "${data.base_dir}/model/updated_vp.bin"
   vs_binary: "${data.base_dir}/model/updated_vs.bin"
@@ -39,7 +39,7 @@ velocity_processing:
   srch_vs_binary: "${data.base_dir}/model/srch_vs.bin"
 
 travel_time_processing:
-  enabled: true
+  enabled: false
   ground_truth_csv: "/full/path/to/ground_truth_travel_times_corrected.csv"
   synthetic_tt_dir: "${data.base_dir}/synthetic_traveltimes"
   shot_map_file: "/full/path/to/shot_to_source_id_map.txt"
@@ -53,7 +53,7 @@ travel_time_processing:
   synthetic_tt_output_csv: "${data.analysis_output_dir}/synthetic_travel_times_latte_output.csv"
 
 source_processing:
-  enabled: true
+  enabled: false
   sx_file: "${data.base_dir}/model/updated_sx.bin"
   sy_file: "${data.base_dir}/model/updated_sy.bin"
   sz_file: "${data.base_dir}/model/updated_sz.bin"
@@ -71,7 +71,7 @@ source_processing:
   srch_st0_file: "${data.base_dir}/model/srch_st0.bin"
 
 ray_path_visualization:
-  enabled: false
+  enabled: falsee
   phase_type: "both"  # Options: both, p, s
   gradient_dir: "${data.base_dir}/gradient"  # Directory containing gradient files
   ground_truth_csv: "/full/path/to/ground_truth_travel_times_corrected.csv"
