@@ -180,7 +180,8 @@ def create_station_event_visualization(config: DictConfig,
         source_lons, source_lats, source_depths, source_mags,
         receiver_lons, receiver_lats,
         output_dir / 'map_view_lat_lon.png',
-        vis_config, config, basin_boundaries
+        vis_config, config, basin_boundaries,
+        events_df, stations_df, picks_df
     )
 
     # Figure 2: Cross-section (Latitude vs Depth)
@@ -188,7 +189,8 @@ def create_station_event_visualization(config: DictConfig,
         source_lats, source_depths, source_mags,
         receiver_lats, receiver_depths,
         output_dir / 'cross_section_lat_depth.png',
-        vis_config, config
+        vis_config, config,
+        events_df, stations_df, picks_df
     )
 
     # Figure 3: Cross-section (Longitude vs Depth)
@@ -196,7 +198,8 @@ def create_station_event_visualization(config: DictConfig,
         source_lons, source_depths, source_mags,
         receiver_lons, receiver_depths,
         output_dir / 'cross_section_lon_depth.png',
-        vis_config, config
+        vis_config, config,
+        events_df, stations_df, picks_df
     )
 
     logger.info(f"Visualizations saved to: {output_dir}")
@@ -206,7 +209,10 @@ def _plot_map_view(source_lons: np.ndarray, source_lats: np.ndarray,
                   source_depths: np.ndarray, source_mags: np.ndarray,
                   receiver_lons: np.ndarray, receiver_lats: np.ndarray,
                   output_file: Path, vis_config: DictConfig,
-                  full_config: DictConfig, basin_boundaries: Dict) -> None:
+                  full_config: DictConfig, basin_boundaries: Dict,
+                  events_df: Optional[pd.DataFrame] = None,
+                  stations_df: Optional[pd.DataFrame] = None,
+                  picks_df: Optional[pd.DataFrame] = None) -> None:
     """Create map view plot."""
     fig, ax = plt.subplots(
         figsize=tuple(vis_config.figure_size),
@@ -247,6 +253,37 @@ def _plot_map_view(source_lons: np.ndarray, source_lats: np.ndarray,
             label=f'Receivers (n={len(receiver_lons)})',
             zorder=2
         )
+
+    # Plot pick lines connecting events to receivers
+    if (vis_config.get('plot_pick_lines', False) and
+        picks_df is not None and not picks_df.empty and
+        events_df is not None and stations_df is not None):
+
+        pick_alpha = vis_config.get('pick_alpha', 0.3)
+
+        # Use 'lat' and 'lon' if available, otherwise 'latitude' and 'longitude'
+        event_lat_col = 'lat' if 'lat' in events_df.columns else 'latitude'
+        event_lon_col = 'lon' if 'lon' in events_df.columns else 'longitude'
+        station_lat_col = 'lat' if 'lat' in stations_df.columns else 'latitude'
+        station_lon_col = 'lon' if 'lon' in stations_df.columns else 'longitude'
+
+        # Create lookup dictionaries for coordinates
+        event_coords = {row['event_id']: (row[event_lon_col], row[event_lat_col])
+                       for _, row in events_df.iterrows()}
+        station_coords = {row['station_id']: (row[station_lon_col], row[station_lat_col])
+                         for _, row in stations_df.iterrows()}
+
+        # Draw lines for each pick
+        for _, pick in picks_df.iterrows():
+            event_id = pick['event_id']
+            station_id = pick['station_id']
+
+            if event_id in event_coords and station_id in station_coords:
+                event_lon, event_lat = event_coords[event_id]
+                station_lon, station_lat = station_coords[station_id]
+
+                ax.plot([event_lon, station_lon], [event_lat, station_lat],
+                       color='gray', alpha=pick_alpha, linewidth=0.5, zorder=1)
 
     ax.set_xlabel('Longitude (°)', fontsize=fs_axis_label)
     ax.set_ylabel('Latitude (°)', fontsize=fs_axis_label)
@@ -294,7 +331,10 @@ def _plot_map_view(source_lons: np.ndarray, source_lats: np.ndarray,
 def _plot_cross_section_lat(source_lats: np.ndarray, source_depths: np.ndarray,
                             source_mags: np.ndarray, receiver_lats: np.ndarray,
                             receiver_depths: np.ndarray, output_file: Path,
-                            vis_config: DictConfig, full_config: DictConfig) -> None:
+                            vis_config: DictConfig, full_config: DictConfig,
+                            events_df: Optional[pd.DataFrame] = None,
+                            stations_df: Optional[pd.DataFrame] = None,
+                            picks_df: Optional[pd.DataFrame] = None) -> None:
     """Create latitude vs depth cross-section plot."""
     fig, ax = plt.subplots(
         figsize=tuple(vis_config.figure_size),
@@ -336,6 +376,35 @@ def _plot_cross_section_lat(source_lats: np.ndarray, source_depths: np.ndarray,
             zorder=2
         )
 
+    # Plot pick lines connecting events to receivers
+    if (vis_config.get('plot_pick_lines', False) and
+        picks_df is not None and not picks_df.empty and
+        events_df is not None and stations_df is not None):
+
+        pick_alpha = vis_config.get('pick_alpha', 0.3)
+
+        # Use 'lat' if available, otherwise 'latitude'
+        event_lat_col = 'lat' if 'lat' in events_df.columns else 'latitude'
+        station_lat_col = 'lat' if 'lat' in stations_df.columns else 'latitude'
+
+        # Create lookup dictionaries for coordinates
+        event_coords = {row['event_id']: (row[event_lat_col], row['depth'])
+                       for _, row in events_df.iterrows()}
+        station_coords = {row['station_id']: (row[station_lat_col], row['depth'])
+                         for _, row in stations_df.iterrows()}
+
+        # Draw lines for each pick
+        for _, pick in picks_df.iterrows():
+            event_id = pick['event_id']
+            station_id = pick['station_id']
+
+            if event_id in event_coords and station_id in station_coords:
+                event_lat, event_depth = event_coords[event_id]
+                station_lat, station_depth = station_coords[station_id]
+
+                ax.plot([event_lat, station_lat], [event_depth, station_depth],
+                       color='gray', alpha=pick_alpha, linewidth=0.5, zorder=1)
+
     ax.set_xlabel('Latitude (°)', fontsize=fs_axis_label)
     ax.set_ylabel('Depth (km)', fontsize=fs_axis_label)
     ax.set_title('Event Locations - Latitude vs Depth',
@@ -374,7 +443,10 @@ def _plot_cross_section_lat(source_lats: np.ndarray, source_depths: np.ndarray,
 def _plot_cross_section_lon(source_lons: np.ndarray, source_depths: np.ndarray,
                             source_mags: np.ndarray, receiver_lons: np.ndarray,
                             receiver_depths: np.ndarray, output_file: Path,
-                            vis_config: DictConfig, full_config: DictConfig) -> None:
+                            vis_config: DictConfig, full_config: DictConfig,
+                            events_df: Optional[pd.DataFrame] = None,
+                            stations_df: Optional[pd.DataFrame] = None,
+                            picks_df: Optional[pd.DataFrame] = None) -> None:
     """Create longitude vs depth cross-section plot."""
     fig, ax = plt.subplots(
         figsize=tuple(vis_config.figure_size),
@@ -415,6 +487,35 @@ def _plot_cross_section_lon(source_lons: np.ndarray, source_depths: np.ndarray,
             label=f'Receivers (n={len(receiver_lons)})',
             zorder=2
         )
+
+    # Plot pick lines connecting events to receivers
+    if (vis_config.get('plot_pick_lines', False) and
+        picks_df is not None and not picks_df.empty and
+        events_df is not None and stations_df is not None):
+
+        pick_alpha = vis_config.get('pick_alpha', 0.3)
+
+        # Use 'lon' if available, otherwise 'longitude'
+        event_lon_col = 'lon' if 'lon' in events_df.columns else 'longitude'
+        station_lon_col = 'lon' if 'lon' in stations_df.columns else 'longitude'
+
+        # Create lookup dictionaries for coordinates
+        event_coords = {row['event_id']: (row[event_lon_col], row['depth'])
+                       for _, row in events_df.iterrows()}
+        station_coords = {row['station_id']: (row[station_lon_col], row['depth'])
+                         for _, row in stations_df.iterrows()}
+
+        # Draw lines for each pick
+        for _, pick in picks_df.iterrows():
+            event_id = pick['event_id']
+            station_id = pick['station_id']
+
+            if event_id in event_coords and station_id in station_coords:
+                event_lon, event_depth = event_coords[event_id]
+                station_lon, station_depth = station_coords[station_id]
+
+                ax.plot([event_lon, station_lon], [event_depth, station_depth],
+                       color='gray', alpha=pick_alpha, linewidth=0.5, zorder=1)
 
     ax.set_xlabel('Longitude (°)', fontsize=fs_axis_label)
     ax.set_ylabel('Depth (km)', fontsize=fs_axis_label)
