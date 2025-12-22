@@ -72,15 +72,15 @@ def reshape_gradients(grad_x: np.ndarray, grad_y: Optional[np.ndarray], grad_z: 
     nx, ny, nz = grid_dims['nx'], grid_dims['ny'], grid_dims['nz']
 
     if grad_y is not None:
-        # 3D case
-        grad_x = grad_x.reshape((nz, ny, nx))
-        grad_y = grad_y.reshape((nz, ny, nx))
-        grad_z = grad_z.reshape((nz, ny, nx))
+        # 3D case - use Fortran order since LATTE writes in column-major format
+        grad_x = grad_x.reshape((nz, ny, nx), order='F')
+        grad_y = grad_y.reshape((nz, ny, nx), order='F')
+        grad_z = grad_z.reshape((nz, ny, nx), order='F')
         return grad_x, grad_y, grad_z
     else:
-        # 2D case
-        grad_x = grad_x.reshape((nz, nx))
-        grad_z = grad_z.reshape((nz, nx))
+        # 2D case - use Fortran order since LATTE writes in column-major format
+        grad_x = grad_x.reshape((nz, nx), order='F')
+        grad_z = grad_z.reshape((nz, nx), order='F')
         return grad_x, None, grad_z
 
 
@@ -156,7 +156,7 @@ def trace_ray_path(source_pos: Tuple[float, float, float],
             # Get gradient at current position
             gx = grad_x[k, i]
             gz = grad_z[k, i]
-            gradient = np.array([gx, current_pos[1], gz])  # Keep Y fixed in 2D
+            gradient = np.array([gx, 0.0, gz])  # Y-component is zero in 2D
 
         # Normalize gradient
         grad_magnitude = np.linalg.norm(gradient)
@@ -167,7 +167,11 @@ def trace_ray_path(source_pos: Tuple[float, float, float],
         gradient_normalized = gradient / grad_magnitude
 
         # Move in negative gradient direction (toward source)
-        current_pos = current_pos - step_size * gradient_normalized
+        new_pos = current_pos - step_size * gradient_normalized
+        # In 2D case, keep Y coordinate fixed
+        if not is_3d:
+            new_pos[1] = current_pos[1]
+        current_pos = new_pos
         ray_path.append(tuple(current_pos))
 
     return np.array(ray_path)
