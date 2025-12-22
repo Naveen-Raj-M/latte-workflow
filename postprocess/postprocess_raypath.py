@@ -15,6 +15,7 @@ from typing import Dict, Tuple, List, Optional
 from omegaconf import DictConfig
 from tqdm import tqdm
 import warnings
+from joblib import Parallel, delayed
 
 from utils.io_utils import ensure_directory_exists, check_file_exists
 
@@ -267,6 +268,93 @@ def load_shot_mapping(shot_map_file: str) -> Dict[int, str]:
     return shot_map
 
 
+def process_single_shot(shot_id: int,
+                        df_gt: pd.DataFrame,
+                        gradient_dir: str,
+                        phase: str,
+                        precision: str,
+                        grid_dims: Dict,
+                        tracing_params: Dict,
+                        verbose: bool) -> Tuple[List[np.ndarray], Tuple, List[Tuple]]:
+    """
+    Process a single shot and trace all its ray paths.
+
+    Args:
+        shot_id: Shot ID to process
+        df_gt: Ground truth dataframe
+        gradient_dir: Directory containing gradient files
+        phase: Wave phase ('p' or 's')
+        precision: Numerical precision ('single' or 'double')
+        grid_dims: Grid dimension dictionary
+        tracing_params: Ray tracing parameters dictionary
+        verbose: Whether to print warnings
+
+    Returns:
+        Tuple of (ray_paths, source_position, receiver_positions)
+    """
+    try:
+        # Read gradient files
+        grad_x, grad_y, grad_z = read_gradient_binaries(
+            gradient_dir, shot_id, phase, precision
+        )
+
+        # Reshape gradients
+        grad_x, grad_y, grad_z = reshape_gradients(
+            grad_x, grad_y, grad_z, grid_dims
+        )
+
+        # Get source-receiver pairs for this shot
+        shot_data = df_gt[df_gt['shot_id'] == shot_id]
+
+        if len(shot_data) == 0:
+            return [], None, []
+
+        # Get source position
+        source_row = shot_data.iloc[0]
+        source_pos = (
+            source_row['event_x_transformed'],
+            source_row['event_y_transformed'],
+            source_row['event_z_transformed']
+        )
+
+        ray_paths = []
+        receiver_positions = []
+
+        # Trace rays for each receiver
+        for _, row in shot_data.iterrows():
+            receiver_pos = (
+                row['station_x_transformed'],
+                row['station_y_transformed'],
+                row['station_z_transformed']
+            )
+            receiver_positions.append(receiver_pos)
+
+            # Trace ray path
+            ray_path = trace_ray_path(
+                source_pos,
+                receiver_pos,
+                grad_x, grad_y, grad_z,
+                grid_dims,
+                max_steps=tracing_params['max_steps'],
+                step_size=tracing_params['step_size'],
+                tolerance=tracing_params['tolerance']
+            )
+
+            if len(ray_path) > 1:
+                ray_paths.append(ray_path)
+
+        return ray_paths, source_pos, receiver_positions
+
+    except FileNotFoundError:
+        if verbose:
+            warnings.warn(f"Gradient files not found for shot {shot_id}")
+        return [], None, []
+    except Exception as e:
+        if verbose:
+            warnings.warn(f"Error processing shot {shot_id}: {e}")
+        return [], None, []
+
+
 def create_ray_path_visualizations(config: DictConfig) -> None:
     """
     Main function to create ray path visualizations from gradient files.
@@ -317,66 +405,43 @@ def create_ray_path_visualizations(config: DictConfig) -> None:
         if config.max_shots > 0:
             unique_shots = unique_shots[:config.max_shots]
 
-        print(f"Processing {len(unique_shots)} shots...")
+        # Determine number of parallel jobs
+        use_parallel = hasattr(config, 'parallel') and config.parallel.enabled
+        n_jobs = config.parallel.n_jobs if use_parallel else 1
 
-        for shot_id in tqdm(unique_shots, desc=f"Tracing {phase}-wave rays"):
-            try:
-                # Read gradient files
-                grad_x, grad_y, grad_z = read_gradient_binaries(
-                    config.gradient_dir, shot_id, phase, config.precision
-                )
+        if use_parallel and n_jobs != 1:
+            print(f"Processing {len(unique_shots)} shots using {n_jobs if n_jobs > 0 else 'all'} CPU cores...")
+        else:
+            print(f"Processing {len(unique_shots)} shots sequentially...")
 
-                # Reshape gradients
-                grad_x, grad_y, grad_z = reshape_gradients(
-                    grad_x, grad_y, grad_z, config.grid
-                )
+        # Prepare tracing parameters dictionary
+        tracing_params = {
+            'max_steps': config.tracing.max_steps,
+            'step_size': config.tracing.step_size,
+            'tolerance': config.tracing.tolerance
+        }
 
-                # Get source-receiver pairs for this shot
-                shot_data = df_gt[df_gt['shot_id'] == shot_id]
+        # Process shots in parallel or sequential
+        results = Parallel(n_jobs=n_jobs, backend='loky')(
+            delayed(process_single_shot)(
+                shot_id,
+                df_gt,
+                config.gradient_dir,
+                phase,
+                config.precision,
+                dict(config.grid),  # Convert DictConfig to dict
+                tracing_params,
+                config.verbose
+            )
+            for shot_id in tqdm(unique_shots, desc=f"Tracing {phase}-wave rays")
+        )
 
-                if len(shot_data) == 0:
-                    continue
-
-                # Get source position
-                source_row = shot_data.iloc[0]
-                source_pos = (
-                    source_row['event_x_transformed'],
-                    source_row['event_y_transformed'],
-                    source_row['event_z_transformed']
-                )
+        # Aggregate results from all shots
+        for ray_paths, source_pos, receiver_positions in results:
+            if source_pos is not None:
                 sources_all.append(source_pos)
-
-                # Trace rays for each receiver
-                for _, row in shot_data.iterrows():
-                    receiver_pos = (
-                        row['station_x_transformed'],
-                        row['station_y_transformed'],
-                        row['station_z_transformed']
-                    )
-                    receivers_all.append(receiver_pos)
-
-                    # Trace ray path
-                    ray_path = trace_ray_path(
-                        source_pos,
-                        receiver_pos,
-                        grad_x, grad_y, grad_z,
-                        config.grid,
-                        max_steps=config.tracing.max_steps,
-                        step_size=config.tracing.step_size,
-                        tolerance=config.tracing.tolerance
-                    )
-
-                    if len(ray_path) > 1:
-                        ray_paths_all.append(ray_path)
-
-            except FileNotFoundError:
-                if config.verbose:
-                    print(f"  Warning: Gradient files not found for shot {shot_id}")
-                continue
-            except Exception as e:
-                if config.verbose:
-                    print(f"  Error processing shot {shot_id}: {e}")
-                continue
+                ray_paths_all.extend(ray_paths)
+                receivers_all.extend(receiver_positions)
 
         print(f"\nSuccessfully traced {len(ray_paths_all)} ray paths")
 

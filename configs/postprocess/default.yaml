@@ -99,6 +99,11 @@ ray_path_visualization:
     step_size: 0.1  # Integration step size in km (smaller = more accurate but slower)
     tolerance: 0.5  # Distance tolerance to source in km (stop when within this distance)
 
+  # Parallel processing parameters
+  parallel:
+    enabled: true  # Enable parallel processing across multiple CPU cores
+    n_jobs: -1  # Number of parallel workers (-1 = use all available cores, 1 = sequential)
+
   # Plotting parameters
   plot:
     planes: ["xy", "xz", "yz"]  # Projection planes to plot
