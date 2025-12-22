@@ -156,7 +156,8 @@ visualization:
     # Basin boundaries (optional, only shown on map view)
     basin_boundaries:
       enabled: false  # Set to true to enable basin boundaries
-      data_dir: "/lambda1b/rajmanoharann/Latest_data/basin_boundaries"
+      show_labels: true  # Set to false to hide basin labels (only boundary lines will be shown)
+      data_dir: "/path/to/basin_boundaries"
       # Basin files
       basins:
         - file: "CentralBasin_Verticies_WGS84.csv"

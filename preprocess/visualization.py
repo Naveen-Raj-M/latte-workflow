@@ -85,32 +85,34 @@ def _plot_basin_boundary(ax, basin_data: Dict, config: DictConfig,
                alpha=config.line_alpha,
                zorder=4)
 
-        # Calculate centroid for label placement
-        centroid_lon = np.mean(lons)
-        centroid_lat = np.mean(lats)
+        # Plot labels if enabled
+        if config.get('show_labels', True):
+            # Calculate centroid for label placement
+            centroid_lon = np.mean(lons)
+            centroid_lat = np.mean(lats)
 
-        # Apply offsets
-        label_x = centroid_lon + config.label_offset_x
-        label_y = centroid_lat + config.label_offset_y
+            # Apply offsets
+            label_x = centroid_lon + config.label_offset_x
+            label_y = centroid_lat + config.label_offset_y
 
-        # Only plot label if within bounds
-        plot_label = True
-        if xlim is not None:
-            if label_x < xlim[0] or label_x > xlim[1]:
-                plot_label = False
-        if ylim is not None:
-            if label_y < ylim[0] or label_y > ylim[1]:
-                plot_label = False
+            # Only plot label if within bounds
+            plot_label = True
+            if xlim is not None:
+                if label_x < xlim[0] or label_x > xlim[1]:
+                    plot_label = False
+            if ylim is not None:
+                if label_y < ylim[0] or label_y > ylim[1]:
+                    plot_label = False
 
-        if plot_label:
-            ax.text(label_x, label_y, label,
-                   fontsize=config.label_fontsize,
-                   fontweight=config.label_fontweight,
-                   color=config.line_color,
-                   ha='center', va='center',
-                   bbox=dict(boxstyle='round,pad=0.3', facecolor='white',
-                            edgecolor=config.line_color, alpha=0.7),
-                   zorder=5)
+            if plot_label:
+                ax.text(label_x, label_y, label,
+                       fontsize=config.label_fontsize,
+                       fontweight=config.label_fontweight,
+                       color=config.line_color,
+                       ha='center', va='center',
+                       bbox=dict(boxstyle='round,pad=0.3', facecolor='white',
+                                edgecolor=config.line_color, alpha=0.7),
+                       zorder=5)
 
 
 def create_station_event_visualization(config: DictConfig,
