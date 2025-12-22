@@ -22,6 +22,7 @@ from .postprocess_traveltime import (
     create_synthetic_travel_time_csv_with_exchange
 )
 from .postprocess_source import process_source_updates
+from .postprocess_raypath import create_ray_path_visualizations
 
 
 def postprocess_latte_outputs(config: DictConfig) -> None:
@@ -150,7 +151,19 @@ def postprocess_latte_outputs(config: DictConfig) -> None:
                 raise
     else:
         print(f"\nSource parameter processing: DISABLED")
-    
+
+    # Process ray path visualization
+    if hasattr(config, "ray_path_visualization") and config.ray_path_visualization.enabled:
+        print(f"\nRay path visualization: ENABLED")
+        try:
+            create_ray_path_visualizations(config.ray_path_visualization)
+        except Exception as e:
+            print(f"Error in ray path visualization: {e}")
+            if config.strict_mode:
+                raise
+    else:
+        print(f"\nRay path visualization: DISABLED")
+
     print("\n=== POST-PROCESSING COMPLETE ===")
 
 
