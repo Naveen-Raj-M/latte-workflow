@@ -143,6 +143,10 @@ visualization:
   visualize_inverted: true       # Inverted model from LATTE
   visualize_difference: true     # Difference (inverted - checkerboard)
 
+  # Visualize only checkerboard pattern (subtract initial model)
+  visualize_checkerboard_pattern: true   # Pattern only (checkerboard - input)
+  visualize_inverted_pattern: true       # Pattern recovered (inverted - input)
+
   # Slice planes to plot
   planes:
     - "xy"  # Depth slices
@@ -171,10 +175,16 @@ visualization:
   vmin: null  # Auto-scale if null
   vmax: null  # Auto-scale if null
 
-  # For difference plots
+  # For difference plots (inverted - checkerboard)
   diff_vmin: -0.5  # km/s
   diff_vmax: 0.5   # km/s
   symmetric_colorbar: true  # Force symmetric colorbar for differences
+
+  # For pattern plots (model - input)
+  pattern_vmin: -0.5  # km/s
+  pattern_vmax: 0.5   # km/s
+  pattern_colormap: "seismic"  # Colormap for pattern plots
+  pattern_symmetric_colorbar: true  # Force symmetric colorbar for patterns
 
   # Figure settings
   figure:

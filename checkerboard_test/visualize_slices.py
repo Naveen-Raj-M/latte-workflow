@@ -102,10 +102,14 @@ def plot_xy_slice(
     # Colorbar
     if config["show_colorbar"]:
         cbar = plt.colorbar(im, ax=ax)
-        cbar.set_label(
-            "Velocity (km/s)" if "diff" not in title_prefix.lower() else "Velocity Difference (km/s)",
-            fontsize=config["font_size"]["colorbar"],
-        )
+        # Determine label based on plot type
+        if "pattern" in title_prefix.lower():
+            label = "Velocity Perturbation (km/s)"
+        elif "diff" in title_prefix.lower():
+            label = "Velocity Difference (km/s)"
+        else:
+            label = "Velocity (km/s)"
+        cbar.set_label(label, fontsize=config["font_size"]["colorbar"])
 
     # Labels and title
     ax.set_xlabel("X (km)", fontsize=config["font_size"]["labels"])
@@ -177,10 +181,14 @@ def plot_xz_slice(
     # Colorbar
     if config["show_colorbar"]:
         cbar = plt.colorbar(im, ax=ax)
-        cbar.set_label(
-            "Velocity (km/s)" if "diff" not in title_prefix.lower() else "Velocity Difference (km/s)",
-            fontsize=config["font_size"]["colorbar"],
-        )
+        # Determine label based on plot type
+        if "pattern" in title_prefix.lower():
+            label = "Velocity Perturbation (km/s)"
+        elif "diff" in title_prefix.lower():
+            label = "Velocity Difference (km/s)"
+        else:
+            label = "Velocity (km/s)"
+        cbar.set_label(label, fontsize=config["font_size"]["colorbar"])
 
     # Labels and title
     ax.set_xlabel("X (km)", fontsize=config["font_size"]["labels"])
@@ -252,10 +260,14 @@ def plot_yz_slice(
     # Colorbar
     if config["show_colorbar"]:
         cbar = plt.colorbar(im, ax=ax)
-        cbar.set_label(
-            "Velocity (km/s)" if "diff" not in title_prefix.lower() else "Velocity Difference (km/s)",
-            fontsize=config["font_size"]["colorbar"],
-        )
+        # Determine label based on plot type
+        if "pattern" in title_prefix.lower():
+            label = "Velocity Perturbation (km/s)"
+        elif "diff" in title_prefix.lower():
+            label = "Velocity Difference (km/s)"
+        else:
+            label = "Velocity (km/s)"
+        cbar.set_label(label, fontsize=config["font_size"]["colorbar"])
 
     # Labels and title
     ax.set_xlabel("Y (km)", fontsize=config["font_size"]["labels"])
@@ -451,6 +463,48 @@ def visualize_checkerboard_test(
         diff_config["symmetric_colorbar"] = config.get("symmetric_colorbar", True)
 
         visualize_model(df_diff, output_dir, diff_config, "difference")
+
+    # Visualize checkerboard pattern only (checkerboard - input)
+    if config.get("visualize_checkerboard_pattern", False) and checkerboard_csv is not None and input_csv is not None:
+        logger.info("Visualizing checkerboard pattern (checkerboard - input)")
+
+        df_checkerboard = pd.read_csv(checkerboard_csv)
+        df_input = pd.read_csv(input_csv)
+
+        # Calculate pattern
+        df_pattern = df_checkerboard.copy()
+        velocity_field = config["velocity_field"]
+        df_pattern[velocity_field] = df_checkerboard[velocity_field] - df_input[velocity_field]
+
+        # Use pattern-specific color settings
+        pattern_config = config.copy()
+        pattern_config["vmin"] = config.get("pattern_vmin", -0.5)  # km/s
+        pattern_config["vmax"] = config.get("pattern_vmax", 0.5)  # km/s
+        pattern_config["colormap"] = config.get("pattern_colormap", "seismic")
+        pattern_config["symmetric_colorbar"] = config.get("pattern_symmetric_colorbar", True)
+
+        visualize_model(df_pattern, output_dir, pattern_config, "checkerboard_pattern")
+
+    # Visualize inverted pattern only (inverted - input)
+    if config.get("visualize_inverted_pattern", False) and inverted_csv is not None and input_csv is not None:
+        logger.info("Visualizing inverted pattern (inverted - input)")
+
+        df_inverted = pd.read_csv(inverted_csv)
+        df_input = pd.read_csv(input_csv)
+
+        # Calculate pattern
+        df_pattern = df_inverted.copy()
+        velocity_field = config["velocity_field"]
+        df_pattern[velocity_field] = df_inverted[velocity_field] - df_input[velocity_field]
+
+        # Use pattern-specific color settings
+        pattern_config = config.copy()
+        pattern_config["vmin"] = config.get("pattern_vmin", -0.5)  # km/s
+        pattern_config["vmax"] = config.get("pattern_vmax", 0.5)  # km/s
+        pattern_config["colormap"] = config.get("pattern_colormap", "seismic")
+        pattern_config["symmetric_colorbar"] = config.get("pattern_symmetric_colorbar", True)
+
+        visualize_model(df_pattern, output_dir, pattern_config, "inverted_pattern")
 
     logger.info("All visualizations completed successfully!")
 
