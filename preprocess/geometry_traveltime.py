@@ -2,7 +2,6 @@
 
 This module provides functions for creating geometry files and travel time
 binary files from Cartesian coordinates (after coordinate transformation).
-Output format matches preprocess_huang for compatibility.
 """
 
 import logging
@@ -387,7 +386,7 @@ def write_source_binary_files(events: Dict, config: DictConfig, origin_time_conf
 
 def write_output_files(events: Dict, config: DictConfig, origin_time_config: DictConfig) -> None:
     """
-    Writes geometry files and travel time binary files in preprocess_huang format.
+    Writes geometry files and travel time binary files.
     Geometry files are text files, binary files are raw floats.
     """
     logger = logging.getLogger(__name__)
@@ -417,7 +416,7 @@ def write_output_files(events: Dict, config: DictConfig, origin_time_config: Dic
 
             ex, ey, ez = data['coords']
 
-            # Write Geometry File (text format like preprocess_huang)
+            # Write Geometry File
             origin_time = data.get('origin_time_s', 0.0)
             origin_time_precision = geom_config.get('origin_time_precision', 'single')
             if origin_time_precision == 'double':
@@ -472,7 +471,7 @@ def write_output_files(events: Dict, config: DictConfig, origin_time_config: Dic
 def write_travel_time_csv(events: Dict, config: DictConfig) -> None:
     """
     Write comprehensive travel time data to CSV file with all metadata.
-    Creates ground_truth_traveltimes.csv matching preprocess_huang format.
+    Creates ground_truth_traveltimes.csv.
     """
     logger = logging.getLogger(__name__)
     geom_config = config.geometry_traveltime
@@ -564,8 +563,7 @@ def write_travel_time_csv(events: Dict, config: DictConfig) -> None:
     # Convert to DataFrame and save
     if csv_data:
         df = pd.DataFrame(csv_data)
-
-        # Use same filename as preprocess_huang
+        
         csv_filename = "ground_truth_traveltimes.csv"
         csv_path = Path(geom_config.csv_output_dir) / csv_filename
         df.to_csv(csv_path, index=False)
@@ -607,8 +605,6 @@ def create_geometry_and_traveltime_files(config: DictConfig,
                                         stations_df: pd.DataFrame,
                                         picks_df: pd.DataFrame) -> None:
     """Create geometry and travel time files from Cartesian coordinates.
-
-    Output format matches preprocess_huang for compatibility.
 
     Args:
         config: Full configuration.

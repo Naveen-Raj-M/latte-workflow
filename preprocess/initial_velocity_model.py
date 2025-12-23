@@ -474,9 +474,9 @@ def _generate_binary_files(config: DictConfig, grid_df: pd.DataFrame,
     for phase, output_path in phases_to_process:
         logger.info(f"Processing {phase.upper()}-wave velocity...")
 
-        # Create 3D grid array
+        # Create 3D grid array in C-order (row-major)
         vel_col = 'vp' if phase == 'p' else 'vs'
-        grid_3d = np.zeros((nx, ny, nz), dtype=np.float32)
+        grid_3d = np.zeros((nx, ny, nz), dtype=np.float32, order='C')
 
         # Fill grid (using 1-based indices)
         for _, row in grid_df.iterrows():
@@ -569,11 +569,11 @@ def _interpolate_internal_gaps(model: np.ndarray,
 def _write_velocity_binary(filepath: Path, grid: np.ndarray) -> None:
     """Write velocity grid to binary file.
 
-    Format: Fortran-style binary with dimensions header.
+    Format: Raw binary (no header), C-order (row-major).
 
     Args:
         filepath: Output file path.
-        grid: 3D velocity array (nx, ny, nz).
+        grid: 3D velocity array (nx, ny, nz) in C-order.
     """
     logger = logging.getLogger(__name__)
 
@@ -581,14 +581,14 @@ def _write_velocity_binary(filepath: Path, grid: np.ndarray) -> None:
 
     nx, ny, nz = grid.shape
 
-    with open(filepath, 'wb') as f:
-        # Write dimensions
-        f.write(np.array([nx, ny, nz], dtype=np.int32).tobytes())
+    # Write directly to file in C-order (no header, no conversion)
+    grid.astype(np.float32).tofile(str(filepath))
 
-        # Write grid data in Fortran order (column-major)
-        grid_fortran = np.asfortranarray(grid.astype(np.float32))
-        f.write(grid_fortran.tobytes())
+    # Verify the written file
+    grid_check = np.fromfile(str(filepath), dtype=np.float32).reshape((nx, ny, nz), order='C')
 
     logger.info(f"Written binary file: {filepath}")
+    logger.info(f"  File size: {filepath.stat().st_size} bytes")
     logger.info(f"  Shape: {grid.shape}")
-    logger.info(f"  Value range: {grid.min():.3f} - {grid.max():.3f} km/s")
+    logger.info(f"  Value range: {grid.min():.1f} - {grid.max():.1f} m/s")
+    logger.info(f"  Verification: {np.allclose(grid, grid_check)}")

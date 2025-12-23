@@ -70,7 +70,6 @@ def flattening_transformation(df: pd.DataFrame, origin_lon: float,
     # z: Depth direction (positive down, relative to origin)
     z_km = df_out['depth'] - origin_depth
 
-    # Use column names consistent with preprocess_huang
     df_out['X_grid_km'] = x_km
     df_out['Y_grid_km'] = y_km
     df_out['Z_grid_km'] = z_km
@@ -156,7 +155,6 @@ def compute_domain_bounds(events_df: pd.DataFrame, stations_df: pd.DataFrame,
     # Combine for bounds calculation
     combined = pd.concat([events_cart, stations_cart], ignore_index=True)
 
-    # Use capital case columns (consistent with preprocess_huang)
     x_col = 'X_grid_km' if 'X_grid_km' in combined.columns else 'x'
     y_col = 'Y_grid_km' if 'Y_grid_km' in combined.columns else 'y'
     z_col = 'Z_grid_km' if 'Z_grid_km' in combined.columns else 'z'
