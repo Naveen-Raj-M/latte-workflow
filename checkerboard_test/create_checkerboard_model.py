@@ -214,8 +214,8 @@ def write_velocity_binary(
     Write velocity binary file in LATTE format.
 
     Format:
-    - Header: 3 x int32 (nx, ny, nz)
-    - Data: nx*ny*nz x float32 in Fortran (column-major) order, units: m/s
+    - Raw binary (no header), C-order (row-major)
+    - Data: nx*ny*nz x float32, units: m/s
 
     Args:
         df: DataFrame with velocity data
@@ -231,29 +231,24 @@ def write_velocity_binary(
     # Convert km/s to m/s
     velocity_ms = velocity_kms * 1000.0
 
-    # Reshape to 3D grid
+    # Reshape to 3D grid in C-order (row-major)
     # Assuming data is sorted by z, then y, then x (typical CSV order)
-    # Need to reshape to (nz, ny, nx) and then convert to Fortran order
     try:
-        velocity_3d = velocity_ms.reshape((nz, ny, nx), order='C')
+        velocity_3d = velocity_ms.reshape((nz, ny, nx), order='C').astype(np.float32)
     except ValueError:
         logger.error(f"Cannot reshape velocity array of size {len(velocity_ms)} "
                      f"to ({nz}, {ny}, {nx})")
         raise
 
-    # Convert to Fortran order for LATTE
-    velocity_fortran = np.asfortranarray(velocity_3d.astype(np.float32))
+    # Write binary file directly (no header, C-order)
+    velocity_3d.tofile(output_path)
 
-    # Write binary file
-    with open(output_path, 'wb') as f:
-        # Write header: nx, ny, nz as int32
-        f.write(np.array([nx, ny, nz], dtype=np.int32).tobytes())
-
-        # Write data
-        f.write(velocity_fortran.tobytes())
+    # Verify the written file
+    velocity_check = np.fromfile(output_path, dtype=np.float32).reshape((nz, ny, nx), order='C')
 
     logger.info(f"  Binary file written: {output_path.stat().st_size} bytes")
     logger.info(f"  Velocity range: {velocity_ms.min():.1f} - {velocity_ms.max():.1f} m/s")
+    logger.info(f"  Verification: {np.allclose(velocity_3d, velocity_check)}")
 
 
 def create_checkerboard_model(
