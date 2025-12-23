@@ -301,10 +301,7 @@ def visualize_model(
 
     # Prepare 3D grid
     velocity_field = config["velocity_field"]
-    x_coords, y_coords, z_coords, velocity_3d = prepare_3d_grid(df, velocity_field)
-
-    # Convert velocities from m/s to km/s for plotting
-    velocity_3d_kms = velocity_3d / 1000.0
+    x_coords, y_coords, z_coords, velocity_3d_kms = prepare_3d_grid(df, velocity_field)
 
     nx, ny, nz = len(x_coords), len(y_coords), len(z_coords)
 
@@ -449,8 +446,8 @@ def visualize_checkerboard_test(
 
         # Use difference-specific color settings
         diff_config = config.copy()
-        diff_config["vmin"] = config.get("diff_vmin", -0.5 * 1000)  # Convert to m/s
-        diff_config["vmax"] = config.get("diff_vmax", 0.5 * 1000)
+        diff_config["vmin"] = config.get("diff_vmin", -0.5)  # km/s
+        diff_config["vmax"] = config.get("diff_vmax", 0.5)  # km/s
         diff_config["symmetric_colorbar"] = config.get("symmetric_colorbar", True)
 
         visualize_model(df_diff, output_dir, diff_config, "difference")

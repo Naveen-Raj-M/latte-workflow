@@ -145,7 +145,7 @@ def apply_checkerboard_perturbation(
 
     # Apply to vp
     if config.get("apply_to_vp", True):
-        vp_original = df["vp"].values
+        vp_original = df["vp"].values * 1000 # Convert to m/s
         vp_perturbed = vp_original * perturbation_factor
 
         # Clip to valid range
@@ -153,7 +153,7 @@ def apply_checkerboard_perturbation(
         vp_max = config.get("vp_max", 10000.0)
         vp_perturbed = np.clip(vp_perturbed, vp_min, vp_max)
 
-        df["vp"] = vp_perturbed
+        df["vp"] = vp_perturbed / 1000.0 # Store back in km/s
 
         logger.info(f"  Vp: {vp_perturbed.min():.1f} - {vp_perturbed.max():.1f} m/s")
         logger.info(f"  Vp perturbation range: {((vp_perturbed / vp_original - 1.0) * 100).min():.2f}% "
@@ -161,7 +161,7 @@ def apply_checkerboard_perturbation(
 
     # Apply to vs
     if config.get("apply_to_vs", True):
-        vs_original = df["vs"].values
+        vs_original = df["vs"].values * 1000 # Convert to m/s
         vs_perturbed = vs_original * perturbation_factor
 
         # Clip to valid range
@@ -169,7 +169,7 @@ def apply_checkerboard_perturbation(
         vs_max = config.get("vs_max", 6000.0)
         vs_perturbed = np.clip(vs_perturbed, vs_min, vs_max)
 
-        df["vs"] = vs_perturbed
+        df["vs"] = vs_perturbed / 1000.0 # Store back in km/s
 
         logger.info(f"  Vs: {vs_perturbed.min():.1f} - {vs_perturbed.max():.1f} m/s")
         logger.info(f"  Vs perturbation range: {((vs_perturbed / vs_original - 1.0) * 100).min():.2f}% "
@@ -215,7 +215,7 @@ def write_velocity_binary(
 
     Format:
     - Header: 3 x int32 (nx, ny, nz)
-    - Data: nx*ny*nz x float32 in Fortran (column-major) order, units: km/s
+    - Data: nx*ny*nz x float32 in Fortran (column-major) order, units: m/s
 
     Args:
         df: DataFrame with velocity data
@@ -225,19 +225,19 @@ def write_velocity_binary(
     """
     logger.info(f"Writing {velocity_field} binary: {output_path}")
 
-    # Get velocity values (m/s from CSV)
-    velocity_ms = df[velocity_field].values
+    # Get velocity values (km/s from CSV)
+    velocity_kms = df[velocity_field].values
 
-    # Convert m/s to km/s
-    velocity_kms = velocity_ms / 1000.0
+    # Convert km/s to m/s
+    velocity_ms = velocity_kms * 1000.0
 
     # Reshape to 3D grid
     # Assuming data is sorted by z, then y, then x (typical CSV order)
     # Need to reshape to (nz, ny, nx) and then convert to Fortran order
     try:
-        velocity_3d = velocity_kms.reshape((nz, ny, nx), order='C')
+        velocity_3d = velocity_ms.reshape((nz, ny, nx), order='C')
     except ValueError:
-        logger.error(f"Cannot reshape velocity array of size {len(velocity_kms)} "
+        logger.error(f"Cannot reshape velocity array of size {len(velocity_ms)} "
                      f"to ({nz}, {ny}, {nx})")
         raise
 
@@ -253,7 +253,7 @@ def write_velocity_binary(
         f.write(velocity_fortran.tobytes())
 
     logger.info(f"  Binary file written: {output_path.stat().st_size} bytes")
-    logger.info(f"  Velocity range: {velocity_kms.min():.3f} - {velocity_kms.max():.3f} km/s")
+    logger.info(f"  Velocity range: {velocity_ms.min():.1f} - {velocity_ms.max():.1f} m/s")
 
 
 def create_checkerboard_model(

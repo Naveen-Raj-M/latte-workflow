@@ -214,7 +214,7 @@ def expand_to_fine_grid(
         "X_grid_km": x_flat,
         "Y_grid_km": y_flat,
         "Z_grid_km": z_flat,
-        field_name: velocity_flat * 1000.0,  # Convert back to m/s for CSV
+        field_name: velocity_flat,  # Keep in km/s for CSV
     })
 
     # Add grid indices (1-based, Fortran convention)
@@ -286,9 +286,9 @@ def convert_inverted_model(
         vp_sampled = sample_at_coarse_points(vp_3d, df, grid_config)
         vs_sampled = sample_at_coarse_points(vs_3d, df, grid_config)
 
-        # Update DataFrame (convert back to m/s for CSV)
-        df["vp"] = vp_sampled * 1000.0 if convert_to_kms else vp_sampled
-        df["vs"] = vs_sampled * 1000.0 if convert_to_kms else vs_sampled
+        # Update DataFrame (keep in km/s for CSV)
+        df["vp"] = vp_sampled if convert_to_kms else vp_sampled * 1000.0
+        df["vs"] = vs_sampled if convert_to_kms else vs_sampled * 1000.0
 
     elif processing_mode == "expand":
         # Expand to full fine grid
@@ -309,8 +309,8 @@ def convert_inverted_model(
 
     # Log statistics
     logger.info("\nInverted model statistics:")
-    logger.info(f"  Vp: {df['vp'].min():.1f} - {df['vp'].max():.1f} m/s")
-    logger.info(f"  Vs: {df['vs'].min():.1f} - {df['vs'].max():.1f} m/s")
+    logger.info(f"  Vp: {df['vp'].min():.3f} - {df['vp'].max():.3f} km/s")
+    logger.info(f"  Vs: {df['vs'].min():.3f} - {df['vs'].max():.3f} km/s")
     logger.info(f"  Total grid points: {len(df)}")
 
     logger.info("Model conversion completed successfully!")
