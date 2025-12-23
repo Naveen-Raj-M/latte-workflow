@@ -1,0 +1,199 @@
+# Checkerboard Test Configuration for LATTE Tomographic Inversion
+# This module creates synthetic checkerboard tests to assess resolution
+
+# General settings
+general:
+  # Output directory for all checkerboard test results
+  output_dir: "/path/to/output/checkerboard_test"
+
+  # Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+  log_level: "INFO"
+
+  # Random seed for reproducibility (set to null for random)
+  random_seed: 42
+
+# Input files
+input:
+  # Input velocity model CSV from preprocess module
+  # Should contain: X_grid_km, Y_grid_km, Z_grid_km, vp, vs
+  velocity_model_csv: "/path/to/preprocess/output/velocity_model_cartesian.csv"
+
+  # Directory containing original geometry files (to be reused)
+  geometry_dir: "/path/to/preprocess/output/geometry"
+
+  # Directory containing synthetic traveltime binary files from LATTE
+  # Files should be named: shot_{shot_id}_traveltime_{phase}.bin
+  synthetic_traveltime_dir: "/path/to/latte/output/synthetic_traveltimes"
+
+  # Ground truth traveltime CSV (for matching metadata)
+  ground_truth_csv: "/path/to/preprocess/output/geometry_csv/ground_truth_traveltimes.csv"
+
+  # Directory containing inverted velocity binary files from LATTE
+  # Files should be: updated_vp.bin, updated_vs.bin
+  inverted_model_dir: "/path/to/latte/output/model"
+
+# Checkerboard pattern configuration
+checkerboard:
+  # Enable checkerboard creation
+  enabled: true
+
+  # Perturbation type: "sinusoidal" or "block"
+  pattern_type: "sinusoidal"
+
+  # Amplitude of velocity perturbation (fraction, e.g., 0.05 = ±5%)
+  amplitude: 0.05
+
+  # Wavelengths (cell sizes) in each direction (km)
+  wavelength_x_km: 10.0
+  wavelength_y_km: 10.0
+  wavelength_z_km: 5.0
+
+  # Phase shifts (0 to 2π) - use to offset the pattern
+  phase_shift_x: 0.0
+  phase_shift_y: 0.0
+  phase_shift_z: 0.0
+
+  # Apply to which velocity fields
+  apply_to_vp: true
+  apply_to_vs: true
+
+  # Velocity bounds (m/s) - perturbed values clipped to these ranges
+  vp_min: 500.0
+  vp_max: 10000.0
+  vs_min: 500.0
+  vs_max: 6000.0
+
+# Travel time noise configuration
+traveltime_noise:
+  # Enable adding noise to synthetic traveltimes
+  enabled: true
+
+  # Noise distribution: "gaussian" or "uniform"
+  noise_type: "gaussian"
+
+  # For Gaussian noise
+  gaussian:
+    mean: 0.0        # Mean of noise (seconds)
+    std: 0.01        # Standard deviation (seconds)
+
+  # For uniform noise
+  uniform:
+    low: -0.02       # Lower bound (seconds)
+    high: 0.02       # Upper bound (seconds)
+
+  # Phase-specific noise (optional overrides)
+  # Set to null to use default values above
+  p_wave:
+    mean: 0.0
+    std: 0.01
+
+  s_wave:
+    mean: 0.0
+    std: 0.02        # Typically larger for S-waves
+
+  # Output precision for binary files
+  output_precision: "single"  # "single" (float32) or "double" (float64)
+
+# Model conversion configuration
+model_conversion:
+  # Enable conversion of inverted model to CSV
+  enabled: true
+
+  # Grid dimensions (must match LATTE configuration)
+  grid:
+    nx: 401
+    ny: 361
+    nz: 43
+    dx: 0.5  # km
+    dy: 0.5  # km
+    dz: 0.5  # km
+    origin_x: 0.0  # km
+    origin_y: 0.0  # km
+    origin_z: 0.0  # km
+
+  # Input binary precision
+  binary_precision: "single"  # "single" (float32) or "double" (float64)
+
+  # Convert velocity units from m/s to km/s
+  convert_to_kms: true
+
+  # Apply Chapman inverse transform (if spherical coordinates were used)
+  apply_chapman_inverse: false
+  earth_radius_km: 6371.0
+
+  # Processing mode: "sample" or "expand"
+  # "sample": Sample at coarse CSV grid points
+  # "expand": Create full fine grid CSV
+  processing_mode: "sample"
+
+  # Additional fields to process (optional)
+  # Files should be named: grad_vp.bin, grad_vs.bin, etc.
+  additional_fields:
+    - "grad_vp"
+    - "grad_vs"
+
+# Visualization configuration
+visualization:
+  # Enable visualization
+  enabled: true
+
+  # Which models to visualize
+  visualize_input: true          # Original velocity model
+  visualize_checkerboard: true   # Checkerboard perturbed model
+  visualize_inverted: true       # Inverted model from LATTE
+  visualize_difference: true     # Difference (inverted - checkerboard)
+
+  # Slice planes to plot
+  planes:
+    - "xy"  # Depth slices
+    - "xz"  # North-South vertical slices
+    - "yz"  # East-West vertical slices
+
+  # Which velocity field to visualize
+  velocity_field: "vp"  # "vp" or "vs"
+
+  # Slice indices for each plane (null = plot all slices)
+  # For selective plotting, provide list of indices
+  xy_slices: null      # e.g., [0, 10, 20, 30, 40] for specific depths
+  xz_slices: null      # e.g., [180] for middle north-south slice
+  yz_slices: null      # e.g., [200] for middle east-west slice
+
+  # Slice spacing (if plotting all, plot every Nth slice)
+  slice_spacing:
+    xy: 5   # Plot every 5th depth slice
+    xz: 20  # Plot every 20th Y slice
+    yz: 20  # Plot every 20th X slice
+
+  # Color scale settings
+  colormap: "seismic"  # Matplotlib colormap
+
+  # For input/checkerboard/inverted models
+  vmin: null  # Auto-scale if null
+  vmax: null  # Auto-scale if null
+
+  # For difference plots
+  diff_vmin: -0.5  # km/s
+  diff_vmax: 0.5   # km/s
+  symmetric_colorbar: true  # Force symmetric colorbar for differences
+
+  # Figure settings
+  figure:
+    dpi: 150
+    figsize: [10, 8]
+    format: "png"  # "png", "pdf", or "svg"
+
+  # Annotation settings
+  show_colorbar: true
+  show_grid: true
+  show_title: true
+  font_size:
+    title: 14
+    labels: 12
+    colorbar: 10
+
+# Workflow control - which steps to execute
+workflow:
+  step1_create_checkerboard: true
+  step2_add_noise: true
+  step3_convert_inverted: true
+  step4_visualize: true
