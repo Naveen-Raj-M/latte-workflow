@@ -547,13 +547,13 @@ def write_travel_time_csv(events: Dict, config: DictConfig) -> None:
                     'station_latitude': station_lat,
                     'station_depth_km': station_depth_km,
 
-                    # Transformed coordinates (cartesian) - convert back to km
-                    'event_x_transformed': ex_transformed / 1000,
-                    'event_y_transformed': ey_transformed / 1000,
-                    'event_z_transformed': ez_transformed / 1000,
-                    'station_x_transformed': sx_transformed / 1000,
-                    'station_y_transformed': sy_transformed / 1000,
-                    'station_z_transformed': sz_transformed / 1000,
+                    # Transformed coordinates (cartesian)
+                    'event_x_transformed': ex_transformed,
+                    'event_y_transformed': ey_transformed,
+                    'event_z_transformed': ez_transformed,
+                    'station_x_transformed': sx_transformed,
+                    'station_y_transformed': sy_transformed,
+                    'station_z_transformed': sz_transformed,
 
                     # Derived quantities
                     'distance_m': distance_m,
