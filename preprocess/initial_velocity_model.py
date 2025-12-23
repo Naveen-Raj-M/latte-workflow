@@ -120,8 +120,8 @@ def get_velocity_for_depth(target_depth: float,
         raise ValueError("The 1D model data is empty.")
 
     depths = model_df['depth'].values
-    vp_values = model_df['vp'].values * 1000 # convert to m/s
-    vs_values = model_df['vs'].values * 1000 # convert to m/s
+    vp_values = model_df['vp'].values
+    vs_values = model_df['vs'].values
 
     # For depths above MSL (negative), clamp to MSL (depth=0) and use shallowest layer
     if target_depth <= 0:
@@ -484,7 +484,7 @@ def _generate_binary_files(config: DictConfig, grid_df: pd.DataFrame,
             j = int(row['j']) - 1
             k = int(row['k']) - 1
             if 0 <= i < nx and 0 <= j < ny and 0 <= k < nz:
-                grid_3d[i, j, k] = row[vel_col]
+                grid_3d[i, j, k] = row[vel_col] * 1000  # Convert to m/s
 
         # Interpolate if requested
         if vel_config.get('interpolate', False):
