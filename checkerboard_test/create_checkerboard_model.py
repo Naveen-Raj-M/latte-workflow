@@ -216,38 +216,56 @@ def write_velocity_binary(
     Format:
     - Raw binary (no header), C-order (row-major)
     - Data: nx*ny*nz x float32, units: m/s
+    - Dimension order: (nx, ny, nz)
 
     Args:
-        df: DataFrame with velocity data
+        df: DataFrame with velocity data and X_grid_km, Y_grid_km, Z_grid_km columns
         output_path: Output binary file path
         velocity_field: "vp" or "vs"
         nx, ny, nz: Grid dimensions
     """
     logger.info(f"Writing {velocity_field} binary: {output_path}")
 
-    # Get velocity values (km/s from CSV)
-    velocity_kms = df[velocity_field].values
+    # Create 3D grid array with dimension order (nx, ny, nz) to match preprocess modules
+    velocity_3d = np.zeros((nx, ny, nz), dtype=np.float32, order='C')
 
-    # Convert km/s to m/s
-    velocity_ms = velocity_kms * 1000.0
+    # Compute grid parameters from data
+    x_min = df["X_grid_km"].min()
+    y_min = df["Y_grid_km"].min()
+    z_min = df["Z_grid_km"].min()
 
-    # Reshape to 3D grid in C-order (row-major)
-    # Assuming data is sorted by z, then y, then x (typical CSV order)
-    try:
-        velocity_3d = velocity_ms.reshape((nz, ny, nx), order='C').astype(np.float32)
-    except ValueError:
-        logger.error(f"Cannot reshape velocity array of size {len(velocity_ms)} "
-                     f"to ({nz}, {ny}, {nx})")
-        raise
+    # Infer grid spacing from sorted unique values
+    x_unique = np.sort(df["X_grid_km"].unique())
+    y_unique = np.sort(df["Y_grid_km"].unique())
+    z_unique = np.sort(df["Z_grid_km"].unique())
+
+    dx = x_unique[1] - x_unique[0] if len(x_unique) > 1 else 1.0
+    dy = y_unique[1] - y_unique[0] if len(y_unique) > 1 else 1.0
+    dz = z_unique[1] - z_unique[0] if len(z_unique) > 1 else 1.0
+
+    # Fill grid using i, j, k indices computed from coordinates
+    points_processed = 0
+    for _, row in df.iterrows():
+        # Compute 1-based indices, then convert to 0-based
+        i = int(np.round((row["X_grid_km"] - x_min) / dx))
+        j = int(np.round((row["Y_grid_km"] - y_min) / dy))
+        k = int(np.round((row["Z_grid_km"] - z_min) / dz))
+
+        if 0 <= i < nx and 0 <= j < ny and 0 <= k < nz:
+            # Convert km/s to m/s
+            velocity_3d[i, j, k] = row[velocity_field] * 1000.0
+            points_processed += 1
+
+    logger.info(f"  Processed {points_processed} grid points")
 
     # Write binary file directly (no header, C-order)
     velocity_3d.tofile(output_path)
 
     # Verify the written file
-    velocity_check = np.fromfile(output_path, dtype=np.float32).reshape((nz, ny, nx), order='C')
+    velocity_check = np.fromfile(output_path, dtype=np.float32).reshape((nx, ny, nz), order='C')
 
     logger.info(f"  Binary file written: {output_path.stat().st_size} bytes")
-    logger.info(f"  Velocity range: {velocity_ms.min():.1f} - {velocity_ms.max():.1f} m/s")
+    logger.info(f"  Velocity range: {velocity_3d[velocity_3d > 0].min():.1f} - {velocity_3d.max():.1f} m/s")
     logger.info(f"  Verification: {np.allclose(velocity_3d, velocity_check)}")
 
 
