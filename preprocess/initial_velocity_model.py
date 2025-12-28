@@ -474,9 +474,9 @@ def _generate_binary_files(config: DictConfig, grid_df: pd.DataFrame,
     for phase, output_path in phases_to_process:
         logger.info(f"Processing {phase.upper()}-wave velocity...")
 
-        # Create 3D grid array in C-order (row-major)
+        # Create 3D grid array in Fortran-order to match LATTE
         vel_col = 'vp' if phase == 'p' else 'vs'
-        grid_3d = np.zeros((nx, ny, nz), dtype=np.float32, order='C')
+        grid_3d = np.zeros((nz, ny, nx), dtype=np.float32, order='F')
 
         # Fill grid (using 1-based indices)
         for _, row in grid_df.iterrows():
@@ -484,7 +484,7 @@ def _generate_binary_files(config: DictConfig, grid_df: pd.DataFrame,
             j = int(row['j']) - 1
             k = int(row['k']) - 1
             if 0 <= i < nx and 0 <= j < ny and 0 <= k < nz:
-                grid_3d[i, j, k] = row[vel_col] * 1000  # Convert to m/s
+                grid_3d[k, j, i] = row[vel_col] * 1000  # Convert to m/s, index as [depth, y, x]
 
         # Interpolate if requested
         if vel_config.get('interpolate', False):
@@ -569,23 +569,23 @@ def _interpolate_internal_gaps(model: np.ndarray,
 def _write_velocity_binary(filepath: Path, grid: np.ndarray) -> None:
     """Write velocity grid to binary file.
 
-    Format: Raw binary (no header), C-order (row-major).
+    Format: Raw binary (no header), Fortran-order (column-major).
 
     Args:
         filepath: Output file path.
-        grid: 3D velocity array (nx, ny, nz) in C-order.
+        grid: 3D velocity array (nz, ny, nx) in Fortran-order.
     """
     logger = logging.getLogger(__name__)
 
     ensure_directory_exists(filepath.parent)
 
-    nx, ny, nz = grid.shape
+    nz, ny, nx = grid.shape
 
-    # Write directly to file in C-order (no header, no conversion)
-    grid.astype(np.float32).tofile(str(filepath))
+    # Write in Fortran-order to match LATTE's column-major format
+    grid.astype(np.float32).flatten('F').tofile(str(filepath))
 
     # Verify the written file
-    grid_check = np.fromfile(str(filepath), dtype=np.float32).reshape((nx, ny, nz), order='C')
+    grid_check = np.fromfile(str(filepath), dtype=np.float32).reshape((nz, ny, nx), order='F')
 
     logger.info(f"Written binary file: {filepath}")
     logger.info(f"  File size: {filepath.stat().st_size} bytes")

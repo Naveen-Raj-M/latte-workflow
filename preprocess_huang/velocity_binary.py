@@ -125,16 +125,16 @@ def populate_grid_and_write_bins(df: pd.DataFrame, config: DictConfig, nx: int, 
     phase_type = config.get('phase_type', 'both').lower()
     print(f"Phase type: {phase_type}")
 
-    # Initialize models with auto-detected dimensions using C-order (row-major)
-    # NOTE: Using C-order to match actual binary file format
+    # Initialize models with shape (nz, ny, nx) in Fortran-order to match LATTE
+    # Using natural shape that matches Fortran's real :: vp(nz, ny, nx)
     # Only initialize the models we need based on phase_type
     vp_model = None
     vs_model = None
 
     if phase_type in ['both', 'p']:
-        vp_model = np.zeros((nx, ny, nz), dtype=np.float32, order='C')
+        vp_model = np.zeros((nz, ny, nx), dtype=np.float32, order='F')
     if phase_type in ['both', 's']:
-        vs_model = np.zeros((nx, ny, nz), dtype=np.float32, order='C')
+        vs_model = np.zeros((nz, ny, nx), dtype=np.float32, order='F')
 
     points_processed = 0
     points_outside_grid = 0
@@ -145,9 +145,9 @@ def populate_grid_and_write_bins(df: pd.DataFrame, config: DictConfig, nx: int, 
         k = int(row["k"]) - 1
         if 0 <= i < nx and 0 <= j < ny and 0 <= k < nz:
             if vp_model is not None:
-                vp_model[i, j, k] = row['vp'] * 1000  # Convert km/s to m/s
+                vp_model[k, j, i] = row['vp'] * 1000  # Convert km/s to m/s, index as [depth, y, x]
             if vs_model is not None:
-                vs_model[i, j, k] = row['vs'] * 1000  # Convert km/s to m/s
+                vs_model[k, j, i] = row['vs'] * 1000  # Convert km/s to m/s, index as [depth, y, x]
             points_processed += 1
         else:
             points_outside_grid += 1
@@ -179,24 +179,24 @@ def populate_grid_and_write_bins(df: pd.DataFrame, config: DictConfig, nx: int, 
         # Write Vp model if processing P-waves
         if phase_type in ['both', 'p'] and vp_model_filled is not None:
             print(f"\nWriting Vp model to '{config.vp_output}'...")
-            vp_model_filled.astype(np.float32).tofile(config.vp_output)
+            vp_model_filled.astype(np.float32).flatten('F').tofile(config.vp_output)
             print("Vp model written successfully.")
             print(f"  File size: {os.path.getsize(config.vp_output)} bytes")
 
             # Verify the file
-            vp_check = np.fromfile(config.vp_output, dtype=np.float32).reshape((nx, ny, nz), order='C')
+            vp_check = np.fromfile(config.vp_output, dtype=np.float32).reshape((nz, ny, nx), order='F')
             print(f"  Vp range: {vp_check.min():.1f} - {vp_check.max():.1f} m/s")
             print(f"  Verification: {np.allclose(vp_model_filled, vp_check)}")
 
         # Write Vs model if processing S-waves
         if phase_type in ['both', 's'] and vs_model_filled is not None:
             print(f"\nWriting Vs model to '{config.vs_output}'...")
-            vs_model_filled.astype(np.float32).tofile(config.vs_output)
+            vs_model_filled.astype(np.float32).flatten('F').tofile(config.vs_output)
             print("Vs model written successfully.")
             print(f"  File size: {os.path.getsize(config.vs_output)} bytes")
 
             # Verify the file
-            vs_check = np.fromfile(config.vs_output, dtype=np.float32).reshape((nx, ny, nz), order='C')
+            vs_check = np.fromfile(config.vs_output, dtype=np.float32).reshape((nz, ny, nx), order='F')
             print(f"  Vs range: {vs_check.min():.1f} - {vs_check.max():.1f} m/s")
             print(f"  Verification: {np.allclose(vs_model_filled, vs_check)}")
 

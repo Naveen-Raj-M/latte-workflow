@@ -211,12 +211,12 @@ def write_velocity_binary(
     nz: int,
 ) -> None:
     """
-    Write velocity binary file in LATTE format.
+    Write velocity binary file in LATTE-compatible Fortran format.
 
     Format:
-    - Raw binary (no header), C-order (row-major)
-    - Data: nx*ny*nz x float32, units: m/s
-    - Dimension order: (nx, ny, nz)
+    - Raw binary (no header), Fortran-order (column-major)
+    - Data: nz*ny*nx x float32, units: m/s
+    - Dimension order: (nz, ny, nx)
 
     Args:
         df: DataFrame with velocity data and X_grid_km, Y_grid_km, Z_grid_km columns
@@ -226,8 +226,8 @@ def write_velocity_binary(
     """
     logger.info(f"Writing {velocity_field} binary: {output_path}")
 
-    # Create 3D grid array with dimension order (nx, ny, nz) to match preprocess modules
-    velocity_3d = np.zeros((nx, ny, nz), dtype=np.float32, order='C')
+    # Create 3D grid array with natural LATTE shape (nz, ny, nx) in Fortran-order
+    velocity_3d = np.zeros((nz, ny, nx), dtype=np.float32, order='F')
 
     # Compute grid parameters from data
     x_min = df["X_grid_km"].min()
@@ -253,16 +253,16 @@ def write_velocity_binary(
 
         if 0 <= i < nx and 0 <= j < ny and 0 <= k < nz:
             # Convert km/s to m/s
-            velocity_3d[i, j, k] = row[velocity_field] * 1000.0
+            velocity_3d[k, j, i] = row[velocity_field] * 1000.0  # Index as [depth, y, x]
             points_processed += 1
 
     logger.info(f"  Processed {points_processed} grid points")
 
-    # Write binary file directly (no header, C-order)
-    velocity_3d.tofile(output_path)
+    # Write binary file in Fortran-order (no header)
+    velocity_3d.flatten('F').tofile(output_path)
 
     # Verify the written file
-    velocity_check = np.fromfile(output_path, dtype=np.float32).reshape((nx, ny, nz), order='C')
+    velocity_check = np.fromfile(output_path, dtype=np.float32).reshape((nz, ny, nx), order='F')
 
     logger.info(f"  Binary file written: {output_path.stat().st_size} bytes")
     logger.info(f"  Velocity range: {velocity_3d[velocity_3d > 0].min():.1f} - {velocity_3d.max():.1f} m/s")
