@@ -44,7 +44,9 @@ velocity_processing:
     show_progress: true
     use_coarse_dataset: false  # If true, read from coarse dataset for faster processing
     # Coarse grid subsampling for output
-    create_coarse_dataset: false
+    create_coarse_dataset: false  # Create coarse dataset INSIDE HDF5 file
+    write_coarse_csv: false  # Write SEPARATE CSV file with coarse data
+    output_coarse_csv: "${data.analysis_output_dir}/velocity_cartesian_latte_output_coarse.csv"
     coarse_grid:
       dx: 2.0
       dy: 2.0

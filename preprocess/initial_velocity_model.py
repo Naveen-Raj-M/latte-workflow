@@ -465,6 +465,45 @@ def create_velocity_model(config: DictConfig,
                 f"(compression ratio: {compression_ratio:.1f}x)"
             )
 
+    # Write separate coarse CSV if requested
+    if hdf5_opts.get('write_coarse_csv', False) and coarse_config:
+        from utils.velocity_io import subsample_to_coarse_grid
+
+        output_coarse_csv = Path(hdf5_opts.get('output_coarse_csv',
+                                               vel_config.output_csv.replace('.csv', '_coarse.csv')))
+        ensure_directory_exists(output_coarse_csv.parent)
+
+        logger.info(f"Creating coarse-sampled CSV: {output_coarse_csv}")
+
+        # Extract fine grid spacing from metadata
+        fine_dx = metadata['grid_spacing']['dx']
+        fine_dy = metadata['grid_spacing']['dy']
+        fine_dz = metadata['grid_spacing']['dz']
+
+        # Generate coarse grid
+        grid_df_coarse = subsample_to_coarse_grid(
+            grid_df,
+            dx_coarse=coarse_config['dx_coarse'],
+            dy_coarse=coarse_config['dy_coarse'],
+            dz_coarse=coarse_config['dz_coarse'],
+            fine_dx=fine_dx,
+            fine_dy=fine_dy,
+            fine_dz=fine_dz,
+            n_jobs=hdf5_opts.get('n_jobs', 1),
+            show_progress=hdf5_opts.get('show_progress', True)
+        )
+
+        # Write coarse CSV
+        write_velocity_file(
+            grid_df_coarse,
+            output_coarse_csv,
+            format='csv',
+            show_progress=hdf5_opts.get('show_progress', True)
+        )
+
+        coarse_size = output_coarse_csv.stat().st_size / (1024**2)
+        logger.info(f"Coarse CSV written: {len(grid_df_coarse):,} points ({coarse_size:.1f}MB)")
+
     # Calculate grid dimensions
     nx = grid_df['i'].max()
     ny = grid_df['j'].max()

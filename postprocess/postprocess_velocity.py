@@ -12,7 +12,7 @@ from omegaconf import DictConfig
 from scipy.interpolate import RegularGridInterpolator
 
 from utils.io_utils import ensure_directory_exists
-from utils.velocity_io import read_velocity_file, write_velocity_file
+from utils.velocity_io import read_velocity_file, write_velocity_file, subsample_to_coarse_grid
 
 
 class GridParameters:
@@ -649,6 +649,40 @@ def create_velocity_csv_from_binaries(config: DictConfig, phase_type: str = "bot
             n_jobs=hdf5_opts.get('n_jobs', 1)
         )
         print(f"HDF5 written: {config.velocity_output_hdf5}")
+
+    # Write separate coarse CSV if requested (for quick visualization)
+    if hdf5_opts.get('write_coarse_csv', False) and coarse_config:
+        print("\nGenerating coarse-sampled CSV for quick visualization...")
+        output_coarse_csv = hdf5_opts.get('output_coarse_csv')
+        if output_coarse_csv is None:
+            print("Warning: write_coarse_csv is True but output_coarse_csv path not specified. Skipping.")
+        else:
+            try:
+                # Subsample to coarse grid
+                df_output_coarse = subsample_to_coarse_grid(
+                    df_output,
+                    dx_coarse=coarse_config['dx_coarse'],
+                    dy_coarse=coarse_config['dy_coarse'],
+                    dz_coarse=coarse_config['dz_coarse'],
+                    fine_dx=fine_grid.dx,
+                    fine_dy=fine_grid.dy,
+                    fine_dz=fine_grid.dz,
+                    n_jobs=hdf5_opts.get('n_jobs', 1),
+                    show_progress=hdf5_opts.get('show_progress', True)
+                )
+
+                # Write coarse CSV
+                ensure_directory_exists(os.path.dirname(output_coarse_csv))
+                write_velocity_file(
+                    df_output_coarse, output_coarse_csv, format='csv',
+                    show_progress=hdf5_opts.get('show_progress', True)
+                )
+                print(f"Coarse CSV written: {output_coarse_csv}")
+                print(f"  Original rows: {len(df_output):,}")
+                print(f"  Coarse rows: {len(df_output_coarse):,}")
+                print(f"  Reduction factor: {len(df_output) / len(df_output_coarse):.1f}x")
+            except Exception as e:
+                print(f"Warning: Failed to generate coarse CSV: {e}")
 
     print(f"\n=== OUTPUT SUMMARY ===")
     print(f"  Rows: {len(df_output):,}")

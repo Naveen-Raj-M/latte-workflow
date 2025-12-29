@@ -42,7 +42,9 @@ coordinate_transform:
   velocity_parallel_processing: true
   velocity_n_jobs: -1  # -1 = all cores
   velocity_show_progress: true
-  create_coarse_velocity: false
+  # Coarse grid options
+  create_coarse_velocity: false  # Create coarse dataset INSIDE HDF5
+  write_coarse_csv: false  # Write SEPARATE CSV file with coarse data
   coarse_velocity_spacing_km: [2.0, 2.0, 2.0]  # [dx, dy, dz] - must be integral multiples
 
 initial_3d_model:

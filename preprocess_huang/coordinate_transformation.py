@@ -747,7 +747,47 @@ def transform_coordinates(full_config: DictConfig) -> None:
                 n_jobs=config.get('velocity_n_jobs', 1)
             )
             print(f"  - velocity_final_cartesian{method_suffix}.h5 (FINAL model)")
-    
+
+    # Write separate coarse CSV files if requested
+    if config.get('write_coarse_csv', False) and coarse_config:
+        from utils.velocity_io import subsample_to_coarse_grid
+
+        print("\nCreating coarse-sampled CSV files:")
+
+        # Extract fine grid spacing
+        fine_dx, fine_dy, fine_dz = config.grid_spacing_km
+
+        # Coarse initial velocity
+        initial_coarse_csv = os.path.join(config.output_dir, f"velocity_initial_cartesian{method_suffix}_coarse.csv")
+        grid_df_coarse = subsample_to_coarse_grid(
+            velocity_processed_df,
+            dx_coarse=coarse_config['dx_coarse'],
+            dy_coarse=coarse_config['dy_coarse'],
+            dz_coarse=coarse_config['dz_coarse'],
+            fine_dx=fine_dx, fine_dy=fine_dy, fine_dz=fine_dz,
+            n_jobs=config.get('velocity_n_jobs', 1),
+            show_progress=config.get('velocity_show_progress', True)
+        )
+        write_velocity_file(grid_df_coarse, initial_coarse_csv, format='csv',
+                           show_progress=config.get('velocity_show_progress', True))
+        print(f"  - velocity_initial_cartesian{method_suffix}_coarse.csv ({len(grid_df_coarse):,} points)")
+
+        # Coarse final velocity if available
+        if config.process_final_velocity and final_velocity_processed_df is not None:
+            final_coarse_csv = os.path.join(config.output_dir, f"velocity_final_cartesian{method_suffix}_coarse.csv")
+            final_grid_df_coarse = subsample_to_coarse_grid(
+                final_velocity_processed_df,
+                dx_coarse=coarse_config['dx_coarse'],
+                dy_coarse=coarse_config['dy_coarse'],
+                dz_coarse=coarse_config['dz_coarse'],
+                fine_dx=fine_dx, fine_dy=fine_dy, fine_dz=fine_dz,
+                n_jobs=config.get('velocity_n_jobs', 1),
+                show_progress=config.get('velocity_show_progress', True)
+            )
+            write_velocity_file(final_grid_df_coarse, final_coarse_csv, format='csv',
+                               show_progress=config.get('velocity_show_progress', True))
+            print(f"  - velocity_final_cartesian{method_suffix}_coarse.csv ({len(final_grid_df_coarse):,} points)")
+
     print(f"\nGrid Dimensions: nx={nx}, ny={ny}, nz={nz}")
     print(f"Grid spacing: dx={config.grid_spacing_km[0]} km, dy={config.grid_spacing_km[1]} km, dz={config.grid_spacing_km[2]} km")
     
