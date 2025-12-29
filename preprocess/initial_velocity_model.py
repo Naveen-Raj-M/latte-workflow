@@ -16,6 +16,7 @@ from scipy.interpolate import griddata
 from scipy.ndimage import convolve
 
 from utils.io_utils import ensure_directory_exists
+from utils.velocity_io import write_velocity_file
 
 
 def load_iasp91_model(filepath: str,
@@ -395,12 +396,74 @@ def create_velocity_model(config: DictConfig,
     grid_df['lat'] = lat_values
     grid_df['depth'] = depth_values
 
-    # Save to CSV
-    output_csv = Path(vel_config.output_csv)
-    ensure_directory_exists(output_csv.parent)
+    # Save velocity model (CSV and/or HDF5)
+    output_format = vel_config.get('output_format', 'csv')
+    logger.info(f"Saving velocity model in format: {output_format}")
 
-    logger.info(f"Saving velocity model CSV: {output_csv}")
-    grid_df.to_csv(output_csv, index=False)
+    # Prepare metadata for HDF5
+    metadata = {
+        'grid_dimensions': {'nx': int(grid_df['i'].max()), 'ny': int(grid_df['j'].max()), 'nz': int(grid_df['k'].max())},
+        'grid_spacing': {'dx': grid_spacing[0], 'dy': grid_spacing[1], 'dz': grid_spacing[2]},
+        'grid_origin': {
+            'x': float(grid_df['X_grid_km'].min()),
+            'y': float(grid_df['Y_grid_km'].min()),
+            'z': float(grid_df['Z_grid_km'].min())
+        },
+        'origin_lon': origin_lon,
+        'origin_lat': origin_lat,
+        'origin_depth_km': origin_depth,
+        'transformation_method': 'iasp91_cartesian',
+        'invert_y_axis': invert_y_axis,
+    }
+
+    # Prepare coarse grid config if enabled
+    coarse_config = None
+    hdf5_opts = vel_config.get('hdf5_options', {})
+    if hdf5_opts.get('create_coarse_dataset', False):
+        coarse_config = {
+            'dx_coarse': hdf5_opts.coarse_grid.dx,
+            'dy_coarse': hdf5_opts.coarse_grid.dy,
+            'dz_coarse': hdf5_opts.coarse_grid.dz,
+        }
+
+    # Write CSV if requested
+    if output_format in ['csv', 'both']:
+        output_csv = Path(vel_config.output_csv)
+        ensure_directory_exists(output_csv.parent)
+        logger.info(f"Saving velocity model CSV: {output_csv}")
+        write_velocity_file(
+            grid_df,
+            output_csv,
+            format='csv',
+            show_progress=hdf5_opts.get('show_progress', True)
+        )
+
+    # Write HDF5 if requested
+    if output_format in ['hdf5', 'both']:
+        output_hdf5 = Path(vel_config.output_hdf5)
+        ensure_directory_exists(output_hdf5.parent)
+        logger.info(f"Saving velocity model HDF5: {output_hdf5}")
+        write_velocity_file(
+            grid_df,
+            output_hdf5,
+            format='hdf5',
+            coarse_grid_config=coarse_config,
+            compression=hdf5_opts.get('compression', 'gzip'),
+            compression_opts=hdf5_opts.get('compression_level', 4),
+            metadata=metadata,
+            show_progress=hdf5_opts.get('show_progress', True),
+            n_jobs=hdf5_opts.get('n_jobs', 1)
+        )
+
+        # Log file size comparison if both formats written
+        if output_format == 'both':
+            csv_size = output_csv.stat().st_size / (1024**2)
+            hdf5_size = output_hdf5.stat().st_size / (1024**2)
+            compression_ratio = csv_size / hdf5_size if hdf5_size > 0 else 0
+            logger.info(
+                f"File sizes: CSV={csv_size:.1f}MB, HDF5={hdf5_size:.1f}MB "
+                f"(compression ratio: {compression_ratio:.1f}x)"
+            )
 
     # Calculate grid dimensions
     nx = grid_df['i'].max()

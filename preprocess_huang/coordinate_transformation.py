@@ -11,6 +11,7 @@ from typing import Tuple, List, Optional
 from omegaconf import DictConfig
 
 from utils.io_utils import ensure_directory_exists
+from utils.velocity_io import write_velocity_file
 
 # Check for optional dependencies
 try:
@@ -675,16 +676,77 @@ def transform_coordinates(full_config: DictConfig) -> None:
     stations_processed_df.to_csv(os.path.join(config.output_dir, f"stations_cartesian{method_suffix}.csv"), index=False)
     events_processed_df.to_csv(os.path.join(config.output_dir, f"events_cartesian{method_suffix}{event_file_suffix}.csv"), index=False)
 
-    # Save INITIAL velocity model (renamed from velocity_cartesian to velocity_initial_cartesian)
-    velocity_processed_df.to_csv(os.path.join(config.output_dir, f"velocity_initial_cartesian{method_suffix}.csv"), index=False)
-    print(f"  - stations_cartesian{method_suffix}.csv")
-    print(f"  - events_cartesian{method_suffix}{event_file_suffix}.csv")
-    print(f"  - velocity_initial_cartesian{method_suffix}.csv (INITIAL model)")
+    # Get velocity output format config
+    vel_format = config.get('velocity_output_format', 'csv')
+
+    # Prepare metadata for HDF5
+    metadata = {
+        'grid_dimensions': {'nx': nx, 'ny': ny, 'nz': nz},
+        'grid_spacing': {'dx': config.grid_spacing_km[0], 'dy': config.grid_spacing_km[1], 'dz': config.grid_spacing_km[2]},
+        'origin_lon': config.origin_lon,
+        'origin_lat': config.origin_lat,
+        'origin_depth_km': config.origin_depth_km,
+        'transformation_method': config.transformation_method,
+        'use_chapman_flattening': config.get('use_chapman_flattening', False),
+    }
+
+    # Prepare coarse grid config if enabled
+    coarse_config = None
+    if config.get('create_coarse_velocity', False):
+        coarse_spacing = config.coarse_velocity_spacing_km
+        coarse_config = {
+            'dx_coarse': coarse_spacing[0],
+            'dy_coarse': coarse_spacing[1],
+            'dz_coarse': coarse_spacing[2],
+        }
+
+    # Save INITIAL velocity model
+    initial_csv_path = os.path.join(config.output_dir, f"velocity_initial_cartesian{method_suffix}.csv")
+    initial_h5_path = os.path.join(config.output_dir, f"velocity_initial_cartesian{method_suffix}.h5")
+
+    if vel_format in ['csv', 'both']:
+        write_velocity_file(velocity_processed_df, initial_csv_path, format='csv',
+                           show_progress=config.get('velocity_show_progress', True))
+        print(f"  - stations_cartesian{method_suffix}.csv")
+        print(f"  - events_cartesian{method_suffix}{event_file_suffix}.csv")
+        print(f"  - velocity_initial_cartesian{method_suffix}.csv (INITIAL model)")
+
+    if vel_format in ['hdf5', 'both']:
+        write_velocity_file(
+            velocity_processed_df, initial_h5_path, format='hdf5',
+            coarse_grid_config=coarse_config,
+            compression=config.get('velocity_hdf5_compression', 'gzip'),
+            compression_opts=config.get('velocity_hdf5_compression_level', 4),
+            metadata=metadata,
+            show_progress=config.get('velocity_show_progress', True),
+            n_jobs=config.get('velocity_n_jobs', 1)
+        )
+        if vel_format == 'hdf5':
+            print(f"  - stations_cartesian{method_suffix}.csv")
+            print(f"  - events_cartesian{method_suffix}{event_file_suffix}.csv")
+        print(f"  - velocity_initial_cartesian{method_suffix}.h5 (INITIAL model)")
 
     # Save FINAL velocity if processed
     if config.process_final_velocity and final_velocity_processed_df is not None:
-        final_velocity_processed_df.to_csv(os.path.join(config.output_dir, f"velocity_final_cartesian{method_suffix}.csv"), index=False)
-        print(f"  - velocity_final_cartesian{method_suffix}.csv (FINAL model)")
+        final_csv_path = os.path.join(config.output_dir, f"velocity_final_cartesian{method_suffix}.csv")
+        final_h5_path = os.path.join(config.output_dir, f"velocity_final_cartesian{method_suffix}.h5")
+
+        if vel_format in ['csv', 'both']:
+            write_velocity_file(final_velocity_processed_df, final_csv_path, format='csv',
+                               show_progress=config.get('velocity_show_progress', True))
+            print(f"  - velocity_final_cartesian{method_suffix}.csv (FINAL model)")
+
+        if vel_format in ['hdf5', 'both']:
+            write_velocity_file(
+                final_velocity_processed_df, final_h5_path, format='hdf5',
+                coarse_grid_config=coarse_config,
+                compression=config.get('velocity_hdf5_compression', 'gzip'),
+                compression_opts=config.get('velocity_hdf5_compression_level', 4),
+                metadata=metadata,
+                show_progress=config.get('velocity_show_progress', True),
+                n_jobs=config.get('velocity_n_jobs', 1)
+            )
+            print(f"  - velocity_final_cartesian{method_suffix}.h5 (FINAL model)")
     
     print(f"\nGrid Dimensions: nx={nx}, ny={ny}, nz={nz}")
     print(f"Grid spacing: dx={config.grid_spacing_km[0]} km, dy={config.grid_spacing_km[1]} km, dz={config.grid_spacing_km[2]} km")

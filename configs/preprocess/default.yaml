@@ -127,9 +127,26 @@ initial_velocity_model:
   z_max: null
 
   # Output files
+  # Format: csv, hdf5, or both
+  output_format: "csv"  # Default to csv for backward compatibility
   output_csv: "${data.output_base_dir}/velocity_model_cartesian.csv"
+  output_hdf5: "${data.output_base_dir}/velocity_model_cartesian.h5"  # Used if format is hdf5 or both
   vp_binary: "${data.output_base_dir}/model/vp_init.bin"
   vs_binary: "${data.output_base_dir}/model/vs_init.bin"
+
+  # HDF5-specific options (only used when output_format is hdf5 or both)
+  hdf5_options:
+    compression: "gzip"  # Options: gzip, lzf, null
+    compression_level: 4  # 0-9 for gzip (4 is balanced)
+    parallel_processing: true  # Use multiple cores for processing
+    n_jobs: -1  # -1 = all cores, 1 = no parallel, >1 = specific count
+    show_progress: true  # Show tqdm progress bars
+    # Coarse grid subsampling (creates additional coarse dataset in HDF5)
+    create_coarse_dataset: false  # Set to true to enable
+    coarse_grid:
+      dx: 2.0  # km, must be integral multiple of fine dx
+      dy: 2.0  # km, must be integral multiple of fine dy
+      dz: 2.0  # km, must be integral multiple of fine dz
 
   # Binary file generation options
   interpolate: true

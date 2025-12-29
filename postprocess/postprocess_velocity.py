@@ -12,6 +12,7 @@ from omegaconf import DictConfig
 from scipy.interpolate import RegularGridInterpolator
 
 from utils.io_utils import ensure_directory_exists
+from utils.velocity_io import read_velocity_file, write_velocity_file
 
 
 class GridParameters:
@@ -474,9 +475,24 @@ def create_velocity_csv_from_binaries(config: DictConfig, phase_type: str = "bot
     if max_depth_km is not None:
         print(f"Max depth filter: {max_depth_km} km")
 
-    # Load original CSV
-    print(f"\nLoading original CSV: {config.original_velocity_csv}")
-    df_original = pd.read_csv(config.original_velocity_csv)
+    # Load original velocity file (CSV or HDF5)
+    # Check for HDF5 input first, fallback to CSV
+    if hasattr(config, 'original_velocity_hdf5') and config.original_velocity_hdf5:
+        input_path = config.original_velocity_hdf5
+        use_coarse = config.get('hdf5_options', {}).get('use_coarse_dataset', False)
+        dataset = 'velocity_coarse' if use_coarse else 'velocity'
+        print(f"\nLoading original velocity from HDF5: {input_path}")
+        if use_coarse:
+            print("  Using coarse dataset for faster processing")
+        df_original = read_velocity_file(input_path, dataset=dataset,
+                                        show_progress=config.get('hdf5_options', {}).get('show_progress', True))
+    else:
+        input_path = config.original_velocity_csv
+        print(f"\nLoading original velocity from CSV: {input_path}")
+        df_original = read_velocity_file(input_path,
+                                        show_progress=config.get('hdf5_options', {}).get('show_progress', True))
+
+    print(f"  Loaded from: {input_path}")
     print(f"  Rows: {len(df_original):,}")
     
     # Get coarse grid parameters
@@ -588,12 +604,53 @@ def create_velocity_csv_from_binaries(config: DictConfig, phase_type: str = "bot
         print(f"  Points removed (depth > {max_depth_km} km): {removed_count}")
         print(f"  Points remaining: {len(df_output)}")
 
-    # Write output
-    ensure_directory_exists(os.path.dirname(config.velocity_output_csv))
-    df_output.to_csv(config.velocity_output_csv, index=False)
+    # Write output (CSV and/or HDF5)
+    output_format = config.get('velocity_output_format', 'csv')
+    print(f"\nWriting output in format: {output_format}")
+
+    # Prepare metadata for HDF5
+    metadata = {
+        'grid_dimensions': {'nx': fine_grid.nx, 'ny': fine_grid.ny, 'nz': fine_grid.nz},
+        'grid_spacing': {'dx': fine_grid.dx, 'dy': fine_grid.dy, 'dz': fine_grid.dz},
+        'grid_origin': {'x': fine_grid.origin_x, 'y': fine_grid.origin_y, 'z': fine_grid.origin_z},
+        'use_chapman_inverse': use_chapman,
+        'earth_radius_km': earth_radius,
+        'interpolation_mode': mode,
+        'phase_type': phase_type,
+    }
+
+    # Prepare coarse grid config if enabled
+    coarse_config = None
+    hdf5_opts = config.get('hdf5_options', {})
+    if hdf5_opts.get('create_coarse_dataset', False):
+        coarse_config = {
+            'dx_coarse': hdf5_opts.coarse_grid.dx,
+            'dy_coarse': hdf5_opts.coarse_grid.dy,
+            'dz_coarse': hdf5_opts.coarse_grid.dz,
+        }
+
+    # Write CSV if requested
+    if output_format in ['csv', 'both']:
+        ensure_directory_exists(os.path.dirname(config.velocity_output_csv))
+        write_velocity_file(df_output, config.velocity_output_csv, format='csv',
+                           show_progress=hdf5_opts.get('show_progress', True))
+        print(f"CSV written: {config.velocity_output_csv}")
+
+    # Write HDF5 if requested
+    if output_format in ['hdf5', 'both']:
+        ensure_directory_exists(os.path.dirname(config.velocity_output_hdf5))
+        write_velocity_file(
+            df_output, config.velocity_output_hdf5, format='hdf5',
+            coarse_grid_config=coarse_config,
+            compression=hdf5_opts.get('compression', 'gzip'),
+            compression_opts=hdf5_opts.get('compression_level', 4),
+            metadata=metadata,
+            show_progress=hdf5_opts.get('show_progress', True),
+            n_jobs=hdf5_opts.get('n_jobs', 1)
+        )
+        print(f"HDF5 written: {config.velocity_output_hdf5}")
 
     print(f"\n=== OUTPUT SUMMARY ===")
-    print(f"CSV written: {config.velocity_output_csv}")
     print(f"  Rows: {len(df_output):,}")
     print(f"  Mode: {mode}")
     print(f"  Phase type: {phase_type}")

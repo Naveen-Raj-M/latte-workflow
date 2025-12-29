@@ -21,6 +21,7 @@ from scipy.interpolate import griddata
 import logging
 
 from utils.plot_utils import save_figure, get_color_scheme
+from utils.velocity_io import read_velocity_file
 from .velocity_spatial import find_max_min_ratio_change_depths, find_extreme_ratio_change_profiles
 
 logger = logging.getLogger(__name__)
@@ -300,12 +301,24 @@ def create_profile_comparison_plots(df1: pd.DataFrame, df2: pd.DataFrame,
     from .velocity_plots import get_model_names
     model1_name, model2_name, _ = get_model_names(config)
 
-    # Load initial velocity model if specified
+    # Load initial velocity model if specified (CSV or HDF5)
     initial_model_csv = config['velocity_analysis'].get('initial_velocity_model_csv', None)
+    initial_model_hdf5 = config['velocity_analysis'].get('initial_velocity_model_hdf5', None)
+    use_coarse = config['velocity_analysis'].get('use_coarse_dataset', False)
+
     df_initial = None
-    if initial_model_csv is not None and initial_model_csv:
+    if initial_model_hdf5 is not None and initial_model_hdf5:
         try:
-            df_initial = pd.read_csv(initial_model_csv)
+            dataset = 'velocity_coarse' if use_coarse else 'velocity'
+            df_initial = read_velocity_file(initial_model_hdf5, dataset=dataset, show_progress=False)
+            logger.info(f"Loaded initial velocity model from {initial_model_hdf5}" +
+                       (f" (coarse dataset)" if use_coarse else ""))
+        except Exception as e:
+            logger.warning(f"Could not load initial velocity model from {initial_model_hdf5}: {e}")
+            df_initial = None
+    elif initial_model_csv is not None and initial_model_csv:
+        try:
+            df_initial = read_velocity_file(initial_model_csv, show_progress=False)
             logger.info(f"Loaded initial velocity model from {initial_model_csv}")
         except Exception as e:
             logger.warning(f"Could not load initial velocity model from {initial_model_csv}: {e}")

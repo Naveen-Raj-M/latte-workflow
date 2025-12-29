@@ -35,6 +35,15 @@ coordinate_transform:
   exact_transform:
     rotate_to_enu: true
     align_to_geocentric_normal: false
+  # Velocity file output format
+  velocity_output_format: "csv"  # Options: csv, hdf5, both
+  velocity_hdf5_compression: "gzip"
+  velocity_hdf5_compression_level: 4
+  velocity_parallel_processing: true
+  velocity_n_jobs: -1  # -1 = all cores
+  velocity_show_progress: true
+  create_coarse_velocity: false
+  coarse_velocity_spacing_km: [2.0, 2.0, 2.0]  # [dx, dy, dz] - must be integral multiples
 
 initial_3d_model:
   enabled: true

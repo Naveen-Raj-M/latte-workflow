@@ -76,10 +76,16 @@ travel_time_analysis:
 
 velocity_analysis:
   enabled: true
+  # Input files - support both CSV and HDF5 (HDF5 takes precedence if both specified)
   model1_csv: "data/processed/velocity_cartesian.csv"
+  model1_hdf5: null  # Alternative: "data/processed/velocity_cartesian.h5"
   model2_csv: "data/processed/velocity_cartesian_updated.csv"
+  model2_hdf5: null  # Alternative: "data/processed/velocity_cartesian_updated.h5"
   output_dir: "results/analysis/velocity_comparison"
   initial_velocity_model_csv: null
+  initial_velocity_model_hdf5: null  # Alternative HDF5 initial model
+  # Use coarse dataset for faster analysis (HDF5 only)
+  use_coarse_dataset: false  # Set to true to use coarse grid for faster analysis
   comparison_mode: "initial_vs_final"  # Options: initial_vs_final, method_comparison, custom
   model1_name: "Initial Model"
   model2_name: "Final Model"

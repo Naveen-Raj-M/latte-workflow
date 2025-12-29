@@ -14,6 +14,7 @@ from datetime import datetime
 
 from utils.io_utils import read_csv_file, write_text_file, ensure_directory_exists
 from utils.plot_utils import setup_plot_style
+from utils.velocity_io import read_velocity_file
 
 from .velocity_statistics import (
     compute_velocity_differences,
@@ -51,15 +52,33 @@ def analyze_velocity_models(config: Dict[str, Any]) -> Dict[str, Any]:
     # Setup plot style
     setup_plot_style(config['analysis'])
     
-    # Load and validate data
-    model1_csv = config['velocity_analysis']['model1_csv']
-    model2_csv = config['velocity_analysis']['model2_csv']
-    
+    # Load and validate data (support CSV and HDF5)
+    # Determine file paths (check for HDF5 first, then CSV)
+    model1_path = (
+        config['velocity_analysis'].get('model1_hdf5') or
+        config['velocity_analysis']['model1_csv']
+    )
+    model2_path = (
+        config['velocity_analysis'].get('model2_hdf5') or
+        config['velocity_analysis']['model2_csv']
+    )
+
+    use_coarse = config['velocity_analysis'].get('use_coarse_dataset', False)
+    dataset = 'velocity_coarse' if use_coarse else 'velocity'
+
     logger.info(f"Loading velocity models:")
-    logger.info(f"  Model 1: {model1_csv}")
-    logger.info(f"  Model 2: {model2_csv}")
-    
-    df1, df2 = load_and_validate_velocity_models(model1_csv, model2_csv, config)
+    logger.info(f"  Model 1: {model1_path}")
+    logger.info(f"  Model 2: {model2_path}")
+    if use_coarse:
+        logger.info("  Using coarse datasets for faster analysis")
+
+    # Read velocity files
+    df1 = read_velocity_file(model1_path, dataset=dataset, show_progress=False)
+    df2 = read_velocity_file(model2_path, dataset=dataset, show_progress=False)
+
+    # Validate the loaded models
+    from .velocity_validation import validate_velocity_models
+    df1, df2 = validate_velocity_models(df1, df2, config)
     
     # Compute differences and statistics
     logger.info("Computing velocity differences and statistics")
