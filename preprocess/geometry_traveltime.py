@@ -348,6 +348,65 @@ def parse_picks_with_cartesian(events_df: pd.DataFrame,
     return final_events, station_lookup
 
 
+def _write_single_event_files(event_item, geom_config, phase_type):
+    """Write geometry and travel time files for a single event.
+
+    This function is designed to be called in parallel for each event.
+
+    Args:
+        event_item: Tuple of (idx, eid, data) where idx is 1-based shot ID
+        geom_config: Geometry configuration
+        phase_type: Phase type filter ('both', 'p', or 's')
+
+    Returns:
+        Tuple of (idx, eid, geom_fname) for the mapping file
+    """
+    idx, eid, data = event_item
+
+    # Use P picks for geometry if available, otherwise S picks
+    receivers_for_geometry = data['p_picks'] if data['p_picks'] else data['s_picks']
+
+    geom_fname = f"shot_{idx}_geometry.txt"
+    ex, ey, ez = data['coords']
+
+    # Prepare origin time formatting
+    origin_time = data.get('origin_time_s', 0.0)
+    origin_time_precision = geom_config.get('origin_time_precision', 'single')
+    if origin_time_precision == 'double':
+        origin_time_fmt = f"{origin_time:.12f}"
+    else:
+        origin_time_fmt = f"{origin_time:.6f}"
+
+    # Write Geometry File
+    geom_path = Path(geom_config.geometry_dir) / geom_fname
+    with open(geom_path, "w") as out:
+        out.write(f"{idx}\n\n1\n")
+        out.write(f"{ex:.6f} {ey:.6f} {ez:.6f} {origin_time_fmt}\n\n")
+        out.write(f"{len(receivers_for_geometry)}\n")
+        for pick in receivers_for_geometry:
+            sx, sy, sz = pick['coords']
+            w = pick['weight']
+            out.write(f"{sx:.6f} {sy:.6f} {sz:.6f} {w:.6f}\n")
+
+    # Write P-wave traveltime binary (if processing P-waves)
+    if phase_type in ['both', 'p'] and data['p_picks']:
+        tt_p_fname = Path(geom_config.traveltime_dir) / f"shot_{idx}_traveltime_p.bin"
+        p_travel_times = [p['observed_travel_time'] for p in data['p_picks']]
+        p_array = np.array(p_travel_times, dtype='<f4')
+        with open(tt_p_fname, 'wb') as f:
+            f.write(p_array.tobytes())
+
+    # Write S-wave traveltime binary (if processing S-waves)
+    if phase_type in ['both', 's'] and data['s_picks']:
+        tt_s_fname = Path(geom_config.traveltime_dir) / f"shot_{idx}_traveltime_s.bin"
+        s_travel_times = [s['observed_travel_time'] for s in data['s_picks']]
+        s_array = np.array(s_travel_times, dtype='<f4')
+        with open(tt_s_fname, 'wb') as f:
+            f.write(s_array.tobytes())
+
+    return (idx, eid, geom_fname)
+
+
 def write_source_binary_files(events: Dict, config: DictConfig, origin_time_config: DictConfig) -> None:
     """
     Write source binary files (sx.bin, sy.bin, sz.bin, st0.bin) for the events.
@@ -439,60 +498,42 @@ def write_output_files(events: Dict, config: DictConfig, origin_time_config: Dic
     ensure_directory_exists(Path(geom_config.geometry_dir))
     ensure_directory_exists(Path(geom_config.traveltime_dir))
 
-    shot_files = []
     id_map_path = Path(geom_config.geometry_dir) / "shot_to_source_id_map.txt"
     phase_type = geom_config.get('phase_type', 'both').lower()
 
     logger.info(f"Writing output files (phase_type: {phase_type})...")
 
+    # Get parallel processing configuration
+    parallel_config = config.get('parallel', {})
+    n_jobs = parallel_config.get('num_workers', None)
+    if n_jobs is None:
+        n_jobs = -1  # Use all CPU cores
+
+    # Sort events to maintain consistent ordering
+    sorted_events = sorted(events.items(), key=lambda item: item[0])
+
+    # Prepare event items with indices for parallel processing
+    event_items = [(idx, eid, data) for idx, (eid, data) in enumerate(sorted_events, start=1)]
+
+    logger.info(f"Writing {len(event_items)} event files in parallel...")
+    logger.info(f"Using parallel processing with n_jobs={n_jobs if n_jobs != -1 else 'all cores'}")
+
+    # Process events in parallel with progress bar
+    results = Parallel(n_jobs=n_jobs, backend='loky')(
+        delayed(_write_single_event_files)(event_item, geom_config, phase_type)
+        for event_item in tqdm(event_items, desc="Writing event files", unit="event")
+    )
+
+    # Sort results by shot ID to maintain order
+    results = sorted(results, key=lambda x: x[0])
+
+    # Write the mapping file and collect shot filenames
+    shot_files = []
     with open(id_map_path, "w") as map_f:
         map_f.write("Shot_ID\tOriginal_Event_ID\n")
-
-        sorted_events = sorted(events.items(), key=lambda item: item[0])
-
-        for idx, (eid, data) in enumerate(sorted_events, start=1):
-            # Use P picks for geometry if available, otherwise S picks
-            receivers_for_geometry = data['p_picks'] if data['p_picks'] else data['s_picks']
-
-            geom_fname = f"shot_{idx}_geometry.txt"
-            shot_files.append(geom_fname)
+        for idx, eid, geom_fname in results:
             map_f.write(f"{idx}\t{eid}\n")
-
-            ex, ey, ez = data['coords']
-
-            # Write Geometry File
-            origin_time = data.get('origin_time_s', 0.0)
-            origin_time_precision = geom_config.get('origin_time_precision', 'single')
-            if origin_time_precision == 'double':
-                origin_time_fmt = f"{origin_time:.12f}"
-            else:
-                origin_time_fmt = f"{origin_time:.6f}"
-
-            geom_path = Path(geom_config.geometry_dir) / geom_fname
-            with open(geom_path, "w") as out:
-                out.write(f"{idx}\n\n1\n")
-                out.write(f"{ex:.6f} {ey:.6f} {ez:.6f} {origin_time_fmt}\n\n")
-                out.write(f"{len(receivers_for_geometry)}\n")
-                for pick in receivers_for_geometry:
-                    sx, sy, sz = pick['coords']
-                    w = pick['weight']
-                    out.write(f"{sx:.6f} {sy:.6f} {sz:.6f} {w:.6f}\n")
-
-            # Write P-wave traveltime binary (if processing P-waves)
-            if phase_type in ['both', 'p'] and data['p_picks']:
-                tt_p_fname = Path(geom_config.traveltime_dir) / f"shot_{idx}_traveltime_p.bin"
-                p_travel_times = [p['observed_travel_time'] for p in data['p_picks']]
-                p_array = np.array(p_travel_times, dtype='<f4')
-                with open(tt_p_fname, 'wb') as f:
-                    f.write(p_array.tobytes())
-
-            # Write S-wave traveltime binary (if processing S-waves)
-            if phase_type in ['both', 's'] and data['s_picks']:
-                tt_s_fname = Path(geom_config.traveltime_dir) / f"shot_{idx}_traveltime_s.bin"
-                s_travel_times = [s['observed_travel_time'] for s in data['s_picks']]
-                s_array = np.array(s_travel_times, dtype='<f4')
-                with open(tt_s_fname, 'wb') as f:
-                    f.write(s_array.tobytes())
+            shot_files.append(geom_fname)
 
     # Write geometry index file
     geom_index_path = Path(geom_config.geometry_dir) / "geometry.txt"
