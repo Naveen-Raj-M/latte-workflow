@@ -14,6 +14,8 @@ import pandas as pd
 from omegaconf import DictConfig
 from scipy.interpolate import griddata
 from scipy.ndimage import convolve
+from joblib import Parallel, delayed
+from tqdm import tqdm
 
 from utils.io_utils import ensure_directory_exists
 from utils.velocity_io import write_velocity_file
@@ -230,6 +232,35 @@ def compute_grid_indices(grid_df: pd.DataFrame, min_coords: Tuple[float, float, 
     return grid_df
 
 
+def _process_grid_chunk(chunk_rows, iasp91_model, origin_lon, origin_lat,
+                        origin_depth, invert_y_axis, x_col, y_col, z_col):
+    """Process a chunk of grid points to assign velocities.
+
+    This function is designed to be called in parallel for chunks of grid points.
+
+    Returns:
+        List of tuples: (index, vp, vs, lon, lat, depth)
+    """
+    results = []
+    for idx, row in chunk_rows:
+        x_km = row[x_col]
+        y_km = row[y_col]
+        z_km = row[z_col]
+
+        # Convert relative z to absolute depth
+        absolute_depth = z_km + origin_depth
+        vp, vs = get_velocity_for_depth(absolute_depth, iasp91_model)
+
+        # Convert Cartesian back to geographic coordinates
+        lon, lat, depth = cartesian_to_geographic(
+            x_km, y_km, z_km, origin_lon, origin_lat, origin_depth, invert_y_axis
+        )
+
+        results.append((idx, vp, vs, lon, lat, depth))
+
+    return results
+
+
 def cartesian_to_geographic(x_km: float, y_km: float, z_km: float,
                            origin_lon: float, origin_lat: float, origin_depth: float,
                            invert_y_axis: bool = True) -> Tuple[float, float, float]:
@@ -360,35 +391,51 @@ def create_velocity_model(config: DictConfig,
     # Add grid indices
     grid_df = compute_grid_indices(grid_df, min_coords, grid_spacing)
 
-    # Assign velocities based on depth (z coordinate + origin_depth)
-    logger.info("Assigning velocities from IASP91 model...")
-    vp_values = []
-    vs_values = []
-    lon_values = []
-    lat_values = []
-    depth_values = []
+    # Get parallel processing configuration
+    parallel_config = config.get('parallel', {})
+    n_jobs = parallel_config.get('num_workers', None)
+    if n_jobs is None:
+        n_jobs = -1  # Use all CPU cores
+
+    chunk_size = parallel_config.get('chunk_size', 1000)
+
+    logger.info(f"Assigning velocities from IASP91 model using parallel processing...")
+    logger.info(f"Using n_jobs={n_jobs if n_jobs != -1 else 'all cores'}, chunk_size={chunk_size}")
 
     # Use capital case columns
     x_col = 'X_grid_km' if 'X_grid_km' in grid_df.columns else 'x'
     y_col = 'Y_grid_km' if 'Y_grid_km' in grid_df.columns else 'y'
     z_col = 'Z_grid_km' if 'Z_grid_km' in grid_df.columns else 'z'
 
-    for _, row in grid_df.iterrows():
-        x_km = row[x_col]
-        y_km = row[y_col]
-        z_km = row[z_col]
+    # Split grid into chunks for parallel processing
+    grid_rows = list(grid_df.iterrows())
+    chunks = [grid_rows[i:i + chunk_size] for i in range(0, len(grid_rows), chunk_size)]
 
-        # Convert relative z to absolute depth
-        absolute_depth = z_km + origin_depth
-        vp, vs = get_velocity_for_depth(absolute_depth, iasp91_model)
-        vp_values.append(vp)
-        vs_values.append(vs)
+    logger.info(f"Processing {len(grid_df)} grid points in {len(chunks)} chunks...")
 
-        # Convert Cartesian back to geographic coordinates
-        lon, lat, depth = cartesian_to_geographic(x_km, y_km, z_km, origin_lon, origin_lat, origin_depth, invert_y_axis)
-        lon_values.append(lon)
-        lat_values.append(lat)
-        depth_values.append(depth)
+    # Process chunks in parallel with progress bar
+    all_results = Parallel(n_jobs=n_jobs, backend='loky')(
+        delayed(_process_grid_chunk)(
+            chunk, iasp91_model, origin_lon, origin_lat,
+            origin_depth, invert_y_axis, x_col, y_col, z_col
+        )
+        for chunk in tqdm(chunks, desc="Assigning velocities", unit="chunk")
+    )
+
+    # Flatten results and assign to dataframe
+    vp_values = [None] * len(grid_df)
+    vs_values = [None] * len(grid_df)
+    lon_values = [None] * len(grid_df)
+    lat_values = [None] * len(grid_df)
+    depth_values = [None] * len(grid_df)
+
+    for chunk_results in all_results:
+        for idx, vp, vs, lon, lat, depth in chunk_results:
+            vp_values[idx] = vp
+            vs_values[idx] = vs
+            lon_values[idx] = lon
+            lat_values[idx] = lat
+            depth_values[idx] = depth
 
     grid_df['vp'] = vp_values
     grid_df['vs'] = vs_values
@@ -540,6 +587,23 @@ def create_velocity_model(config: DictConfig,
     logger.info("=" * 60)
 
 
+def _fill_grid_chunk(chunk_rows, vel_col, nx, ny, nz):
+    """Fill a chunk of grid points into the velocity array.
+
+    Returns:
+        List of tuples: (k, j, i, velocity_value)
+    """
+    results = []
+    for _, row in chunk_rows:
+        i = int(row['i']) - 1  # Convert to 0-based
+        j = int(row['j']) - 1
+        k = int(row['k']) - 1
+        if 0 <= i < nx and 0 <= j < ny and 0 <= k < nz:
+            velocity_ms = row[vel_col] * 1000  # Convert to m/s
+            results.append((k, j, i, velocity_ms))
+    return results
+
+
 def _generate_binary_files(config: DictConfig, grid_df: pd.DataFrame,
                            min_coords: Tuple[float, float, float],
                            grid_spacing: Tuple[float, float, float]) -> None:
@@ -563,6 +627,14 @@ def _generate_binary_files(config: DictConfig, grid_df: pd.DataFrame,
 
     logger.info(f"Grid dimensions: {nx} x {ny} x {nz}")
 
+    # Get parallel processing configuration
+    parallel_config = config.get('parallel', {})
+    n_jobs = parallel_config.get('num_workers', None)
+    if n_jobs is None:
+        n_jobs = -1  # Use all CPU cores
+
+    chunk_size = parallel_config.get('chunk_size', 1000)
+
     # Determine which phases to process
     phase_type = vel_config.get('phase_type', 'both')
     phases_to_process = []
@@ -575,18 +647,28 @@ def _generate_binary_files(config: DictConfig, grid_df: pd.DataFrame,
     # Process each phase
     for phase, output_path in phases_to_process:
         logger.info(f"Processing {phase.upper()}-wave velocity...")
+        logger.info(f"Using parallel processing with n_jobs={n_jobs if n_jobs != -1 else 'all cores'}, chunk_size={chunk_size}")
 
         # Create 3D grid array in Fortran-order to match LATTE
         vel_col = 'vp' if phase == 'p' else 'vs'
         grid_3d = np.zeros((nz, ny, nx), dtype=np.float32, order='F')
 
-        # Fill grid (using 1-based indices)
-        for _, row in grid_df.iterrows():
-            i = int(row['i']) - 1  # Convert to 0-based
-            j = int(row['j']) - 1
-            k = int(row['k']) - 1
-            if 0 <= i < nx and 0 <= j < ny and 0 <= k < nz:
-                grid_3d[k, j, i] = row[vel_col] * 1000  # Convert to m/s, index as [depth, y, x]
+        # Split grid into chunks for parallel processing
+        grid_rows = list(grid_df.iterrows())
+        chunks = [grid_rows[i:i + chunk_size] for i in range(0, len(grid_rows), chunk_size)]
+
+        logger.info(f"Filling grid with {len(grid_df)} points in {len(chunks)} chunks...")
+
+        # Process chunks in parallel with progress bar
+        all_results = Parallel(n_jobs=n_jobs, backend='loky')(
+            delayed(_fill_grid_chunk)(chunk, vel_col, nx, ny, nz)
+            for chunk in tqdm(chunks, desc=f"Filling {phase.upper()}-wave grid", unit="chunk")
+        )
+
+        # Combine results into grid
+        for chunk_results in all_results:
+            for k, j, i, velocity_ms in chunk_results:
+                grid_3d[k, j, i] = velocity_ms
 
         # Interpolate if requested
         if vel_config.get('interpolate', False):

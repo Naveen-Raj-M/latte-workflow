@@ -8,12 +8,13 @@ import logging
 from pathlib import Path
 from typing import Dict, Tuple
 from datetime import datetime, timezone
-from collections import defaultdict
 
 import numpy as np
 import pandas as pd
 from dateutil import parser as date_parser
 from omegaconf import DictConfig
+from joblib import Parallel, delayed
+from tqdm import tqdm
 
 from utils.io_utils import ensure_directory_exists
 from utils.origin_time_utils import (
@@ -60,6 +61,145 @@ def call_get_origin_time_from_datetime(
     return configured_origin_time, original_origin_time_s
 
 
+def _process_single_event(event_id, event_picks, event_lookup, station_lookup,
+                          geom_config, origin_time_config):
+    """Process picks for a single event.
+
+    This function is designed to be called in parallel for each event.
+
+    Returns:
+        Tuple of (event_id, event_data_dict, unrealistic_count) or None if event invalid
+    """
+    logger = logging.getLogger(__name__)
+
+    if event_id not in event_lookup:
+        return None
+
+    event_info = event_lookup[event_id]
+    event_data = {
+        'origin_time_s': 0.0,
+        'original_origin_time_s': 0.0,
+        'year': None,
+        'jday': None,
+        'hour': None,
+        'minute': None,
+        'second': None,
+        'p_picks': {},
+        's_picks': {},
+        'coords': None,
+        'original_coords': None
+    }
+
+    unrealistic_velocity_count = 0
+
+    # Parse origin time
+    try:
+        origin_dt = date_parser.parse(event_info['origin_time'])
+        if origin_dt.tzinfo is None:
+            origin_dt = origin_dt.replace(tzinfo=timezone.utc)
+
+        configured_origin_time, original_origin_time_s = call_get_origin_time_from_datetime(
+            origin_dt,
+            origin_time_config.mode,
+            origin_time_config.fixed_value
+        )
+
+        # Store time components
+        event_data['origin_time_s'] = configured_origin_time
+        event_data['original_origin_time_s'] = original_origin_time_s
+        event_data['year'] = origin_dt.year
+        event_data['jday'] = origin_dt.timetuple().tm_yday
+        event_data['hour'] = origin_dt.hour
+        event_data['minute'] = origin_dt.minute
+        event_data['second'] = origin_dt.second + origin_dt.microsecond * 1e-6
+        event_data['coords'] = (event_info['x'], event_info['y'], event_info['z'])
+        event_data['original_coords'] = (event_info['lon'], event_info['lat'], event_info['depth'])
+
+    except Exception as e:
+        logger.warning(f"Could not parse origin time for {event_id}: {e}")
+        return None
+
+    # Separate P and S picks
+    for _, pick in event_picks.iterrows():
+        station_id = pick['station_id']
+        phase_hint = pick.get('phase_hint', '').upper()
+
+        if station_id not in station_lookup:
+            logger.debug(f"Station {station_id} not found in station lookup")
+            continue
+
+        station_info = station_lookup[station_id]
+
+        # Parse pick time
+        try:
+            pick_dt = date_parser.parse(pick['pick_time'])
+            if pick_dt.tzinfo is None:
+                pick_dt = pick_dt.replace(tzinfo=timezone.utc)
+
+            # Calculate physical travel time
+            physical_travel_time = (pick_dt - origin_dt).total_seconds()
+
+            if physical_travel_time < 0:
+                logger.debug(f"Negative travel time for {event_id}, {station_id}: {physical_travel_time:.2f}s")
+                continue
+
+            # Velocity check
+            distance = np.sqrt((event_info['x'] - station_info['x'])**2 +
+                             (event_info['y'] - station_info['y'])**2 +
+                             (event_info['z'] - station_info['z'])**2)
+
+            if physical_travel_time < 1e-6:
+                unrealistic_velocity_count += 1
+                logger.debug(f"Travel time is zero for {event_id}, {station_id}")
+                continue
+
+            apparent_velocity = distance / physical_travel_time
+
+            is_realistic = False
+            if 'P' in phase_hint:
+                if geom_config.p_velocity_range_m_s[0] <= apparent_velocity <= geom_config.p_velocity_range_m_s[1]:
+                    is_realistic = True
+            elif 'S' in phase_hint:
+                if geom_config.s_velocity_range_m_s[0] <= apparent_velocity <= geom_config.s_velocity_range_m_s[1]:
+                    is_realistic = True
+
+            if not is_realistic:
+                unrealistic_velocity_count += 1
+                logger.debug(f"Unrealistic velocity for {event_id}, {station_id} ({phase_hint}): {apparent_velocity:.1f} m/s")
+                continue
+
+            # Calculate observed travel time (physical + configured origin time)
+            observed_travel_time = physical_travel_time + configured_origin_time
+
+            # Get weight (use default if configured)
+            if geom_config.get('apply_default_weights', False):
+                weight = geom_config.get('default_weight', 1.0)
+            else:
+                weight = pick.get('weight', 1.0)
+
+            pick_data = {
+                'station': station_id,
+                'coords': (station_info['x'], station_info['y'], station_info['z']),
+                'original_coords': (station_info['lon'], station_info['lat'], station_info['depth']),
+                'physical_travel_time': physical_travel_time,
+                'observed_travel_time': observed_travel_time,
+                'weight': weight,
+                'pick_time': pick_dt
+            }
+
+            # Classify phase
+            if 'P' in phase_hint:
+                event_data['p_picks'][station_id] = pick_data
+            elif 'S' in phase_hint:
+                event_data['s_picks'][station_id] = pick_data
+
+        except Exception as e:
+            logger.warning(f"Could not parse pick time: {e}")
+            continue
+
+    return (event_id, event_data, unrealistic_velocity_count)
+
+
 def parse_picks_with_cartesian(events_df: pd.DataFrame,
                                stations_df: pd.DataFrame,
                                picks_df: pd.DataFrame,
@@ -104,136 +244,40 @@ def parse_picks_with_cartesian(events_df: pd.DataFrame,
             'depth': row.get('depth', 0.0)
         }
 
-    # Process picks grouped by event
-    temp_events = defaultdict(lambda: {
-        'origin_time_s': 0.0,
-        'original_origin_time_s': 0.0,
-        'year': None,
-        'jday': None,
-        'hour': None,
-        'minute': None,
-        'second': None,
-        'p_picks': {},
-        's_picks': {},
-        'coords': None,
-        'original_coords': None
-    })
+    # Get parallel processing configuration
+    parallel_config = config.get('parallel', {})
+    n_jobs = parallel_config.get('num_workers', None)
+    if n_jobs is None:
+        n_jobs = -1  # Use all CPU cores
 
-    picks_by_event = picks_df.groupby('event_id')
+    logger.info(f"Using parallel processing with n_jobs={n_jobs if n_jobs != -1 else 'all cores'}")
+
+    # Process picks grouped by event
+    picks_by_event = list(picks_df.groupby('event_id'))
+
+    logger.info(f"Processing {len(picks_by_event)} events in parallel...")
+
+    # Process events in parallel with progress bar
+    results = Parallel(n_jobs=n_jobs, backend='loky')(
+        delayed(_process_single_event)(
+            event_id, event_picks, event_lookup, station_lookup,
+            geom_config, origin_time_config
+        )
+        for event_id, event_picks in tqdm(picks_by_event, desc="Processing events", unit="event")
+    )
+
+    # Collect results
+    temp_events = {}
     total_picks = 0
     unrealistic_velocity_count = 0
 
-    for event_id, event_picks in picks_by_event:
-        if event_id not in event_lookup:
-            continue
-
-        event_info = event_lookup[event_id]
-
-        # Parse origin time
-        try:
-            origin_dt = date_parser.parse(event_info['origin_time'])
-            if origin_dt.tzinfo is None:
-                origin_dt = origin_dt.replace(tzinfo=timezone.utc)
-
-            configured_origin_time, original_origin_time_s = call_get_origin_time_from_datetime(
-                origin_dt,
-                origin_time_config.mode,
-                origin_time_config.fixed_value
-            )
-
-            # Store time components
-            temp_events[event_id]['origin_time_s'] = configured_origin_time
-            temp_events[event_id]['original_origin_time_s'] = original_origin_time_s
-            temp_events[event_id]['year'] = origin_dt.year
-            temp_events[event_id]['jday'] = origin_dt.timetuple().tm_yday
-            temp_events[event_id]['hour'] = origin_dt.hour
-            temp_events[event_id]['minute'] = origin_dt.minute
-            temp_events[event_id]['second'] = origin_dt.second + origin_dt.microsecond * 1e-6
-            temp_events[event_id]['coords'] = (event_info['x'], event_info['y'], event_info['z'])
-            temp_events[event_id]['original_coords'] = (event_info['lon'], event_info['lat'], event_info['depth'])
-
-        except Exception as e:
-            logger.warning(f"Could not parse origin time for {event_id}: {e}")
-            continue
-
-        # Separate P and S picks
-        for _, pick in event_picks.iterrows():
-            total_picks += 1
-            station_id = pick['station_id']
-            phase_hint = pick.get('phase_hint', '').upper()
-
-            if station_id not in station_lookup:
-                logger.debug(f"Station {station_id} not found in station lookup")
-                continue
-
-            station_info = station_lookup[station_id]
-
-            # Parse pick time
-            try:
-                pick_dt = date_parser.parse(pick['pick_time'])
-                if pick_dt.tzinfo is None:
-                    pick_dt = pick_dt.replace(tzinfo=timezone.utc)
-
-                # Calculate physical travel time
-                physical_travel_time = (pick_dt - origin_dt).total_seconds()
-
-                if physical_travel_time < 0:
-                    logger.debug(f"Negative travel time for {event_id}, {station_id}: {physical_travel_time:.2f}s")
-                    continue
-
-                # Velocity check
-                distance = np.sqrt((event_info['x'] - station_info['x'])**2 +
-                                 (event_info['y'] - station_info['y'])**2 +
-                                 (event_info['z'] - station_info['z'])**2)
-
-                if physical_travel_time < 1e-6:
-                    unrealistic_velocity_count += 1
-                    logger.debug(f"Travel time is zero for {event_id}, {station_id}")
-                    continue
-
-                apparent_velocity = distance / physical_travel_time
-
-                is_realistic = False
-                if 'P' in phase_hint:
-                    if geom_config.p_velocity_range_m_s[0] <= apparent_velocity <= geom_config.p_velocity_range_m_s[1]:
-                        is_realistic = True
-                elif 'S' in phase_hint:
-                    if geom_config.s_velocity_range_m_s[0] <= apparent_velocity <= geom_config.s_velocity_range_m_s[1]:
-                        is_realistic = True
-
-                if not is_realistic:
-                    unrealistic_velocity_count += 1
-                    logger.debug(f"Unrealistic velocity for {event_id}, {station_id} ({phase_hint}): {apparent_velocity:.1f} m/s")
-                    continue
-
-                # Calculate observed travel time (physical + configured origin time)
-                observed_travel_time = physical_travel_time + configured_origin_time
-
-                # Get weight (use default if configured)
-                if geom_config.get('apply_default_weights', False):
-                    weight = geom_config.get('default_weight', 1.0)
-                else:
-                    weight = pick.get('weight', 1.0)
-
-                pick_data = {
-                    'station': station_id,
-                    'coords': (station_info['x'], station_info['y'], station_info['z']),
-                    'original_coords': (station_info['lon'], station_info['lat'], station_info['depth']),
-                    'physical_travel_time': physical_travel_time,
-                    'observed_travel_time': observed_travel_time,
-                    'weight': weight,
-                    'pick_time': pick_dt
-                }
-
-                # Classify phase
-                if 'P' in phase_hint:
-                    temp_events[event_id]['p_picks'][station_id] = pick_data
-                elif 'S' in phase_hint:
-                    temp_events[event_id]['s_picks'][station_id] = pick_data
-
-            except Exception as e:
-                logger.warning(f"Could not parse pick time: {e}")
-                continue
+    for result in results:
+        if result is not None:
+            event_id, event_data, unrealistic_count = result
+            temp_events[event_id] = event_data
+            # Count total picks from this event
+            total_picks += len(event_data['p_picks']) + len(event_data['s_picks'])
+            unrealistic_velocity_count += unrealistic_count
 
     # Filter based on phase_type configuration
     final_events = {}
