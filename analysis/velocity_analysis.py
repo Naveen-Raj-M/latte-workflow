@@ -77,8 +77,38 @@ def analyze_velocity_models(config: Dict[str, Any]) -> Dict[str, Any]:
     df2 = read_velocity_file(model2_path, dataset=dataset, show_progress=False)
 
     # Validate the loaded models
-    from .velocity_validation import validate_velocity_models
-    df1, df2 = validate_velocity_models(df1, df2, config)
+    logger.info(f"Model 1: {len(df1)} rows, {len(df1.columns)} columns")
+    logger.info(f"Model 2: {len(df2)} rows, {len(df2.columns)} columns")
+
+    # Validate structure
+    if len(df1) != len(df2):
+        raise ValueError(f"Row count mismatch: Model 1 has {len(df1)}, Model 2 has {len(df2)}")
+
+    required_cols = ['vp', 'vs', 'X_grid_km', 'Y_grid_km', 'Z_grid_km', 'i', 'j', 'k']
+    for col in required_cols:
+        if col not in df1.columns:
+            raise ValueError(f"Required column '{col}' missing from Model 1")
+        if col not in df2.columns:
+            raise ValueError(f"Required column '{col}' missing from Model 2")
+
+    # Check coordinate consistency if enabled
+    if config.get('quality_control', {}).get('check_coordinate_consistency', True):
+        coord_cols = ['X_grid_km', 'Y_grid_km', 'Z_grid_km', 'i', 'j', 'k']
+        for col in coord_cols:
+            if not np.allclose(df1[col].values, df2[col].values, rtol=1e-6):
+                logger.warning(f"Coordinate column '{col}' differs between models")
+
+    # Apply depth filtering (velocity models use Z_grid_km for depth)
+    max_depth_km = config.get('analysis', {}).get('max_depth_km', None)
+    if max_depth_km is not None:
+        df1 = apply_depth_filter(df1, max_depth_km, depth_column='Z_grid_km', data_type="velocity Model 1")
+        df2 = apply_depth_filter(df2, max_depth_km, depth_column='Z_grid_km', data_type="velocity Model 2")
+
+        # Verify both models still have matching coordinates after filtering
+        if len(df1) != len(df2):
+            logger.warning(f"After depth filtering: Model 1 has {len(df1)} points, Model 2 has {len(df2)} points")
+
+    logger.info("Velocity model validation completed")
     
     # Compute differences and statistics
     logger.info("Computing velocity differences and statistics")
