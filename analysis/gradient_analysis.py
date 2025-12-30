@@ -13,7 +13,8 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 
-from utils.io_utils import read_csv_file, write_text_file, ensure_directory_exists
+from utils.io_utils import write_text_file, ensure_directory_exists
+from utils.velocity_io import read_velocity_file
 from utils.plot_utils import setup_plot_style, get_color_scheme
 from . import apply_depth_filter
 
@@ -72,20 +73,34 @@ def analyze_gradients_and_search(config: Dict[str, Any]) -> Dict[str, Any]:
 def analyze_velocity_gradients(config: Dict[str, Any]) -> Dict[str, Any]:
     """
     Analyze velocity model gradients and search directions.
-    
+
     Args:
         config: Configuration dictionary
-        
+
     Returns:
         Dictionary of statistics and results
     """
     logger.info("Analyzing velocity gradients and search directions")
-    
-    input_csv = config['gradient_analysis']['velocity_input_csv']
+
+    # Check for HDF5 file first, then fall back to CSV
+    input_hdf5 = config['gradient_analysis'].get('velocity_input_hdf5')
+    input_csv = config['gradient_analysis'].get('velocity_input_csv')
+
+    if input_hdf5 and Path(input_hdf5).exists():
+        input_file = input_hdf5
+        logger.info(f"Loading velocity gradient data from HDF5: {input_file}")
+    elif input_csv and Path(input_csv).exists():
+        input_file = input_csv
+        logger.info(f"Loading velocity gradient data from CSV: {input_file}")
+    else:
+        raise FileNotFoundError(
+            f"Velocity gradient file not found. Tried HDF5: {input_hdf5}, CSV: {input_csv}"
+        )
+
     output_dir = Path(config['gradient_analysis']['velocity_output_dir'])
-    
-    logger.info(f"Loading velocity data from: {input_csv}")
-    df = read_csv_file(input_csv)
+
+    # Read file (supports both CSV and HDF5)
+    df = read_velocity_file(input_file, show_progress=False)
 
     # Apply depth filtering (velocity gradients use Z_grid_km for depth)
     max_depth_km = config.get('analysis', {}).get('max_depth_km', None)
@@ -125,20 +140,34 @@ def analyze_velocity_gradients(config: Dict[str, Any]) -> Dict[str, Any]:
 def analyze_source_gradients(config: Dict[str, Any]) -> Dict[str, Any]:
     """
     Analyze source parameter gradients and search directions.
-    
+
     Args:
         config: Configuration dictionary
-        
+
     Returns:
         Dictionary of statistics and results
     """
     logger.info("Analyzing source parameter gradients and search directions")
-    
-    input_csv = config['gradient_analysis']['source_input_csv']
+
+    # Check for HDF5 file first, then fall back to CSV
+    input_hdf5 = config['gradient_analysis'].get('source_input_hdf5')
+    input_csv = config['gradient_analysis'].get('source_input_csv')
+
+    if input_hdf5 and Path(input_hdf5).exists():
+        input_file = input_hdf5
+        logger.info(f"Loading source gradient data from HDF5: {input_file}")
+    elif input_csv and Path(input_csv).exists():
+        input_file = input_csv
+        logger.info(f"Loading source gradient data from CSV: {input_file}")
+    else:
+        raise FileNotFoundError(
+            f"Source gradient file not found. Tried HDF5: {input_hdf5}, CSV: {input_csv}"
+        )
+
     output_dir = Path(config['gradient_analysis']['source_output_dir'])
-    
-    logger.info(f"Loading source data from: {input_csv}")
-    df = read_csv_file(input_csv)
+
+    # Read file (supports both CSV and HDF5)
+    df = read_velocity_file(input_file, show_progress=False)
 
     # Apply depth filtering (source gradients use event_z_transformed for depth)
     max_depth_km = config.get('analysis', {}).get('max_depth_km', None)

@@ -39,9 +39,12 @@ analysis:
 gradient_analysis:
   enabled: false
   analysis_type: ["velocity", "source"]  # Options: velocity, source
+  # Input files - support both CSV and HDF5 (HDF5 takes precedence if both specified)
   velocity_input_csv: /path/to/postprocessed/velocity/csv
+  velocity_input_hdf5: null  # Alternative: /path/to/postprocessed/velocity.h5
   velocity_output_dir: "/path/to/velocity_gradient_analysis"
   source_input_csv: /path/to/postprocessed/source/csv
+  source_input_hdf5: null  # Alternative: /path/to/postprocessed/source.h5
   source_output_dir: "/path/to/source_gradient_analysis"
   histogram_bins: 50
   depth_bins: 10
