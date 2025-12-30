@@ -232,11 +232,206 @@ def compute_grid_indices(grid_df: pd.DataFrame, min_coords: Tuple[float, float, 
     return grid_df
 
 
+def _get_velocities_vectorized(depths_array, iasp91_model):
+    """Vectorized velocity lookup for an array of depths.
+
+    Args:
+        depths_array: NumPy array of depths (km)
+        iasp91_model: DataFrame with columns [depth, vp, vs]
+
+    Returns:
+        Tuple of (vp_array, vs_array) in km/s
+    """
+    iasp91_depths = iasp91_model['depth'].values
+    iasp91_vp = iasp91_model['vp'].values
+    iasp91_vs = iasp91_model['vs'].values
+
+    # Handle depths above MSL (clamp to 0)
+    depths_clamped = np.maximum(depths_array, 0.0)
+
+    # Use searchsorted to find layer indices for all points at once
+    # searchsorted finds insertion point, we want the layer before that
+    indices = np.searchsorted(iasp91_depths, depths_clamped, side='right') - 1
+
+    # Clamp indices to valid range
+    indices = np.clip(indices, 0, len(iasp91_depths) - 1)
+
+    # Lookup velocities
+    vp_array = iasp91_vp[indices]
+    vs_array = iasp91_vs[indices]
+
+    return vp_array, vs_array
+
+
+def _cartesian_to_geographic_vectorized(x_km, y_km, z_km, origin_lon, origin_lat,
+                                         origin_depth, invert_y_axis):
+    """Vectorized conversion of Cartesian coordinates to geographic.
+
+    Args:
+        x_km, y_km, z_km: NumPy arrays of Cartesian coordinates (km)
+        origin_lon, origin_lat, origin_depth: Origin point
+        invert_y_axis: Y-axis direction flag
+
+    Returns:
+        Tuple of (lon_array, lat_array, depth_array)
+    """
+    EARTH_RADIUS_KM = 6371.0
+
+    origin_lat_rad = np.radians(origin_lat)
+
+    # Vectorized conversion
+    y_multiplier = -1 if invert_y_axis else 1
+    lat = origin_lat + y_multiplier * (y_km / EARTH_RADIUS_KM) * (180.0 / np.pi)
+    lon = origin_lon + (x_km / (EARTH_RADIUS_KM * np.cos(origin_lat_rad))) * (180.0 / np.pi)
+    depth = z_km + origin_depth
+
+    return lon, lat, depth
+
+
+def _assign_velocities_vectorized(grid_df, iasp91_model, origin_lon, origin_lat,
+                                   origin_depth, invert_y_axis, logger):
+    """Fully vectorized velocity assignment (no chunking).
+
+    Best for grids that fit comfortably in memory.
+
+    Args:
+        grid_df: DataFrame with grid points
+        iasp91_model: Velocity model DataFrame
+        origin_lon, origin_lat, origin_depth: Origin parameters
+        invert_y_axis: Y-axis direction flag
+        logger: Logger instance
+
+    Returns:
+        DataFrame with added vp, vs, lon, lat, depth columns
+    """
+    logger.info("Using full vectorization (grid fits in memory)")
+
+    # Extract columns as numpy arrays
+    x_col = 'X_grid_km' if 'X_grid_km' in grid_df.columns else 'x'
+    y_col = 'Y_grid_km' if 'Y_grid_km' in grid_df.columns else 'y'
+    z_col = 'Z_grid_km' if 'Z_grid_km' in grid_df.columns else 'z'
+
+    x_vals = grid_df[x_col].values
+    y_vals = grid_df[y_col].values
+    z_vals = grid_df[z_col].values
+
+    # Vectorized operations on entire grid
+    logger.info("Computing absolute depths...")
+    absolute_depths = z_vals + origin_depth
+
+    logger.info("Looking up velocities from IASP91 model...")
+    vp_vals, vs_vals = _get_velocities_vectorized(absolute_depths, iasp91_model)
+
+    logger.info("Converting to geographic coordinates...")
+    lon_vals, lat_vals, depth_vals = _cartesian_to_geographic_vectorized(
+        x_vals, y_vals, z_vals, origin_lon, origin_lat, origin_depth, invert_y_axis
+    )
+
+    # Add to DataFrame
+    grid_df = grid_df.copy()
+    grid_df['vp'] = vp_vals
+    grid_df['vs'] = vs_vals
+    grid_df['lon'] = lon_vals
+    grid_df['lat'] = lat_vals
+    grid_df['depth'] = depth_vals
+
+    return grid_df
+
+
+def _assign_velocities_chunked_vectorized(grid_df, iasp91_model, origin_lon, origin_lat,
+                                          origin_depth, invert_y_axis, chunk_size, n_jobs, logger):
+    """Vectorized processing within chunks for large grids.
+
+    Combines parallelism with vectorization for optimal performance on large grids.
+
+    Args:
+        grid_df: DataFrame with grid points
+        iasp91_model: Velocity model DataFrame
+        origin_lon, origin_lat, origin_depth: Origin parameters
+        invert_y_axis: Y-axis direction flag
+        chunk_size: Number of points per chunk
+        n_jobs: Number of parallel workers
+        logger: Logger instance
+
+    Returns:
+        DataFrame with added vp, vs, lon, lat, depth columns
+    """
+    logger.info(f"Using chunked vectorization (large grid: {len(grid_df):,} points)")
+    logger.info(f"Chunk size: {chunk_size:,}, Workers: {n_jobs if n_jobs != -1 else 'all cores'}")
+
+    # Extract columns as numpy arrays
+    x_col = 'X_grid_km' if 'X_grid_km' in grid_df.columns else 'x'
+    y_col = 'Y_grid_km' if 'Y_grid_km' in grid_df.columns else 'y'
+    z_col = 'Z_grid_km' if 'Z_grid_km' in grid_df.columns else 'z'
+
+    x_vals = grid_df[x_col].values
+    y_vals = grid_df[y_col].values
+    z_vals = grid_df[z_col].values
+
+    # Calculate chunks
+    num_chunks = (len(grid_df) + chunk_size - 1) // chunk_size
+    logger.info(f"Processing in {num_chunks} chunks...")
+
+    def process_chunk_vectorized(start_idx, end_idx):
+        """Process a chunk using vectorization."""
+        # Slice arrays (no copy, just views)
+        x_chunk = x_vals[start_idx:end_idx]
+        y_chunk = y_vals[start_idx:end_idx]
+        z_chunk = z_vals[start_idx:end_idx]
+
+        # Vectorized operations on chunk
+        absolute_depths = z_chunk + origin_depth
+        vp_chunk, vs_chunk = _get_velocities_vectorized(absolute_depths, iasp91_model)
+        lon_chunk, lat_chunk, depth_chunk = _cartesian_to_geographic_vectorized(
+            x_chunk, y_chunk, z_chunk, origin_lon, origin_lat, origin_depth, invert_y_axis
+        )
+
+        return (start_idx, vp_chunk, vs_chunk, lon_chunk, lat_chunk, depth_chunk)
+
+    # Process chunks in parallel
+    chunk_ranges = [
+        (i, min(i + chunk_size, len(grid_df)))
+        for i in range(0, len(grid_df), chunk_size)
+    ]
+
+    results = Parallel(n_jobs=n_jobs, backend='loky')(
+        delayed(process_chunk_vectorized)(start, end)
+        for start, end in tqdm(chunk_ranges, desc="Processing chunks", unit="chunk")
+    )
+
+    # Combine results
+    logger.info("Combining results...")
+    vp_vals = np.empty(len(grid_df), dtype=np.float64)
+    vs_vals = np.empty(len(grid_df), dtype=np.float64)
+    lon_vals = np.empty(len(grid_df), dtype=np.float64)
+    lat_vals = np.empty(len(grid_df), dtype=np.float64)
+    depth_vals = np.empty(len(grid_df), dtype=np.float64)
+
+    for start_idx, vp_chunk, vs_chunk, lon_chunk, lat_chunk, depth_chunk in results:
+        end_idx = start_idx + len(vp_chunk)
+        vp_vals[start_idx:end_idx] = vp_chunk
+        vs_vals[start_idx:end_idx] = vs_chunk
+        lon_vals[start_idx:end_idx] = lon_chunk
+        lat_vals[start_idx:end_idx] = lat_chunk
+        depth_vals[start_idx:end_idx] = depth_chunk
+
+    # Add to DataFrame
+    grid_df = grid_df.copy()
+    grid_df['vp'] = vp_vals
+    grid_df['vs'] = vs_vals
+    grid_df['lon'] = lon_vals
+    grid_df['lat'] = lat_vals
+    grid_df['depth'] = depth_vals
+
+    return grid_df
+
+
 def _process_grid_chunk(chunk_rows, iasp91_model, origin_lon, origin_lat,
                         origin_depth, invert_y_axis, x_col, y_col, z_col):
     """Process a chunk of grid points to assign velocities.
 
     This function is designed to be called in parallel for chunks of grid points.
+    DEPRECATED: Use vectorized versions instead.
 
     Returns:
         List of tuples: (index, vp, vs, lon, lat, depth)
@@ -397,68 +592,32 @@ def create_velocity_model(config: DictConfig,
     if n_jobs is None:
         n_jobs = -1  # Use all CPU cores
 
-    # Use larger chunk size for grid processing (grid has many more points than events)
-    # Default to 50000 points per chunk for better efficiency
     grid_chunk_size = parallel_config.get('grid_chunk_size', 50000)
 
-    logger.info(f"Assigning velocities from IASP91 model using parallel processing...")
+    # Hybrid vectorization: Choose approach based on grid size
+    vectorize_threshold = parallel_config.get('vectorize_max_points', 100_000_000)  # 100M points
+
+    logger.info(f"Assigning velocities from IASP91 model...")
     logger.info(f"Grid size: {len(grid_df):,} points")
-    logger.info(f"Using n_jobs={n_jobs if n_jobs != -1 else 'all cores'}, chunk_size={grid_chunk_size:,}")
+    logger.info(f"Vectorization threshold: {vectorize_threshold:,} points")
 
-    # Use capital case columns
-    x_col = 'X_grid_km' if 'X_grid_km' in grid_df.columns else 'x'
-    y_col = 'Y_grid_km' if 'Y_grid_km' in grid_df.columns else 'y'
-    z_col = 'Z_grid_km' if 'Z_grid_km' in grid_df.columns else 'z'
+    # Estimate memory requirements (rough estimate: 8 bytes per float * 8 arrays)
+    estimated_memory_mb = (len(grid_df) * 8 * 8) / (1024 * 1024)
+    logger.info(f"Estimated memory requirement: ~{estimated_memory_mb:.1f} MB")
 
-    # Calculate number of chunks
-    num_chunks = (len(grid_df) + grid_chunk_size - 1) // grid_chunk_size
-    logger.info(f"Splitting into {num_chunks} chunks for parallel processing...")
-
-    # Split grid into chunks using array slicing (much faster than iterrows)
-    def get_chunk(start_idx, end_idx):
-        chunk_data = []
-        for idx in range(start_idx, end_idx):
-            if idx < len(grid_df):
-                row = grid_df.iloc[idx]
-                chunk_data.append((idx, row))
-        return chunk_data
-
-    logger.info("Creating chunks...")
-    chunks = [
-        get_chunk(i, min(i + grid_chunk_size, len(grid_df)))
-        for i in range(0, len(grid_df), grid_chunk_size)
-    ]
-    logger.info(f"Created {len(chunks)} chunks. Starting parallel processing...")
-
-    # Process chunks in parallel with progress bar
-    all_results = Parallel(n_jobs=n_jobs, backend='loky')(
-        delayed(_process_grid_chunk)(
-            chunk, iasp91_model, origin_lon, origin_lat,
-            origin_depth, invert_y_axis, x_col, y_col, z_col
+    # Choose processing strategy
+    if len(grid_df) < vectorize_threshold:
+        # FAST PATH: Full vectorization for grids that fit in memory
+        grid_df = _assign_velocities_vectorized(
+            grid_df, iasp91_model, origin_lon, origin_lat,
+            origin_depth, invert_y_axis, logger
         )
-        for chunk in tqdm(chunks, desc="Assigning velocities", unit="chunk")
-    )
-
-    # Flatten results and assign to dataframe
-    vp_values = [None] * len(grid_df)
-    vs_values = [None] * len(grid_df)
-    lon_values = [None] * len(grid_df)
-    lat_values = [None] * len(grid_df)
-    depth_values = [None] * len(grid_df)
-
-    for chunk_results in all_results:
-        for idx, vp, vs, lon, lat, depth in chunk_results:
-            vp_values[idx] = vp
-            vs_values[idx] = vs
-            lon_values[idx] = lon
-            lat_values[idx] = lat
-            depth_values[idx] = depth
-
-    grid_df['vp'] = vp_values
-    grid_df['vs'] = vs_values
-    grid_df['lon'] = lon_values
-    grid_df['lat'] = lat_values
-    grid_df['depth'] = depth_values
+    else:
+        # SAFE PATH: Chunked vectorization for large grids
+        grid_df = _assign_velocities_chunked_vectorized(
+            grid_df, iasp91_model, origin_lon, origin_lat,
+            origin_depth, invert_y_axis, grid_chunk_size, n_jobs, logger
+        )
 
     # Save velocity model (CSV and/or HDF5)
     output_format = vel_config.get('output_format', 'csv')
@@ -604,8 +763,123 @@ def create_velocity_model(config: DictConfig,
     logger.info("=" * 60)
 
 
+def _fill_grid_vectorized(grid_df, vel_col, nx, ny, nz, logger):
+    """Fill 3D grid array using vectorization (no chunking).
+
+    Args:
+        grid_df: DataFrame with velocity data
+        vel_col: Column name ('vp' or 'vs')
+        nx, ny, nz: Grid dimensions
+        logger: Logger instance
+
+    Returns:
+        3D numpy array in Fortran order
+    """
+    logger.info(f"Using full vectorization to fill {vel_col.upper()} grid")
+
+    # Create 3D grid array in Fortran-order
+    grid_3d = np.zeros((nz, ny, nx), dtype=np.float32, order='F')
+
+    # Extract indices and velocities as numpy arrays
+    i_vals = grid_df['i'].values - 1  # Convert to 0-based
+    j_vals = grid_df['j'].values - 1
+    k_vals = grid_df['k'].values - 1
+    vel_vals = grid_df[vel_col].values * 1000  # Convert to m/s
+
+    # Create mask for valid indices
+    valid_mask = (
+        (i_vals >= 0) & (i_vals < nx) &
+        (j_vals >= 0) & (j_vals < ny) &
+        (k_vals >= 0) & (k_vals < nz)
+    )
+
+    # Filter to valid indices
+    k_valid = k_vals[valid_mask]
+    j_valid = j_vals[valid_mask]
+    i_valid = i_vals[valid_mask]
+    vel_valid = vel_vals[valid_mask]
+
+    # Vectorized assignment
+    logger.info(f"Assigning {len(vel_valid):,} values to grid...")
+    grid_3d[k_valid, j_valid, i_valid] = vel_valid
+
+    return grid_3d
+
+
+def _fill_grid_chunked_vectorized(grid_df, vel_col, nx, ny, nz, chunk_size, n_jobs, logger):
+    """Fill 3D grid array using chunked vectorization.
+
+    Args:
+        grid_df: DataFrame with velocity data
+        vel_col: Column name ('vp' or 'vs')
+        nx, ny, nz: Grid dimensions
+        chunk_size: Points per chunk
+        n_jobs: Number of workers
+        logger: Logger instance
+
+    Returns:
+        3D numpy array in Fortran order
+    """
+    logger.info(f"Using chunked vectorization to fill {vel_col.upper()} grid")
+    logger.info(f"Chunk size: {chunk_size:,}, Workers: {n_jobs if n_jobs != -1 else 'all cores'}")
+
+    # Create 3D grid array in Fortran-order
+    grid_3d = np.zeros((nz, ny, nx), dtype=np.float32, order='F')
+
+    # Extract arrays once
+    i_vals = grid_df['i'].values - 1
+    j_vals = grid_df['j'].values - 1
+    k_vals = grid_df['k'].values - 1
+    vel_vals = grid_df[vel_col].values * 1000
+
+    # Calculate chunks
+    num_chunks = (len(grid_df) + chunk_size - 1) // chunk_size
+    logger.info(f"Processing {len(grid_df):,} points in {num_chunks} chunks...")
+
+    def process_chunk(start_idx, end_idx):
+        """Process a chunk and return indices and values."""
+        i_chunk = i_vals[start_idx:end_idx]
+        j_chunk = j_vals[start_idx:end_idx]
+        k_chunk = k_vals[start_idx:end_idx]
+        vel_chunk = vel_vals[start_idx:end_idx]
+
+        # Filter valid indices
+        valid_mask = (
+            (i_chunk >= 0) & (i_chunk < nx) &
+            (j_chunk >= 0) & (j_chunk < ny) &
+            (k_chunk >= 0) & (k_chunk < nz)
+        )
+
+        return (
+            k_chunk[valid_mask],
+            j_chunk[valid_mask],
+            i_chunk[valid_mask],
+            vel_chunk[valid_mask]
+        )
+
+    # Process chunks in parallel
+    chunk_ranges = [
+        (i, min(i + chunk_size, len(grid_df)))
+        for i in range(0, len(grid_df), chunk_size)
+    ]
+
+    results = Parallel(n_jobs=n_jobs, backend='loky')(
+        delayed(process_chunk)(start, end)
+        for start, end in tqdm(chunk_ranges, desc=f"Filling {vel_col.upper()} grid", unit="chunk")
+    )
+
+    # Combine results into grid
+    logger.info("Combining results into 3D array...")
+    for k_chunk, j_chunk, i_chunk, vel_chunk in results:
+        grid_3d[k_chunk, j_chunk, i_chunk] = vel_chunk
+
+    return grid_3d
+
+
 def _fill_grid_chunk(chunk_rows, vel_col, nx, ny, nz):
     """Fill a chunk of grid points into the velocity array.
+
+    DEPRECATED: Use vectorized versions instead.
 
     Returns:
         List of tuples: (k, j, i, velocity_value)
@@ -650,8 +924,8 @@ def _generate_binary_files(config: DictConfig, grid_df: pd.DataFrame,
     if n_jobs is None:
         n_jobs = -1  # Use all CPU cores
 
-    # Use larger chunk size for grid processing
     grid_chunk_size = parallel_config.get('grid_chunk_size', 50000)
+    vectorize_threshold = parallel_config.get('vectorize_max_points', 100_000_000)
 
     # Determine which phases to process
     phase_type = vel_config.get('phase_type', 'both')
@@ -665,40 +939,18 @@ def _generate_binary_files(config: DictConfig, grid_df: pd.DataFrame,
     # Process each phase
     for phase, output_path in phases_to_process:
         logger.info(f"Processing {phase.upper()}-wave velocity...")
-        logger.info(f"Using parallel processing with n_jobs={n_jobs if n_jobs != -1 else 'all cores'}, chunk_size={grid_chunk_size:,}")
 
-        # Create 3D grid array in Fortran-order to match LATTE
         vel_col = 'vp' if phase == 'p' else 'vs'
-        grid_3d = np.zeros((nz, ny, nx), dtype=np.float32, order='F')
 
-        # Calculate number of chunks
-        num_chunks = (len(grid_df) + grid_chunk_size - 1) // grid_chunk_size
-        logger.info(f"Filling grid with {len(grid_df):,} points in {num_chunks} chunks...")
-
-        # Split grid into chunks using array slicing (faster than list of all rows)
-        def get_chunk(start_idx, end_idx):
-            chunk_data = []
-            for idx in range(start_idx, end_idx):
-                if idx < len(grid_df):
-                    row = grid_df.iloc[idx]
-                    chunk_data.append((idx, row))
-            return chunk_data
-
-        chunks = [
-            get_chunk(i, min(i + grid_chunk_size, len(grid_df)))
-            for i in range(0, len(grid_df), grid_chunk_size)
-        ]
-
-        # Process chunks in parallel with progress bar
-        all_results = Parallel(n_jobs=n_jobs, backend='loky')(
-            delayed(_fill_grid_chunk)(chunk, vel_col, nx, ny, nz)
-            for chunk in tqdm(chunks, desc=f"Filling {phase.upper()}-wave grid", unit="chunk")
-        )
-
-        # Combine results into grid
-        for chunk_results in all_results:
-            for k, j, i, velocity_ms in chunk_results:
-                grid_3d[k, j, i] = velocity_ms
+        # Hybrid vectorization: Choose approach based on grid size
+        if len(grid_df) < vectorize_threshold:
+            # FAST PATH: Full vectorization
+            grid_3d = _fill_grid_vectorized(grid_df, vel_col, nx, ny, nz, logger)
+        else:
+            # SAFE PATH: Chunked vectorization
+            grid_3d = _fill_grid_chunked_vectorized(
+                grid_df, vel_col, nx, ny, nz, grid_chunk_size, n_jobs, logger
+            )
 
         # Interpolate if requested
         if vel_config.get('interpolate', False):

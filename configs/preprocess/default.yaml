@@ -32,6 +32,7 @@ parallel:
   num_workers: null  # null = use all CPU cores, or set a specific number
   chunk_size: 100  # Number of events to process per chunk (for parse_picks_with_cartesian)
   grid_chunk_size: 50000  # Number of grid points to process per chunk (for velocity model creation)
+  vectorize_max_points: 100000000  # Max points for full vectorization (100M points ~ 6GB RAM)
 
 # Filtering options
 filters:
