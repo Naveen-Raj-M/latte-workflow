@@ -397,21 +397,38 @@ def create_velocity_model(config: DictConfig,
     if n_jobs is None:
         n_jobs = -1  # Use all CPU cores
 
-    chunk_size = parallel_config.get('chunk_size', 1000)
+    # Use larger chunk size for grid processing (grid has many more points than events)
+    # Default to 50000 points per chunk for better efficiency
+    grid_chunk_size = parallel_config.get('grid_chunk_size', 50000)
 
     logger.info(f"Assigning velocities from IASP91 model using parallel processing...")
-    logger.info(f"Using n_jobs={n_jobs if n_jobs != -1 else 'all cores'}, chunk_size={chunk_size}")
+    logger.info(f"Grid size: {len(grid_df):,} points")
+    logger.info(f"Using n_jobs={n_jobs if n_jobs != -1 else 'all cores'}, chunk_size={grid_chunk_size:,}")
 
     # Use capital case columns
     x_col = 'X_grid_km' if 'X_grid_km' in grid_df.columns else 'x'
     y_col = 'Y_grid_km' if 'Y_grid_km' in grid_df.columns else 'y'
     z_col = 'Z_grid_km' if 'Z_grid_km' in grid_df.columns else 'z'
 
-    # Split grid into chunks for parallel processing
-    grid_rows = list(grid_df.iterrows())
-    chunks = [grid_rows[i:i + chunk_size] for i in range(0, len(grid_rows), chunk_size)]
+    # Calculate number of chunks
+    num_chunks = (len(grid_df) + grid_chunk_size - 1) // grid_chunk_size
+    logger.info(f"Splitting into {num_chunks} chunks for parallel processing...")
 
-    logger.info(f"Processing {len(grid_df)} grid points in {len(chunks)} chunks...")
+    # Split grid into chunks using array slicing (much faster than iterrows)
+    def get_chunk(start_idx, end_idx):
+        chunk_data = []
+        for idx in range(start_idx, end_idx):
+            if idx < len(grid_df):
+                row = grid_df.iloc[idx]
+                chunk_data.append((idx, row))
+        return chunk_data
+
+    logger.info("Creating chunks...")
+    chunks = [
+        get_chunk(i, min(i + grid_chunk_size, len(grid_df)))
+        for i in range(0, len(grid_df), grid_chunk_size)
+    ]
+    logger.info(f"Created {len(chunks)} chunks. Starting parallel processing...")
 
     # Process chunks in parallel with progress bar
     all_results = Parallel(n_jobs=n_jobs, backend='loky')(
@@ -633,7 +650,8 @@ def _generate_binary_files(config: DictConfig, grid_df: pd.DataFrame,
     if n_jobs is None:
         n_jobs = -1  # Use all CPU cores
 
-    chunk_size = parallel_config.get('chunk_size', 1000)
+    # Use larger chunk size for grid processing
+    grid_chunk_size = parallel_config.get('grid_chunk_size', 50000)
 
     # Determine which phases to process
     phase_type = vel_config.get('phase_type', 'both')
@@ -647,17 +665,29 @@ def _generate_binary_files(config: DictConfig, grid_df: pd.DataFrame,
     # Process each phase
     for phase, output_path in phases_to_process:
         logger.info(f"Processing {phase.upper()}-wave velocity...")
-        logger.info(f"Using parallel processing with n_jobs={n_jobs if n_jobs != -1 else 'all cores'}, chunk_size={chunk_size}")
+        logger.info(f"Using parallel processing with n_jobs={n_jobs if n_jobs != -1 else 'all cores'}, chunk_size={grid_chunk_size:,}")
 
         # Create 3D grid array in Fortran-order to match LATTE
         vel_col = 'vp' if phase == 'p' else 'vs'
         grid_3d = np.zeros((nz, ny, nx), dtype=np.float32, order='F')
 
-        # Split grid into chunks for parallel processing
-        grid_rows = list(grid_df.iterrows())
-        chunks = [grid_rows[i:i + chunk_size] for i in range(0, len(grid_rows), chunk_size)]
+        # Calculate number of chunks
+        num_chunks = (len(grid_df) + grid_chunk_size - 1) // grid_chunk_size
+        logger.info(f"Filling grid with {len(grid_df):,} points in {num_chunks} chunks...")
 
-        logger.info(f"Filling grid with {len(grid_df)} points in {len(chunks)} chunks...")
+        # Split grid into chunks using array slicing (faster than list of all rows)
+        def get_chunk(start_idx, end_idx):
+            chunk_data = []
+            for idx in range(start_idx, end_idx):
+                if idx < len(grid_df):
+                    row = grid_df.iloc[idx]
+                    chunk_data.append((idx, row))
+            return chunk_data
+
+        chunks = [
+            get_chunk(i, min(i + grid_chunk_size, len(grid_df)))
+            for i in range(0, len(grid_df), grid_chunk_size)
+        ]
 
         # Process chunks in parallel with progress bar
         all_results = Parallel(n_jobs=n_jobs, backend='loky')(

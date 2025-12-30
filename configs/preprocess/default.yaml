@@ -30,7 +30,8 @@ data:
 # Parallel processing
 parallel:
   num_workers: null  # null = use all CPU cores, or set a specific number
-  chunk_size: 100  # Number of events to process per chunk
+  chunk_size: 100  # Number of events to process per chunk (for parse_picks_with_cartesian)
+  grid_chunk_size: 50000  # Number of grid points to process per chunk (for velocity model creation)
 
 # Filtering options
 filters:
