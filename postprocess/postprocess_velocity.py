@@ -10,6 +10,7 @@ import pandas as pd
 from typing import Tuple, Optional, Dict
 from omegaconf import DictConfig
 from scipy.interpolate import RegularGridInterpolator
+from tqdm import tqdm
 
 from utils.io_utils import ensure_directory_exists
 from utils.velocity_io import read_velocity_file, write_velocity_file, subsample_to_coarse_grid
@@ -127,31 +128,35 @@ def load_binary_file(bin_file: str, nx: int, ny: int, nz: int,
     return array_3d
 
 
-def find_nearest_grid_indices(query_coords: np.ndarray, 
+def find_nearest_grid_indices(query_coords: np.ndarray,
                                grid_coords: np.ndarray,
                                tolerance: float = 1e-6) -> Tuple[np.ndarray, np.ndarray]:
     """
-    Find nearest grid indices for query coordinates.
-    
+    Find nearest grid indices for query coordinates (VECTORIZED).
+
     Args:
         query_coords: Nx1 array of query coordinates
         grid_coords: Mx1 array of grid coordinates
         tolerance: Tolerance for exact match
-    
+
     Returns:
         indices: Integer indices (or -1 if no close match)
         is_exact: Boolean array indicating exact matches
     """
-    indices = np.full(len(query_coords), -1, dtype=np.int32)
-    is_exact = np.zeros(len(query_coords), dtype=bool)
-    
-    for i, qc in enumerate(query_coords):
-        diffs = np.abs(grid_coords - qc)
-        min_idx = np.argmin(diffs)
-        if diffs[min_idx] < tolerance:
-            indices[i] = min_idx
-            is_exact[i] = True
-    
+    # Vectorized computation using broadcasting
+    # Shape: (N, M) where N = len(query_coords), M = len(grid_coords)
+    diffs = np.abs(query_coords[:, np.newaxis] - grid_coords[np.newaxis, :])
+
+    # Find minimum distance indices for each query point
+    min_indices = np.argmin(diffs, axis=1)
+    min_diffs = diffs[np.arange(len(query_coords)), min_indices]
+
+    # Check if within tolerance
+    is_exact = min_diffs < tolerance
+
+    # Set indices to -1 where not within tolerance
+    indices = np.where(is_exact, min_indices, -1).astype(np.int32)
+
     return indices, is_exact
 
 
@@ -212,47 +217,61 @@ def sample_fine_grid_at_coarse_points(df_coarse: pd.DataFrame,
     vp_updated = 0
     vs_updated = 0
     
-    # Process exact matches with direct indexing
+    # Process exact matches with direct indexing (VECTORIZED)
     if n_exact > 0:
-        print("Processing exact matches...")
+        print("Processing exact matches (vectorized)...")
         if vp_fine is None and vs_fine is None:
             print("  Warning: Both Vp and Vs binaries are missing")
+
         exact_indices = np.where(exact_match)[0]
-        
-        for idx in exact_indices:
-            i, j, k = ix[idx], iy[idx], iz[idx]
 
-            # Get values from fine grid
-            vp_val = vp_fine[k, j, i] if vp_fine is not None else 0
-            vs_val = vs_fine[k, j, i] if vs_fine is not None else 0
+        # Get grid indices for all exact matches
+        i_exact = ix[exact_indices]
+        j_exact = iy[exact_indices]
+        k_exact = iz[exact_indices]
 
-            # Update Vp
-            if vp_fine is not None and vp_val > 0:
-                if use_chapman:
-                    depth = df_output.at[idx, 'depth']
-                    vp_val = np.exp(-max(depth, 0.001) / earth_radius) * vp_val
-                df_output.at[idx, 'vp'] = vp_val
-                vp_updated += 1
-                
-                # Update auxiliary fields
-                if auxiliary_fields['vp']['gradient'] is not None:
-                    df_output.at[idx, 'grad_vp'] = auxiliary_fields['vp']['gradient'][k, j, i]
-                if auxiliary_fields['vp']['search'] is not None:
-                    df_output.at[idx, 'srch_vp'] = auxiliary_fields['vp']['search'][k, j, i]
-            
-            # Update Vs
-            if vs_fine is not None and vs_val > 0:
-                if use_chapman:
-                    depth = df_output.at[idx, 'depth']
-                    vs_val = np.exp(-max(depth, 0.001) / earth_radius) * vs_val
-                df_output.at[idx, 'vs'] = vs_val
-                vs_updated += 1
-                
-                # Update auxiliary fields
-                if auxiliary_fields['vs']['gradient'] is not None:
-                    df_output.at[idx, 'grad_vs'] = auxiliary_fields['vs']['gradient'][k, j, i]
-                if auxiliary_fields['vs']['search'] is not None:
-                    df_output.at[idx, 'srch_vs'] = auxiliary_fields['vs']['search'][k, j, i]
+        # Get velocities for all exact matches (vectorized indexing)
+        if vp_fine is not None:
+            vp_vals = vp_fine[k_exact, j_exact, i_exact]
+            valid_vp = vp_vals > 0
+
+            if use_chapman:
+                depths = df_output.loc[exact_indices, 'depth'].values
+                chapman_factors = np.exp(-np.maximum(depths, 0.001) / earth_radius)
+                vp_vals = vp_vals * chapman_factors
+
+            # Update DataFrame using vectorized assignment
+            df_output.loc[exact_indices[valid_vp], 'vp'] = vp_vals[valid_vp]
+            vp_updated += np.sum(valid_vp)
+
+            # Update auxiliary fields
+            if auxiliary_fields['vp']['gradient'] is not None:
+                grad_vals = auxiliary_fields['vp']['gradient'][k_exact, j_exact, i_exact]
+                df_output.loc[exact_indices[valid_vp], 'grad_vp'] = grad_vals[valid_vp]
+            if auxiliary_fields['vp']['search'] is not None:
+                srch_vals = auxiliary_fields['vp']['search'][k_exact, j_exact, i_exact]
+                df_output.loc[exact_indices[valid_vp], 'srch_vp'] = srch_vals[valid_vp]
+
+        if vs_fine is not None:
+            vs_vals = vs_fine[k_exact, j_exact, i_exact]
+            valid_vs = vs_vals > 0
+
+            if use_chapman:
+                depths = df_output.loc[exact_indices, 'depth'].values
+                chapman_factors = np.exp(-np.maximum(depths, 0.001) / earth_radius)
+                vs_vals = vs_vals * chapman_factors
+
+            # Update DataFrame using vectorized assignment
+            df_output.loc[exact_indices[valid_vs], 'vs'] = vs_vals[valid_vs]
+            vs_updated += np.sum(valid_vs)
+
+            # Update auxiliary fields
+            if auxiliary_fields['vs']['gradient'] is not None:
+                grad_vals = auxiliary_fields['vs']['gradient'][k_exact, j_exact, i_exact]
+                df_output.loc[exact_indices[valid_vs], 'grad_vs'] = grad_vals[valid_vs]
+            if auxiliary_fields['vs']['search'] is not None:
+                srch_vals = auxiliary_fields['vs']['search'][k_exact, j_exact, i_exact]
+                df_output.loc[exact_indices[valid_vs], 'srch_vs'] = srch_vals[valid_vs]
     
     # Process points needing interpolation
     if n_interp > 0:
@@ -298,45 +317,58 @@ def sample_fine_grid_at_coarse_points(df_coarse: pd.DataFrame,
             x_coarse[interp_indices]
         ])
         
-        # Interpolate
+        # Interpolate (VECTORIZED)
         vp_interp = interp_vp(query_pts) if interp_vp is not None else np.zeros(len(query_pts))
         vs_interp = interp_vs(query_pts) if interp_vs is not None else np.zeros(len(query_pts))
-        
-        # Update DataFrame
-        for i, idx in enumerate(interp_indices):
-            # Update Vp
-            if interp_vp is not None and vp_interp[i] > 0:
-                vp_val = vp_interp[i]
-                if use_chapman:
-                    depth = df_output.at[idx, 'depth']
-                    vp_val = np.exp(-max(depth, 0.001) / earth_radius) * vp_val
-                df_output.at[idx, 'vp'] = vp_val
-                vp_updated += 1
-                
-                # Auxiliary fields
-                if 'gradient' in interp_aux['vp']:
-                    grad_vp = interp_aux['vp']['gradient'](query_pts[i:i+1])[0]
-                    df_output.at[idx, 'grad_vp'] = grad_vp
-                if 'search' in interp_aux['vp']:
-                    srch_vp = interp_aux['vp']['search'](query_pts[i:i+1])[0]
-                    df_output.at[idx, 'srch_vp'] = srch_vp
-            
-            # Update Vs
-            if interp_vs is not None and vs_interp[i] > 0:
-                vs_val = vs_interp[i]
-                if use_chapman:
-                    depth = df_output.at[idx, 'depth']
-                    vs_val = np.exp(-max(depth, 0.001) / earth_radius) * vs_val
-                df_output.at[idx, 'vs'] = vs_val
-                vs_updated += 1
-                
-                # Auxiliary fields
-                if 'gradient' in interp_aux['vs']:
-                    grad_vs = interp_aux['vs']['gradient'](query_pts[i:i+1])[0]
-                    df_output.at[idx, 'grad_vs'] = grad_vs
-                if 'search' in interp_aux['vs']:
-                    srch_vs = interp_aux['vs']['search'](query_pts[i:i+1])[0]
-                    df_output.at[idx, 'srch_vs'] = srch_vs
+
+        # Interpolate auxiliary fields
+        vp_grad_interp = None
+        vp_srch_interp = None
+        vs_grad_interp = None
+        vs_srch_interp = None
+
+        if 'gradient' in interp_aux['vp']:
+            vp_grad_interp = interp_aux['vp']['gradient'](query_pts)
+        if 'search' in interp_aux['vp']:
+            vp_srch_interp = interp_aux['vp']['search'](query_pts)
+        if 'gradient' in interp_aux['vs']:
+            vs_grad_interp = interp_aux['vs']['gradient'](query_pts)
+        if 'search' in interp_aux['vs']:
+            vs_srch_interp = interp_aux['vs']['search'](query_pts)
+
+        # Update Vp (vectorized)
+        if interp_vp is not None:
+            valid_vp = vp_interp > 0
+
+            if use_chapman:
+                depths = df_output.loc[interp_indices, 'depth'].values
+                chapman_factors = np.exp(-np.maximum(depths, 0.001) / earth_radius)
+                vp_interp = vp_interp * chapman_factors
+
+            df_output.loc[interp_indices[valid_vp], 'vp'] = vp_interp[valid_vp]
+            vp_updated += np.sum(valid_vp)
+
+            if vp_grad_interp is not None:
+                df_output.loc[interp_indices[valid_vp], 'grad_vp'] = vp_grad_interp[valid_vp]
+            if vp_srch_interp is not None:
+                df_output.loc[interp_indices[valid_vp], 'srch_vp'] = vp_srch_interp[valid_vp]
+
+        # Update Vs (vectorized)
+        if interp_vs is not None:
+            valid_vs = vs_interp > 0
+
+            if use_chapman:
+                depths = df_output.loc[interp_indices, 'depth'].values
+                chapman_factors = np.exp(-np.maximum(depths, 0.001) / earth_radius)
+                vs_interp = vs_interp * chapman_factors
+
+            df_output.loc[interp_indices[valid_vs], 'vs'] = vs_interp[valid_vs]
+            vs_updated += np.sum(valid_vs)
+
+            if vs_grad_interp is not None:
+                df_output.loc[interp_indices[valid_vs], 'grad_vs'] = vs_grad_interp[valid_vs]
+            if vs_srch_interp is not None:
+                df_output.loc[interp_indices[valid_vs], 'srch_vs'] = vs_srch_interp[valid_vs]
     
     print(f"\nUpdated Vp: {vp_updated} points")
     print(f"Updated Vs: {vs_updated} points")
@@ -390,28 +422,38 @@ def expand_to_fine_grid(df_coarse: pd.DataFrame,
     
     for field in fields_to_interpolate:
         print(f"  Interpolating {field}...")
-        
-        # Build 3D array from coarse data
+
+        # Build 3D array from coarse data (VECTORIZED)
         field_3d = np.zeros((coarse_grid.nz, coarse_grid.ny, coarse_grid.nx))
-        for _, row in df_coarse.iterrows():
-            i0 = int(row['i']) - 1
-            j0 = int(row['j']) - 1
-            k0 = int(row['k']) - 1
-            if 0 <= i0 < coarse_grid.nx and 0 <= j0 < coarse_grid.ny and 0 <= k0 < coarse_grid.nz:
-                field_3d[k0, j0, i0] = row[field]
-        
+
+        # Extract indices and values as arrays
+        i_coarse = df_coarse['i'].values - 1
+        j_coarse = df_coarse['j'].values - 1
+        k_coarse = df_coarse['k'].values - 1
+        field_vals = df_coarse[field].values
+
+        # Create mask for valid indices
+        valid_mask = (
+            (i_coarse >= 0) & (i_coarse < coarse_grid.nx) &
+            (j_coarse >= 0) & (j_coarse < coarse_grid.ny) &
+            (k_coarse >= 0) & (k_coarse < coarse_grid.nz)
+        )
+
+        # Vectorized assignment
+        field_3d[k_coarse[valid_mask], j_coarse[valid_mask], i_coarse[valid_mask]] = field_vals[valid_mask]
+
         # Interpolate
         interpolator = RegularGridInterpolator(
             (coarse_grid.z_coords, coarse_grid.y_coords, coarse_grid.x_coords),
             field_3d, method='linear', bounds_error=False, fill_value=0.0
         )
-        
+
         query_pts = np.column_stack([
             df_fine['Z_grid_km'].values,
             df_fine['Y_grid_km'].values,
             df_fine['X_grid_km'].values
         ])
-        
+
         df_fine[field] = interpolator(query_pts)
     
     # Add columns for auxiliary fields
@@ -421,47 +463,59 @@ def expand_to_fine_grid(df_coarse: pd.DataFrame,
         if auxiliary_fields[param]['search'] is not None:
             df_fine[f'srch_{param}'] = np.nan
     
-    # Now assign velocities from fine grid binaries (direct indexing)
-    print("Assigning velocities from fine grid binaries...")
-    
+    # Now assign velocities from fine grid binaries (VECTORIZED)
+    print("Assigning velocities from fine grid binaries (vectorized)...")
+
     vp_updated = 0
     vs_updated = 0
-    
-    for idx in range(len(df_fine)):
-        i0 = int(df_fine.at[idx, 'i']) - 1
-        j0 = int(df_fine.at[idx, 'j']) - 1
-        k0 = int(df_fine.at[idx, 'k']) - 1
-        
-        # Get values
-        vp_val = vp_fine[k0, j0, i0]
-        vs_val = vs_fine[k0, j0, i0]
-        
-        # Update Vp
-        if vp_val > 0:
-            if use_chapman:
-                depth = df_fine.at[idx, 'depth']
-                vp_val = np.exp(-max(depth, 0.001) / earth_radius) * vp_val
-            df_fine.at[idx, 'vp'] = vp_val
-            vp_updated += 1
-            
-            if auxiliary_fields['vp']['gradient'] is not None:
-                df_fine.at[idx, 'grad_vp'] = auxiliary_fields['vp']['gradient'][k0, j0, i0]
-            if auxiliary_fields['vp']['search'] is not None:
-                df_fine.at[idx, 'srch_vp'] = auxiliary_fields['vp']['search'][k0, j0, i0]
-        
-        # Update Vs
-        if vs_val > 0:
-            if use_chapman:
-                depth = df_fine.at[idx, 'depth']
-                vs_val = np.exp(-max(depth, 0.001) / earth_radius) * vs_val
-            df_fine.at[idx, 'vs'] = vs_val
-            vs_updated += 1
-            
-            if auxiliary_fields['vs']['gradient'] is not None:
-                df_fine.at[idx, 'grad_vs'] = auxiliary_fields['vs']['gradient'][k0, j0, i0]
-            if auxiliary_fields['vs']['search'] is not None:
-                df_fine.at[idx, 'srch_vs'] = auxiliary_fields['vs']['search'][k0, j0, i0]
-    
+
+    # Extract indices as arrays (convert to 0-based)
+    i_fine = df_fine['i'].values - 1
+    j_fine = df_fine['j'].values - 1
+    k_fine = df_fine['k'].values - 1
+
+    # Get all velocity values at once (vectorized fancy indexing)
+    vp_vals = vp_fine[k_fine, j_fine, i_fine]
+    vs_vals = vs_fine[k_fine, j_fine, i_fine]
+
+    # Update Vp (vectorized)
+    valid_vp = vp_vals > 0
+
+    if use_chapman:
+        depths = df_fine['depth'].values
+        chapman_factors = np.exp(-np.maximum(depths, 0.001) / earth_radius)
+        vp_vals = vp_vals * chapman_factors
+
+    df_fine.loc[valid_vp, 'vp'] = vp_vals[valid_vp]
+    vp_updated = np.sum(valid_vp)
+
+    # Update Vp auxiliary fields
+    if auxiliary_fields['vp']['gradient'] is not None:
+        grad_vp_vals = auxiliary_fields['vp']['gradient'][k_fine, j_fine, i_fine]
+        df_fine.loc[valid_vp, 'grad_vp'] = grad_vp_vals[valid_vp]
+    if auxiliary_fields['vp']['search'] is not None:
+        srch_vp_vals = auxiliary_fields['vp']['search'][k_fine, j_fine, i_fine]
+        df_fine.loc[valid_vp, 'srch_vp'] = srch_vp_vals[valid_vp]
+
+    # Update Vs (vectorized)
+    valid_vs = vs_vals > 0
+
+    if use_chapman:
+        depths = df_fine['depth'].values
+        chapman_factors = np.exp(-np.maximum(depths, 0.001) / earth_radius)
+        vs_vals = vs_vals * chapman_factors
+
+    df_fine.loc[valid_vs, 'vs'] = vs_vals[valid_vs]
+    vs_updated = np.sum(valid_vs)
+
+    # Update Vs auxiliary fields
+    if auxiliary_fields['vs']['gradient'] is not None:
+        grad_vs_vals = auxiliary_fields['vs']['gradient'][k_fine, j_fine, i_fine]
+        df_fine.loc[valid_vs, 'grad_vs'] = grad_vs_vals[valid_vs]
+    if auxiliary_fields['vs']['search'] is not None:
+        srch_vs_vals = auxiliary_fields['vs']['search'][k_fine, j_fine, i_fine]
+        df_fine.loc[valid_vs, 'srch_vs'] = srch_vs_vals[valid_vs]
+
     print(f"\nUpdated Vp: {vp_updated} points")
     print(f"Updated Vs: {vs_updated} points")
     
