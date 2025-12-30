@@ -77,7 +77,7 @@ def create_basic_comparison_plots(differences: Dict[str, np.ndarray],
     # origin at (0,0)
     axes[0].set_xlim(left=0)
     axes[0].set_ylim(bottom=0)
-    axes[0].legend()
+    axes[0].legend(loc='upper left')
     axes[0].grid(True, alpha=0.3)
     
     # Vs comparison scatter
@@ -90,7 +90,7 @@ def create_basic_comparison_plots(differences: Dict[str, np.ndarray],
     # origin at (0,0)
     axes[1].set_xlim(left=0)
     axes[1].set_ylim(bottom=0)
-    axes[1].legend()
+    axes[1].legend(loc='upper left')
     axes[1].grid(True, alpha=0.3)
     
     # Vp/Vs ratio comparison
@@ -101,7 +101,7 @@ def create_basic_comparison_plots(differences: Dict[str, np.ndarray],
     axes[2].set_xlabel(f'{model1_name} Vp/Vs Ratio')
     axes[2].set_ylabel(f'{model2_name} Vp/Vs Ratio')
     axes[2].set_title('Vp/Vs Ratio Comparison')
-    axes[2].legend()
+    axes[2].legend(loc='upper left')
     axes[2].grid(True, alpha=0.3)
     
     # Difference histograms
@@ -112,7 +112,7 @@ def create_basic_comparison_plots(differences: Dict[str, np.ndarray],
     axes[3].set_xlabel(f'Vp Difference (km/s)\n{difference_label}')
     axes[3].set_ylabel('Frequency')
     axes[3].set_title('Vp Differences Distribution')
-    axes[3].legend()
+    axes[3].legend(loc='upper left')
     axes[3].grid(True, alpha=0.3)
     
     axes[4].hist(differences['vs_diff'], bins=50, alpha=0.7, color='green', 
@@ -122,7 +122,7 @@ def create_basic_comparison_plots(differences: Dict[str, np.ndarray],
     axes[4].set_xlabel(f'Vs Difference (km/s)\n{difference_label}')
     axes[4].set_ylabel('Frequency')
     axes[4].set_title('Vs Differences Distribution')
-    axes[4].legend()
+    axes[4].legend(loc='upper left')
     axes[4].grid(True, alpha=0.3)
 
     # Get combined limits from both histograms
@@ -144,7 +144,7 @@ def create_basic_comparison_plots(differences: Dict[str, np.ndarray],
     axes[5].set_xlabel(f'Vp/Vs Ratio Difference\n{difference_label}')
     axes[5].set_ylabel('Frequency')
     axes[5].set_title('Ratio Differences Distribution')
-    axes[5].legend()
+    axes[5].legend(loc='upper left')
     axes[5].grid(True, alpha=0.3)
     
     plt.suptitle(f'Velocity Model Comparison: {model1_name} vs {model2_name}', fontsize=20)
@@ -353,7 +353,7 @@ def create_profile_comparison_plots(df1: pd.DataFrame, df2: pd.DataFrame,
     axes[0].set_xlabel('Vp (km/s)')
     axes[0].set_ylabel('Depth (km)')
     axes[0].set_title(f'Vp Profile at Max Ratio Change\n({extremes["max_positive_coords"][0]:.1f}, {extremes["max_positive_coords"][1]:.1f}) km\nAvg change: {extremes["max_positive_avg_change"]:.4f}')
-    axes[0].legend()
+    axes[0].legend(loc='upper right')
     axes[0].grid(True, alpha=0.3)
     axes[0].invert_yaxis()
 
@@ -372,7 +372,7 @@ def create_profile_comparison_plots(df1: pd.DataFrame, df2: pd.DataFrame,
     axes[1].set_xlabel('Vs (km/s)')
     axes[1].set_ylabel('Depth (km)')
     axes[1].set_title(f'Vs Profile at Max Ratio Change\n({extremes["max_positive_coords"][0]:.1f}, {extremes["max_positive_coords"][1]:.1f}) km\nAvg change: {extremes["max_positive_avg_change"]:.4f}')
-    axes[1].legend()
+    axes[1].legend(loc='upper right')
     axes[1].grid(True, alpha=0.3)
     axes[1].invert_yaxis()
 
@@ -394,7 +394,7 @@ def create_profile_comparison_plots(df1: pd.DataFrame, df2: pd.DataFrame,
     axes[2].set_xlabel('Vp (km/s)')
     axes[2].set_ylabel('Depth (km)')
     axes[2].set_title(f'Vp Profile at Min Ratio Change\n({extremes["min_ratio_coords"][0]:.1f}, {extremes["min_ratio_coords"][1]:.1f}) km\nAvg change: {extremes["min_ratio_avg_change"]:.4f}')
-    axes[2].legend()
+    axes[2].legend(loc='upper right')
     axes[2].grid(True, alpha=0.3)
     axes[2].invert_yaxis()
 
@@ -413,7 +413,7 @@ def create_profile_comparison_plots(df1: pd.DataFrame, df2: pd.DataFrame,
     axes[3].set_xlabel('Vs (km/s)')
     axes[3].set_ylabel('Depth (km)')
     axes[3].set_title(f'Vs Profile at Min Ratio Change\n({extremes["min_ratio_coords"][0]:.1f}, {extremes["min_ratio_coords"][1]:.1f}) km\nAvg change: {extremes["min_ratio_avg_change"]:.4f}')
-    axes[3].legend()
+    axes[3].legend(loc='upper right')
     axes[3].grid(True, alpha=0.3)
     axes[3].invert_yaxis()
 
@@ -577,7 +577,7 @@ def create_domain_overview_plot(df: pd.DataFrame, extremes: Dict[str, Any],
     axes[0].set_xlabel('X (km)')
     axes[0].set_ylabel('Y (km)')
     axes[0].set_title('Domain Overview - Map View')
-    axes[0].legend()
+    axes[0].legend(loc='upper right')
     axes[0].grid(True, alpha=0.3)
     
     # Cross section view (X-Z)
@@ -603,7 +603,7 @@ def create_domain_overview_plot(df: pd.DataFrame, extremes: Dict[str, Any],
     axes[1].set_xlabel('X (km)')
     axes[1].set_ylabel('Z (km)')
     axes[1].set_title('Domain Overview - Cross Section')
-    axes[1].legend()
+    axes[1].legend(loc='upper right')
     axes[1].grid(True, alpha=0.3)
     axes[1].invert_yaxis()
     
