@@ -642,7 +642,7 @@ def create_velocity_model(config: DictConfig,
     # Prepare coarse grid config if enabled
     coarse_config = None
     hdf5_opts = vel_config.get('hdf5_options', {})
-    if hdf5_opts.get('create_coarse_dataset', False):
+    if hdf5_opts.get('create_coarse_dataset', False) or hdf5_opts.get('write_coarse_csv', False):
         coarse_config = {
             'dx_coarse': hdf5_opts.coarse_grid.dx,
             'dy_coarse': hdf5_opts.coarse_grid.dy,
