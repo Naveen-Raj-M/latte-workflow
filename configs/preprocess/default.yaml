@@ -217,7 +217,7 @@ visualization:
 
   # Ray density visualization (coverage analysis)
   ray_density:
-    enabled: true
+    enabled: false
     output_dir: "${data.output_base_dir}/visualizations"
     # Threshold for ray count (values below this are displayed as white)
     threshold: 1  # Set to 0 to show all cells, >0 to highlight well-covered regions
