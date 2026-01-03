@@ -26,6 +26,7 @@ from preprocess.visualization import (
     create_station_event_visualization,
     create_velocity_model_visualization
 )
+from preprocess.ray_density_visualization import create_ray_density_visualization
 
 # Import utilities
 from utils.logging_utils import setup_logging, ProcessTimer
@@ -146,7 +147,7 @@ def run_velocity_model(cfg: DictConfig, events_cart, stations_cart) -> None:
 
 
 def run_visualization(cfg: DictConfig, events_df, stations_df,
-                     picks_df) -> None:
+                     picks_df, events_cart=None, stations_cart=None) -> None:
     """Create visualizations.
 
     Args:
@@ -154,6 +155,8 @@ def run_visualization(cfg: DictConfig, events_df, stations_df,
         events_df: DataFrame with events (geodetic coordinates).
         stations_df: DataFrame with stations (geodetic coordinates).
         picks_df: DataFrame with picks.
+        events_cart: DataFrame with events (Cartesian coordinates). Optional.
+        stations_cart: DataFrame with stations (Cartesian coordinates). Optional.
     """
     if not cfg.visualization.enabled:
         return
@@ -184,6 +187,18 @@ def run_visualization(cfg: DictConfig, events_df, stations_df,
             )
             print(f"  Velocity model visualizations saved to: "
                   f"{cfg.visualization.velocity_model_vis.output_dir}")
+
+    # Ray density visualization
+    if ('ray_density' in cfg.visualization and
+        cfg.visualization.ray_density.enabled and
+        events_cart is not None and stations_cart is not None):
+        print("\nCreating ray density visualization...")
+        with ProcessTimer("Ray Density Visualization"):
+            create_ray_density_visualization(
+                cfg, events_cart, stations_cart, picks_df
+            )
+            print(f"  Ray density visualizations saved to: "
+                  f"{cfg.visualization.ray_density.output_dir}")
 
 
 def setup_output_directories(config: DictConfig) -> None:
@@ -319,7 +334,8 @@ def run_preprocessing_pipeline(config: DictConfig) -> None:
         run_velocity_model(config, events_cart, stations_cart)
 
         # Step 5: Visualizations
-        run_visualization(config, events_df, stations_df, picks_df)
+        run_visualization(config, events_df, stations_df, picks_df,
+                         events_cart, stations_cart)
 
         print("\n" + "="*60)
         print("PREPROCESSING PIPELINE COMPLETED SUCCESSFULLY")

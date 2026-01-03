@@ -208,9 +208,31 @@ visualization:
       
   # Velocity model visualization
   velocity_model_vis:
-    enabled: true
+    enabled: false
     output_dir: "${data.output_base_dir}/visualizations"
     plot_depth_slices: true
     depth_slices: [5, 10, 20, 30, 40, 50]  # Depths in km
     plot_profiles: true
     profile_type: "both"  # Options: lat, lon, both
+
+  # Ray density visualization (coverage analysis)
+  ray_density:
+    enabled: true
+    output_dir: "${data.output_base_dir}/visualizations"
+    # Threshold for ray count (values below this are displayed as white)
+    threshold: 1  # Set to 0 to show all cells, >0 to highlight well-covered regions
+    # Report generation
+    generate_report: true  # Generate ray_path_density_report.txt with statistics
+    # Which planes to plot
+    plot_xy: true  # Map view (summed over depth)
+    plot_xz: true  # Vertical cross-section (summed over Y)
+    plot_yz: true  # Vertical cross-section (summed over X)
+    # Colormap for density plots
+    density_colormap: "hot"  # Options: hot, viridis, plasma, inferno, jet
+    # Parallel processing
+    use_parallel: true  # Enable parallel processing (currently unused, reserved for future)
+    show_progress: true  # Show progress bar during computation
+    # Figure settings (inherits from station_event_vis if not specified)
+    figure_size: null  # null = inherit, or [width, height]
+    figure_dpi: null   # null = inherit
+    fontsize: null     # null = inherit fontsize settings
