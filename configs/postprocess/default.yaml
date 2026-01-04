@@ -95,7 +95,7 @@ ray_path_visualization:
   enabled: false
   phase_type: "both"  # Options: both, p, s
   gradient_dir: "${data.base_dir}/gradient"  # Directory containing gradient files
-  ground_truth_csv: "${synthetic_tt_output_csv}"  # Use synthetic travel times as ground truth
+  ground_truth_csv: "${travel_time_processing.synthetic_tt_output_csv}"  # Use synthetic travel times as ground truth
   shot_map_file: "${travel_time_processing.shot_map_file}"
   output_dir: "${data.analysis_output_dir}/ray_paths"
   precision: "single"  # Options: single, double (must match gradient file precision)
