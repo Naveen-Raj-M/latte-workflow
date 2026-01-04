@@ -11,11 +11,11 @@ import hydra
 from omegaconf import DictConfig, OmegaConf
 
 # Import preprocessing functions
-from preprocess.coordinate_transformation import transform_coordinates
-from preprocess.initial_velocity_model import create_initial_3d_model, validate_velocity_model
-from preprocess.geometry_traveltime import create_geometry_and_traveltime_files
-from preprocess.velocity_binary import create_velocity_binary_files
-from preprocess.visualization import (
+from preprocess_huang.coordinate_transformation import transform_coordinates
+from preprocess_huang.initial_velocity_model import create_initial_3d_model, validate_velocity_model
+from preprocess_huang.geometry_traveltime import create_geometry_and_traveltime_files
+from preprocess_huang.velocity_binary import create_velocity_binary_files
+from preprocess_huang.visualization import (
     create_station_event_visualization, 
     create_velocity_comparison_plots,
     create_velocity_animation
