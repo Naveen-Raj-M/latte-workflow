@@ -92,7 +92,7 @@ source_processing:
   srch_st0_file: "${data.base_dir}/model/srch_st0.bin"
 
 ray_path_visualization:
-  enabled: falsee
+  enabled: false
   phase_type: "both"  # Options: both, p, s
   gradient_dir: "${data.base_dir}/gradient"  # Directory containing gradient files
   ground_truth_csv: "/full/path/to/ground_truth_travel_times_corrected.csv"
