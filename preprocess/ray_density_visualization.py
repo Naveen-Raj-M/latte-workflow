@@ -378,6 +378,150 @@ def plot_ray_density_yz(density_3d: np.ndarray,
     logger.info(f"Saved YZ plane density plot: {output_file}")
 
 
+def plot_ray_density_xy_threshold_count(density_3d: np.ndarray,
+                                         grid_dims: Dict,
+                                         output_file: Path,
+                                         threshold: float,
+                                         vis_config: DictConfig) -> None:
+    """Plot map view showing count of depth layers with rays >= threshold.
+
+    Each grid cell (x, y) is colored by the number of depth layers below it
+    that contain at least 'threshold' rays.
+
+    Args:
+        density_3d: 3D ray density array
+        grid_dims: Grid dimension dictionary
+        output_file: Output file path
+        threshold: Ray count threshold
+        vis_config: Visualization configuration
+    """
+    logger = logging.getLogger(__name__)
+
+    # For each (x, y) position, count how many z layers have >= threshold rays
+    # density_3d has shape (nx, ny, nz)
+    threshold_mask = density_3d >= threshold  # Boolean array
+    depth_layer_count = np.sum(threshold_mask, axis=2)  # Sum over Z axis, shape: (nx, ny)
+
+    # Create coordinate arrays for plotting
+    x_coords = np.arange(grid_dims['x_min'], grid_dims['x_max'] + grid_dims['dx']/2, grid_dims['dx'])
+    y_coords = np.arange(grid_dims['y_min'], grid_dims['y_max'] + grid_dims['dy']/2, grid_dims['dy'])
+
+    # Create figure
+    fig, ax = plt.subplots(figsize=tuple(vis_config.get('figure_size', [12, 10])),
+                          dpi=vis_config.get('figure_dpi', 150))
+
+    # Mask cells with zero depth layers above threshold
+    depth_count_masked = np.ma.masked_where(depth_layer_count.T == 0, depth_layer_count.T)
+
+    # Plot
+    cmap = plt.get_cmap(vis_config.get('density_colormap', 'hot'))
+    cmap.set_bad(color='white')  # Set masked values to white
+
+    im = ax.pcolormesh(x_coords, y_coords, depth_count_masked,
+                       cmap=cmap, shading='auto')
+
+    # Colorbar
+    cbar = plt.colorbar(im, ax=ax)
+    fontsize = vis_config.get('fontsize', {})
+    cbar.set_label(f'Number of depth layers with >= {threshold} rays',
+                   fontsize=fontsize.get('colorbar_label', 14))
+    cbar.ax.tick_params(labelsize=fontsize.get('colorbar_ticks', 12))
+
+    # Labels and title
+    ax.set_xlabel('X (km)', fontsize=fontsize.get('axis_label', 16))
+    ax.set_ylabel('Y (km)', fontsize=fontsize.get('axis_label', 16))
+    ax.set_title(f'Ray Coverage - Depth Layers with >= {threshold} Rays (Map View)',
+                fontsize=fontsize.get('title', 18), fontweight='bold')
+    ax.tick_params(axis='both', labelsize=fontsize.get('axis_ticks', 14))
+    ax.grid(True, alpha=0.3)
+    ax.set_aspect('equal')
+
+    plt.tight_layout()
+    fig.savefig(output_file, dpi=vis_config.get('figure_dpi', 150), bbox_inches='tight')
+    plt.close(fig)
+
+    logger.info(f"Saved XY threshold count plot: {output_file}")
+
+
+def plot_ray_density_depth_slices(density_3d: np.ndarray,
+                                   grid_dims: Dict,
+                                   output_dir: Path,
+                                   depth_values: list,
+                                   threshold: float,
+                                   vis_config: DictConfig) -> None:
+    """Plot horizontal slices at specified depths showing ray density.
+
+    Each grid cell in a slice is colored by the number of rays passing through
+    that particular grid cell at that depth.
+
+    Args:
+        density_3d: 3D ray density array
+        grid_dims: Grid dimension dictionary
+        output_dir: Output directory for slice plots
+        depth_values: List of depths (in km) to create slices for
+        threshold: Ray count threshold (values below are white)
+        vis_config: Visualization configuration
+    """
+    logger = logging.getLogger(__name__)
+
+    # Create coordinate arrays for plotting
+    x_coords = np.arange(grid_dims['x_min'], grid_dims['x_max'] + grid_dims['dx']/2, grid_dims['dx'])
+    y_coords = np.arange(grid_dims['y_min'], grid_dims['y_max'] + grid_dims['dy']/2, grid_dims['dy'])
+
+    for depth_km in depth_values:
+        # Find the closest depth index
+        depth_index = int(np.round((depth_km - grid_dims['z_min']) / grid_dims['dz']))
+
+        # Check if depth is within grid bounds
+        if depth_index < 0 or depth_index >= grid_dims['nz']:
+            logger.warning(f"Depth {depth_km} km is outside grid bounds "
+                          f"[{grid_dims['z_min']}, {grid_dims['z_max']}] km, skipping")
+            continue
+
+        # Extract the depth slice (XY plane at this Z level)
+        actual_depth = grid_dims['z_min'] + depth_index * grid_dims['dz']
+        depth_slice = density_3d[:, :, depth_index]  # Shape: (nx, ny)
+
+        # Create figure
+        fig, ax = plt.subplots(figsize=tuple(vis_config.get('figure_size', [12, 10])),
+                              dpi=vis_config.get('figure_dpi', 150))
+
+        # Mask values below threshold
+        slice_masked = np.ma.masked_where(depth_slice.T < threshold, depth_slice.T)
+
+        # Plot
+        cmap = plt.get_cmap(vis_config.get('density_colormap', 'hot'))
+        cmap.set_bad(color='white')  # Set masked values to white
+
+        im = ax.pcolormesh(x_coords, y_coords, slice_masked,
+                          cmap=cmap, shading='auto')
+
+        # Colorbar
+        cbar = plt.colorbar(im, ax=ax)
+        fontsize = vis_config.get('fontsize', {})
+        cbar.set_label('Ray Count',
+                      fontsize=fontsize.get('colorbar_label', 14))
+        cbar.ax.tick_params(labelsize=fontsize.get('colorbar_ticks', 12))
+
+        # Labels and title
+        ax.set_xlabel('X (km)', fontsize=fontsize.get('axis_label', 16))
+        ax.set_ylabel('Y (km)', fontsize=fontsize.get('axis_label', 16))
+        ax.set_title(f'Ray Density at Depth = {actual_depth:.2f} km',
+                    fontsize=fontsize.get('title', 18), fontweight='bold')
+        ax.tick_params(axis='both', labelsize=fontsize.get('axis_ticks', 14))
+        ax.grid(True, alpha=0.3)
+        ax.set_aspect('equal')
+
+        plt.tight_layout()
+
+        # Save with depth in filename
+        output_file = output_dir / f'ray_density_depth_{actual_depth:.1f}km.png'
+        fig.savefig(output_file, dpi=vis_config.get('figure_dpi', 150), bbox_inches='tight')
+        plt.close(fig)
+
+        logger.info(f"Saved depth slice at {actual_depth:.2f} km: {output_file}")
+
+
 def generate_ray_density_report(density_3d: np.ndarray,
                                  grid_dims: Dict,
                                  threshold: float,
@@ -527,6 +671,30 @@ def generate_ray_density_report(density_3d: np.ndarray,
 
         f.write("\n")
 
+        # Threshold-based depth layer count analysis
+        f.write("="*80 + "\n")
+        f.write("THRESHOLD-BASED DEPTH LAYER COUNT (XY PLANE)\n")
+        f.write("="*80 + "\n")
+        threshold_mask = density_3d >= threshold
+        depth_layer_count = np.sum(threshold_mask, axis=2)  # Count of z-layers >= threshold per (x,y)
+
+        total_xy_cells = depth_layer_count.size
+        cells_with_no_layers = np.sum(depth_layer_count == 0)
+        cells_with_some_layers = total_xy_cells - cells_with_no_layers
+
+        f.write(f"Analyzing each (x,y) position for number of depth layers with >= {threshold} rays:\n")
+        f.write(f"Total XY cells: {total_xy_cells:,}\n")
+        f.write(f"Cells with no depth layers >= threshold: {cells_with_no_layers:10,} ({100*cells_with_no_layers/total_xy_cells:6.2f}%)\n")
+        f.write(f"Cells with some depth layers >= threshold: {cells_with_some_layers:10,} ({100*cells_with_some_layers/total_xy_cells:6.2f}%)\n\n")
+
+        if cells_with_some_layers > 0:
+            nonzero_counts = depth_layer_count[depth_layer_count > 0]
+            f.write("Depth layer count statistics (for XY cells with at least one layer >= threshold):\n")
+            f.write(f"  Min layers:     {nonzero_counts.min():10,}\n")
+            f.write(f"  Max layers:     {nonzero_counts.max():10,} (out of {grid_dims['nz']} total depth layers)\n")
+            f.write(f"  Mean layers:    {nonzero_counts.mean():10.2f}\n")
+            f.write(f"  Median layers:  {np.median(nonzero_counts):10.2f}\n\n")
+
         # Summary and recommendations
         f.write("="*80 + "\n")
         f.write("SUMMARY AND RECOMMENDATIONS\n")
@@ -625,7 +793,7 @@ def create_ray_density_visualization(config: DictConfig,
     if not vis_config.get('fontsize'):
         vis_config.fontsize = config.visualization.station_event_vis.fontsize
 
-    # Create plots for each plane
+    # Create plots for each plane (summed projections)
     if ray_density_config.get('plot_xy', True):
         plot_ray_density_xy(density_3d, grid_dims,
                            output_dir / 'ray_density_xy.png',
@@ -640,5 +808,20 @@ def create_ray_density_visualization(config: DictConfig,
         plot_ray_density_yz(density_3d, grid_dims,
                            output_dir / 'ray_density_yz.png',
                            threshold, vis_config)
+
+    # Create new visualization: Map view with threshold-based depth layer counting
+    if ray_density_config.get('plot_xy_threshold_count', False):
+        plot_ray_density_xy_threshold_count(density_3d, grid_dims,
+                                            output_dir / 'ray_density_xy_threshold_count.png',
+                                            threshold, vis_config)
+
+    # Create new visualization: Depth slices at specified depths
+    if ray_density_config.get('plot_depth_slices', False):
+        depth_slices = ray_density_config.get('depth_slices', [])
+        if depth_slices:
+            plot_ray_density_depth_slices(density_3d, grid_dims, output_dir,
+                                         depth_slices, threshold, vis_config)
+        else:
+            logger.warning("plot_depth_slices is enabled but no depth_slices specified")
 
     logger.info(f"Ray density visualizations saved to: {output_dir}")
