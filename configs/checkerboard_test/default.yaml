@@ -251,9 +251,9 @@ visualization:
   diff_vmax: 0.5   # km/s
   symmetric_colorbar: true  # Force symmetric colorbar for differences
 
-  # For pattern plots (model - input)
-  pattern_vmin: -0.5  # km/s
-  pattern_vmax: 0.5   # km/s
+  # For pattern plots (model - input) - shown as percentage perturbation
+  pattern_vmin: -10.0  # percentage (%)
+  pattern_vmax: 10.0   # percentage (%)
   pattern_colormap: "seismic"  # Colormap for pattern plots
   pattern_symmetric_colorbar: true  # Force symmetric colorbar for patterns
 

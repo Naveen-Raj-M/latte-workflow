@@ -111,8 +111,8 @@ def plot_xy_slice(
     if config["show_colorbar"]:
         cbar = plt.colorbar(im, ax=ax)
         # Determine label based on plot type
-        if "pattern" in title_prefix.lower():
-            label = "Velocity Perturbation (km/s)"
+        if "pattern" in title_prefix.lower() or "pct" in title_prefix.lower():
+            label = "Velocity Perturbation (%)"
         elif "diff" in title_prefix.lower():
             label = "Velocity Difference (km/s)"
         else:
@@ -190,8 +190,8 @@ def plot_xz_slice(
     if config["show_colorbar"]:
         cbar = plt.colorbar(im, ax=ax)
         # Determine label based on plot type
-        if "pattern" in title_prefix.lower():
-            label = "Velocity Perturbation (km/s)"
+        if "pattern" in title_prefix.lower() or "pct" in title_prefix.lower():
+            label = "Velocity Perturbation (%)"
         elif "diff" in title_prefix.lower():
             label = "Velocity Difference (km/s)"
         else:
@@ -269,8 +269,8 @@ def plot_yz_slice(
     if config["show_colorbar"]:
         cbar = plt.colorbar(im, ax=ax)
         # Determine label based on plot type
-        if "pattern" in title_prefix.lower():
-            label = "Velocity Perturbation (km/s)"
+        if "pattern" in title_prefix.lower() or "pct" in title_prefix.lower():
+            label = "Velocity Perturbation (%)"
         elif "diff" in title_prefix.lower():
             label = "Velocity Difference (km/s)"
         else:
@@ -472,47 +472,61 @@ def visualize_checkerboard_test(
 
         visualize_model(df_diff, output_dir, diff_config, "difference")
 
-    # Visualize checkerboard pattern only (checkerboard - input)
+    # Visualize checkerboard pattern only (checkerboard - input) as percentage perturbation
     if config.get("visualize_checkerboard_pattern", False) and checkerboard_csv is not None and input_csv is not None:
-        logger.info("Visualizing checkerboard pattern (checkerboard - input)")
+        logger.info("Visualizing checkerboard pattern as percentage perturbation")
 
         df_checkerboard = read_velocity_file(checkerboard_csv, show_progress=False)
         df_input = read_velocity_file(input_csv, show_progress=False)
 
-        # Calculate pattern
+        # Calculate pattern as percentage perturbation: ((perturbed - original) / original) * 100
         df_pattern = df_checkerboard.copy()
         velocity_field = config["velocity_field"]
-        df_pattern[velocity_field] = df_checkerboard[velocity_field] - df_input[velocity_field]
 
-        # Use pattern-specific color settings
+        # Avoid division by zero
+        with np.errstate(divide='ignore', invalid='ignore'):
+            perturbation_pct = ((df_checkerboard[velocity_field] - df_input[velocity_field]) / df_input[velocity_field]) * 100.0
+            # Replace inf/nan with 0
+            perturbation_pct = np.where(np.isfinite(perturbation_pct), perturbation_pct, 0.0)
+
+        df_pattern[velocity_field] = perturbation_pct
+
+        # Use pattern-specific color settings (now in percentage)
         pattern_config = config.copy()
-        pattern_config["vmin"] = config.get("pattern_vmin", -0.5)  # km/s
-        pattern_config["vmax"] = config.get("pattern_vmax", 0.5)  # km/s
+        pattern_config["vmin"] = config.get("pattern_vmin", -10.0)  # percentage
+        pattern_config["vmax"] = config.get("pattern_vmax", 10.0)   # percentage
         pattern_config["colormap"] = config.get("pattern_colormap", "seismic")
         pattern_config["symmetric_colorbar"] = config.get("pattern_symmetric_colorbar", True)
 
-        visualize_model(df_pattern, output_dir, pattern_config, "checkerboard_pattern")
+        visualize_model(df_pattern, output_dir, pattern_config, "checkerboard_pattern_pct")
 
-    # Visualize inverted pattern only (inverted - input)
+    # Visualize inverted pattern only (inverted - input) as percentage perturbation
     if config.get("visualize_inverted_pattern", False) and inverted_csv is not None and input_csv is not None:
-        logger.info("Visualizing inverted pattern (inverted - input)")
+        logger.info("Visualizing inverted pattern as percentage perturbation")
 
         df_inverted = read_velocity_file(inverted_csv, show_progress=False)
         df_input = read_velocity_file(input_csv, show_progress=False)
 
-        # Calculate pattern
+        # Calculate pattern as percentage perturbation: ((inverted - original) / original) * 100
         df_pattern = df_inverted.copy()
         velocity_field = config["velocity_field"]
-        df_pattern[velocity_field] = df_inverted[velocity_field] - df_input[velocity_field]
 
-        # Use pattern-specific color settings
+        # Avoid division by zero
+        with np.errstate(divide='ignore', invalid='ignore'):
+            perturbation_pct = ((df_inverted[velocity_field] - df_input[velocity_field]) / df_input[velocity_field]) * 100.0
+            # Replace inf/nan with 0
+            perturbation_pct = np.where(np.isfinite(perturbation_pct), perturbation_pct, 0.0)
+
+        df_pattern[velocity_field] = perturbation_pct
+
+        # Use pattern-specific color settings (now in percentage)
         pattern_config = config.copy()
-        pattern_config["vmin"] = config.get("pattern_vmin", -0.5)  # km/s
-        pattern_config["vmax"] = config.get("pattern_vmax", 0.5)  # km/s
+        pattern_config["vmin"] = config.get("pattern_vmin", -10.0)  # percentage
+        pattern_config["vmax"] = config.get("pattern_vmax", 10.0)   # percentage
         pattern_config["colormap"] = config.get("pattern_colormap", "seismic")
         pattern_config["symmetric_colorbar"] = config.get("pattern_symmetric_colorbar", True)
 
-        visualize_model(df_pattern, output_dir, pattern_config, "inverted_pattern")
+        visualize_model(df_pattern, output_dir, pattern_config, "inverted_pattern_pct")
 
     logger.info("All visualizations completed successfully!")
 
