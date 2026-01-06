@@ -17,10 +17,10 @@ from omegaconf import DictConfig, OmegaConf
 from pathlib import Path
 from typing import Dict, Union, Optional
 
-from create_checkerboard_model import create_checkerboard_model
-from add_traveltime_noise import process_traveltime_directory
-from convert_inverted_model import convert_inverted_model
-from visualize_slices import visualize_checkerboard_test
+from checkerboard_test.create_checkerboard_model import create_checkerboard_model
+from checkerboard_test.add_traveltime_noise import process_traveltime_directory
+from checkerboard_test.convert_inverted_model import convert_inverted_model
+from checkerboard_test.visualize_slices import visualize_checkerboard_test
 
 
 def setup_logging(log_level: str = "INFO") -> None:
@@ -56,6 +56,8 @@ def run_checkerboard_workflow(config: Union[Dict, DictConfig]) -> None:
     input_config = config.input if isinstance(config, DictConfig) else config["input"]
     workflow_config = config.workflow if isinstance(config, DictConfig) else config["workflow"]
     checkerboard_config = config.checkerboard if isinstance(config, DictConfig) else config["checkerboard"]
+    model_conversion_config = config.model_conversion if isinstance(config, DictConfig) else config["model_conversion"]
+    visualization_config = config.visualization if isinstance(config, DictConfig) else config["visualization"]
 
     # Get base paths
     output_dir = Path(general_config.output_dir if isinstance(general_config, DictConfig) else general_config["output_dir"])
@@ -152,7 +154,6 @@ def run_checkerboard_workflow(config: Union[Dict, DictConfig]) -> None:
     # Step 3: Convert inverted model
     step3_enabled = workflow_config.step3_convert_inverted if isinstance(workflow_config, DictConfig) else workflow_config.get("step3_convert_inverted", True)
     if step3_enabled:
-        model_conversion_config = config.model_conversion if isinstance(config, DictConfig) else config["model_conversion"]
         conversion_enabled = model_conversion_config.enabled if isinstance(model_conversion_config, DictConfig) else model_conversion_config["enabled"]
         if not conversion_enabled:
             logger.info("\nStep 3: SKIPPED (model_conversion.enabled = false)")
@@ -191,7 +192,6 @@ def run_checkerboard_workflow(config: Union[Dict, DictConfig]) -> None:
     # Step 4: Visualize results
     step4_enabled = workflow_config.step4_visualize if isinstance(workflow_config, DictConfig) else workflow_config.get("step4_visualize", True)
     if step4_enabled:
-        visualization_config = config.visualization if isinstance(config, DictConfig) else config["visualization"]
         viz_enabled = visualization_config.enabled if isinstance(visualization_config, DictConfig) else visualization_config["enabled"]
         if not viz_enabled:
             logger.info("\nStep 4: SKIPPED (visualization.enabled = false)")
