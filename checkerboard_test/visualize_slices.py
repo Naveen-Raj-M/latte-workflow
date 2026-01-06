@@ -44,13 +44,19 @@ def prepare_3d_grid(
     # Create 3D velocity array
     velocity_3d = np.full((nz, ny, nx), np.nan)
 
-    # Fill the array
-    for _, row in df.iterrows():
-        x_idx = np.searchsorted(x_coords, row["X_grid_km"])
-        y_idx = np.searchsorted(y_coords, row["Y_grid_km"])
-        z_idx = np.searchsorted(z_coords, row["Z_grid_km"])
+    # Fill the array using vectorized operations (much faster than iterrows)
+    # Compute all indices at once using numpy searchsorted
+    x_indices = np.searchsorted(x_coords, df["X_grid_km"].values)
+    y_indices = np.searchsorted(y_coords, df["Y_grid_km"].values)
+    z_indices = np.searchsorted(z_coords, df["Z_grid_km"].values)
 
-        velocity_3d[z_idx, y_idx, x_idx] = row[velocity_field]
+    # Get velocity values
+    velocity_values = df[velocity_field].values
+
+    # Fill the grid using advanced indexing (vectorized assignment)
+    velocity_3d[z_indices, y_indices, x_indices] = velocity_values
+
+    logger.debug(f"Filled {len(df)} grid points")
 
     return x_coords, y_coords, z_coords, velocity_3d
 
