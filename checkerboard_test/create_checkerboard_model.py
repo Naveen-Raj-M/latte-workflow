@@ -13,6 +13,8 @@ import pandas as pd
 from pathlib import Path
 from typing import Dict, Tuple, Optional
 
+from utils.velocity_io import read_velocity_file, write_velocity_file
+
 logger = logging.getLogger(__name__)
 
 
@@ -292,9 +294,9 @@ def create_checkerboard_model(
     # Create output directory
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Read input CSV
+    # Read input velocity model (CSV or H5)
     logger.info(f"Reading input velocity model: {input_csv}")
-    df = pd.read_csv(input_csv)
+    df = read_velocity_file(input_csv, show_progress=True)
     logger.info(f"  Loaded {len(df)} grid points")
 
     # Verify required columns
@@ -309,15 +311,71 @@ def create_checkerboard_model(
     # Get grid dimensions
     nx, ny, nz = get_grid_dimensions(df_perturbed)
 
-    # Write perturbed CSV
-    csv_output = output_dir / "velocity_model_checkerboard.csv"
-    logger.info(f"Writing perturbed velocity model CSV: {csv_output}")
-    df_perturbed.to_csv(csv_output, index=False)
+    # Write perturbed velocity model (CSV and/or H5 based on config)
+    output_format = config.get('output_format', 'csv')
+    output_csv = config.get('output_csv', output_dir / "velocity_model_checkerboard.csv")
+    output_hdf5 = config.get('output_hdf5', output_dir / "velocity_model_checkerboard.h5")
+    hdf5_options = config.get('hdf5_options', {})
 
-    # Write binary files
+    # Ensure output paths are Path objects
+    if isinstance(output_csv, str):
+        output_csv = Path(output_csv)
+    if isinstance(output_hdf5, str):
+        output_hdf5 = Path(output_hdf5)
+
+    # Write CSV if requested
+    if output_format in ['csv', 'both']:
+        logger.info(f"Writing perturbed velocity model CSV: {output_csv}")
+        write_velocity_file(df_perturbed, output_csv, format='csv', show_progress=True)
+
+    # Write HDF5 if requested
+    if output_format in ['hdf5', 'both']:
+        logger.info(f"Writing perturbed velocity model H5: {output_hdf5}")
+
+        # Prepare metadata
+        metadata = {
+            'checkerboard_config': {
+                'pattern_type': config.get('pattern_type'),
+                'amplitude': config.get('amplitude'),
+                'wavelength_x_km': config.get('wavelength_x_km'),
+                'wavelength_y_km': config.get('wavelength_y_km'),
+                'wavelength_z_km': config.get('wavelength_z_km'),
+            },
+            'grid_dimensions': {
+                'nx': nx,
+                'ny': ny,
+                'nz': nz
+            }
+        }
+
+        # Extract H5 options
+        compression = hdf5_options.get('compression', 'gzip')
+        compression_level = hdf5_options.get('compression_level', 4)
+        n_jobs = hdf5_options.get('n_jobs', 1)
+        show_progress = hdf5_options.get('show_progress', True)
+        coarse_grid_config = None
+        if hdf5_options.get('create_coarse_dataset', False):
+            coarse_grid_config = hdf5_options.get('coarse_grid')
+
+        write_velocity_file(
+            df_perturbed,
+            output_hdf5,
+            format='hdf5',
+            compression=compression,
+            compression_opts=compression_level,
+            metadata=metadata,
+            coarse_grid_config=coarse_grid_config,
+            n_jobs=n_jobs,
+            show_progress=show_progress
+        )
+
+    # Write binary files for LATTE (always generated)
     vp_bin_path = output_dir / "vp_checkerboard.bin"
     vs_bin_path = output_dir / "vs_checkerboard.bin"
 
+    logger.info(f"Writing binary velocity files for LATTE:")
+    logger.info(f"  - {vp_bin_path}")
+    logger.info(f"  - {vs_bin_path}")
     write_velocity_binary(df_perturbed, vp_bin_path, "vp", nx, ny, nz)
     write_velocity_binary(df_perturbed, vs_bin_path, "vs", nx, ny, nz)
 

@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import Dict, Tuple, Optional
 from scipy.interpolate import RegularGridInterpolator
 
+from utils.velocity_io import read_velocity_file, write_velocity_file
+
 logger = logging.getLogger(__name__)
 
 
@@ -277,9 +279,9 @@ def convert_inverted_model(
 
     # Process based on mode
     if processing_mode == "sample":
-        # Read input CSV
-        logger.info(f"Reading input CSV: {input_csv}")
-        df = pd.read_csv(input_csv)
+        # Read input model (CSV or H5)
+        logger.info(f"Reading input model: {input_csv}")
+        df = read_velocity_file(input_csv, show_progress=True)
         logger.info(f"  Loaded {len(df)} coarse grid points")
 
         # Sample velocities
@@ -302,10 +304,63 @@ def convert_inverted_model(
     else:
         raise ValueError(f"Unknown processing_mode: {processing_mode}")
 
-    # Write output CSV
-    output_csv = output_dir / "velocity_model_inverted.csv"
-    logger.info(f"Writing output CSV: {output_csv}")
-    df.to_csv(output_csv, index=False)
+    # Write output model (CSV and/or H5 based on config)
+    output_format = config.get('output_format', 'csv')
+    output_csv = config.get('output_csv', output_dir / "velocity_model_inverted.csv")
+    output_hdf5 = config.get('output_hdf5', output_dir / "velocity_model_inverted.h5")
+    hdf5_options = config.get('hdf5_options', {})
+
+    # Ensure output paths are Path objects
+    if isinstance(output_csv, str):
+        output_csv = Path(output_csv)
+    if isinstance(output_hdf5, str):
+        output_hdf5 = Path(output_hdf5)
+
+    # Write CSV if requested
+    if output_format in ['csv', 'both']:
+        logger.info(f"Writing inverted model CSV: {output_csv}")
+        write_velocity_file(df, output_csv, format='csv', show_progress=True)
+
+    # Write HDF5 if requested
+    if output_format in ['hdf5', 'both']:
+        logger.info(f"Writing inverted model H5: {output_hdf5}")
+
+        # Prepare metadata
+        metadata = {
+            'grid_dimensions': {
+                'nx': grid_config['nx'],
+                'ny': grid_config['ny'],
+                'nz': grid_config['nz']
+            },
+            'grid_spacing': {
+                'dx': grid_config['dx'],
+                'dy': grid_config['dy'],
+                'dz': grid_config['dz']
+            },
+            'processing_mode': processing_mode,
+            'apply_chapman_inverse': apply_chapman,
+        }
+
+        # Extract H5 options
+        compression = hdf5_options.get('compression', 'gzip')
+        compression_level = hdf5_options.get('compression_level', 4)
+        n_jobs = hdf5_options.get('n_jobs', 1)
+        show_progress = hdf5_options.get('show_progress', True)
+        coarse_grid_config = None
+        if hdf5_options.get('create_coarse_dataset', False):
+            coarse_grid_config = hdf5_options.get('coarse_grid')
+
+        write_velocity_file(
+            df,
+            output_hdf5,
+            format='hdf5',
+            compression=compression,
+            compression_opts=compression_level,
+            metadata=metadata,
+            coarse_grid_config=coarse_grid_config,
+            n_jobs=n_jobs,
+            show_progress=show_progress
+        )
 
     # Log statistics
     logger.info("\nInverted model statistics:")

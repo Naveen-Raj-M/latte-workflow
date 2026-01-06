@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from tqdm import tqdm
 
+from utils.velocity_io import read_velocity_file
+
 logger = logging.getLogger(__name__)
 
 
@@ -429,27 +431,27 @@ def visualize_checkerboard_test(
     # Visualize input model
     if config.get("visualize_input", False) and input_csv is not None:
         logger.info("Visualizing input model")
-        df_input = pd.read_csv(input_csv)
+        df_input = read_velocity_file(input_csv, show_progress=False)
         visualize_model(df_input, output_dir, config, "input")
 
     # Visualize checkerboard model
     if config.get("visualize_checkerboard", False) and checkerboard_csv is not None:
         logger.info("Visualizing checkerboard model")
-        df_checkerboard = pd.read_csv(checkerboard_csv)
+        df_checkerboard = read_velocity_file(checkerboard_csv, show_progress=False)
         visualize_model(df_checkerboard, output_dir, config, "checkerboard")
 
     # Visualize inverted model
     if config.get("visualize_inverted", False) and inverted_csv is not None:
         logger.info("Visualizing inverted model")
-        df_inverted = pd.read_csv(inverted_csv)
+        df_inverted = read_velocity_file(inverted_csv, show_progress=False)
         visualize_model(df_inverted, output_dir, config, "inverted")
 
     # Visualize difference (inverted - checkerboard)
     if config.get("visualize_difference", False) and inverted_csv is not None and checkerboard_csv is not None:
         logger.info("Visualizing difference (inverted - checkerboard)")
 
-        df_inverted = pd.read_csv(inverted_csv)
-        df_checkerboard = pd.read_csv(checkerboard_csv)
+        df_inverted = read_velocity_file(inverted_csv, show_progress=False)
+        df_checkerboard = read_velocity_file(checkerboard_csv, show_progress=False)
 
         # Calculate difference
         df_diff = df_inverted.copy()
@@ -468,8 +470,8 @@ def visualize_checkerboard_test(
     if config.get("visualize_checkerboard_pattern", False) and checkerboard_csv is not None and input_csv is not None:
         logger.info("Visualizing checkerboard pattern (checkerboard - input)")
 
-        df_checkerboard = pd.read_csv(checkerboard_csv)
-        df_input = pd.read_csv(input_csv)
+        df_checkerboard = read_velocity_file(checkerboard_csv, show_progress=False)
+        df_input = read_velocity_file(input_csv, show_progress=False)
 
         # Calculate pattern
         df_pattern = df_checkerboard.copy()
@@ -489,8 +491,8 @@ def visualize_checkerboard_test(
     if config.get("visualize_inverted_pattern", False) and inverted_csv is not None and input_csv is not None:
         logger.info("Visualizing inverted pattern (inverted - input)")
 
-        df_inverted = pd.read_csv(inverted_csv)
-        df_input = pd.read_csv(input_csv)
+        df_inverted = read_velocity_file(inverted_csv, show_progress=False)
+        df_input = read_velocity_file(input_csv, show_progress=False)
 
         # Calculate pattern
         df_pattern = df_inverted.copy()

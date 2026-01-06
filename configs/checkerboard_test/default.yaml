@@ -1,6 +1,9 @@
 # Checkerboard Test Configuration for LATTE Tomographic Inversion
 # This module creates synthetic checkerboard tests to assess resolution
 
+defaults:
+  - _self_
+
 # General settings
 general:
   # Output directory for all checkerboard test results
@@ -17,6 +20,9 @@ input:
   # Input velocity model CSV from preprocess module
   # Should contain: X_grid_km, Y_grid_km, Z_grid_km, vp, vs
   velocity_model_csv: "/path/to/preprocess/output/velocity_model_cartesian.csv"
+
+  # Optional HDF5 input (if specified, takes precedence over CSV)
+  velocity_model_hdf5: null  # e.g., "/path/to/preprocess/output/velocity_model_cartesian.h5"
 
   # Directory containing original geometry files (to be reused)
   geometry_dir: "/path/to/preprocess/output/geometry"
@@ -62,6 +68,39 @@ checkerboard:
   vp_max: 10000.0
   vs_min: 500.0
   vs_max: 6000.0
+
+  # Output format control
+  # Options: "csv", "hdf5", "both"
+  # Note: Binary files (.bin) for LATTE are always generated
+  output_format: "csv"  # Default: CSV for backward compatibility
+
+  output_csv: "${general.output_dir}/checkerboard_model/velocity_model_checkerboard.csv"
+  output_hdf5: "${general.output_dir}/checkerboard_model/velocity_model_checkerboard.h5"
+
+  # HDF5-specific options (used when output_format is "hdf5" or "both")
+  hdf5_options:
+    # Compression type: "gzip", "lzf", or null (no compression)
+    compression: "gzip"
+
+    # Compression level (0-9 for gzip, where 9 is maximum compression)
+    compression_level: 4
+
+    # Parallel processing for coarse grid subsampling
+    parallel_processing: true
+    n_jobs: -1  # -1 = use all CPU cores, 1 = sequential
+
+    # Show progress bars during HDF5 operations
+    show_progress: true
+
+    # Create coarse-resolution dataset within HDF5 file
+    # Coarse dataset enables faster visualization/analysis
+    create_coarse_dataset: false
+
+    # Coarse grid spacing (must be integral multiples of fine grid)
+    coarse_grid:
+      dx: 2.0  # km (e.g., 2x coarser than fine grid)
+      dy: 2.0  # km
+      dz: 2.0  # km
 
 # Travel time noise configuration
 traveltime_noise:
@@ -131,6 +170,38 @@ model_conversion:
   additional_fields:
     - "grad_vp"
     - "grad_vs"
+
+  # Output format control
+  # Options: "csv", "hdf5", "both"
+  output_format: "csv"  # Default: CSV for backward compatibility
+
+  output_csv: "${general.output_dir}/inverted_model/velocity_model_inverted.csv"
+  output_hdf5: "${general.output_dir}/inverted_model/velocity_model_inverted.h5"
+
+  # HDF5-specific options (used when output_format is "hdf5" or "both")
+  hdf5_options:
+    # Compression type: "gzip", "lzf", or null (no compression)
+    compression: "gzip"
+
+    # Compression level (0-9 for gzip, where 9 is maximum compression)
+    compression_level: 4
+
+    # Parallel processing for coarse grid subsampling
+    parallel_processing: true
+    n_jobs: -1  # -1 = use all CPU cores, 1 = sequential
+
+    # Show progress bars during HDF5 operations
+    show_progress: true
+
+    # Create coarse-resolution dataset within HDF5 file
+    # Coarse dataset enables faster visualization/analysis
+    create_coarse_dataset: false
+
+    # Coarse grid spacing (must be integral multiples of fine grid)
+    coarse_grid:
+      dx: 2.0  # km (e.g., 2x coarser than fine grid)
+      dy: 2.0  # km
+      dz: 2.0  # km
 
 # Visualization configuration
 visualization:
