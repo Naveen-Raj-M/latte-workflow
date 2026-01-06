@@ -245,19 +245,29 @@ def write_velocity_binary(
     dy = y_unique[1] - y_unique[0] if len(y_unique) > 1 else 1.0
     dz = z_unique[1] - z_unique[0] if len(z_unique) > 1 else 1.0
 
-    # Fill grid using i, j, k indices computed from coordinates
-    points_processed = 0
-    for _, row in df.iterrows():
-        # Compute 1-based indices, then convert to 0-based
-        i = int(np.round((row["X_grid_km"] - x_min) / dx))
-        j = int(np.round((row["Y_grid_km"] - y_min) / dy))
-        k = int(np.round((row["Z_grid_km"] - z_min) / dz))
+    # Fill grid using vectorized operations (much faster than iterrows)
+    # Compute all indices at once using vectorized numpy operations
+    i_indices = np.round((df["X_grid_km"].values - x_min) / dx).astype(np.int32)
+    j_indices = np.round((df["Y_grid_km"].values - y_min) / dy).astype(np.int32)
+    k_indices = np.round((df["Z_grid_km"].values - z_min) / dz).astype(np.int32)
 
-        if 0 <= i < nx and 0 <= j < ny and 0 <= k < nz:
-            # Convert km/s to m/s
-            velocity_3d[k, j, i] = row[velocity_field] * 1000.0  # Index as [depth, y, x]
-            points_processed += 1
+    # Filter valid indices
+    valid_mask = (
+        (i_indices >= 0) & (i_indices < nx) &
+        (j_indices >= 0) & (j_indices < ny) &
+        (k_indices >= 0) & (k_indices < nz)
+    )
 
+    # Apply valid indices to fill the 3D grid
+    i_valid = i_indices[valid_mask]
+    j_valid = j_indices[valid_mask]
+    k_valid = k_indices[valid_mask]
+    velocity_values = df[velocity_field].values[valid_mask] * 1000.0  # Convert km/s to m/s
+
+    # Fill the grid (vectorized assignment)
+    velocity_3d[k_valid, j_valid, i_valid] = velocity_values
+
+    points_processed = valid_mask.sum()
     logger.info(f"  Processed {points_processed} grid points")
 
     # Write binary file in Fortran-order (no header)
