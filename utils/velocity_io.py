@@ -400,7 +400,8 @@ def _write_hdf5_velocity(
     metadata: Optional[Dict[str, Any]],
     compression: str,
     compression_opts: Optional[int],
-    show_progress: bool = True
+    show_progress: bool = True,
+    chunk_size: int = 1000000
 ) -> None:
     """
     Write velocity to HDF5 file with metadata and compression.
@@ -413,12 +414,17 @@ def _write_hdf5_velocity(
         compression: Compression type ('gzip', 'lzf', None)
         compression_opts: Compression level (0-9 for gzip)
         show_progress: Whether to show progress bar
+        chunk_size: Number of rows to write at once (default: 1M)
     """
     mode = 'a' if os.path.exists(filepath) and dataset != 'velocity' else 'w'
 
     desc = f"Writing {Path(filepath).name}"
     if dataset == 'velocity_coarse':
         desc += " (coarse)"
+
+    n_rows = len(df)
+    n_cols = len(df.columns)
+    n_chunks = (n_rows + chunk_size - 1) // chunk_size
 
     if show_progress:
         with tqdm(total=100, desc=desc) as pbar:
@@ -429,20 +435,32 @@ def _write_hdf5_velocity(
                 if dataset in f:
                     del f[dataset]
 
-                pbar.set_description(f"{desc} - Converting to array")
-                data = df.values
-                pbar.update(10)
-
-                pbar.set_description(f"{desc} - Writing dataset")
-                # Create dataset with compression
+                pbar.set_description(f"{desc} - Creating dataset")
+                # Create empty dataset first (without loading all data)
                 dset = f.create_dataset(
                     dataset,
-                    data=data,
+                    shape=(n_rows, n_cols),
+                    dtype=np.float64,
                     compression=compression if compression != 'null' else None,
                     compression_opts=compression_opts if compression == 'gzip' else None,
                     chunks=True
                 )
-                pbar.update(70)
+                pbar.update(10)
+
+                pbar.set_description(f"{desc} - Writing data")
+                # Write data in chunks
+                for i in range(n_chunks):
+                    start_idx = i * chunk_size
+                    end_idx = min((i + 1) * chunk_size, n_rows)
+
+                    # Get chunk data
+                    chunk_data = df.iloc[start_idx:end_idx].values
+
+                    # Write chunk to dataset
+                    dset[start_idx:end_idx, :] = chunk_data
+
+                    # Update progress (70% for writing data)
+                    pbar.update(70 / n_chunks)
 
                 pbar.set_description(f"{desc} - Writing metadata")
                 # Store column names as attribute
@@ -465,21 +483,29 @@ def _write_hdf5_velocity(
         file_size_mb = os.path.getsize(filepath) / (1024 ** 2)
         logger.info(
             f"Wrote {len(df):,} points to {filepath}:{dataset} "
-            f"({file_size_mb:.1f} MB)"
+            f"({file_size_mb:.1f} MB, {n_chunks} chunks)"
         )
     else:
         with h5py.File(filepath, mode) as f:
             if dataset in f:
                 del f[dataset]
 
-            data = df.values
+            # Create empty dataset
             dset = f.create_dataset(
                 dataset,
-                data=data,
+                shape=(n_rows, n_cols),
+                dtype=np.float64,
                 compression=compression if compression != 'null' else None,
                 compression_opts=compression_opts if compression == 'gzip' else None,
                 chunks=True
             )
+
+            # Write data in chunks
+            for i in range(n_chunks):
+                start_idx = i * chunk_size
+                end_idx = min((i + 1) * chunk_size, n_rows)
+                chunk_data = df.iloc[start_idx:end_idx].values
+                dset[start_idx:end_idx, :] = chunk_data
 
             dset.attrs['columns'] = [c.encode('utf-8') for c in df.columns.tolist()]
 
