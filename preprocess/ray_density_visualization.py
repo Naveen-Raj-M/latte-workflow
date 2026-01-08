@@ -430,7 +430,7 @@ def plot_ray_density_xy_threshold_count(density_3d: np.ndarray,
     # Labels and title
     ax.set_xlabel('X (km)', fontsize=fontsize.get('axis_label', 16))
     ax.set_ylabel('Y (km)', fontsize=fontsize.get('axis_label', 16))
-    ax.set_title(f'Ray Coverage - Depth Layers with >= {threshold} Rays (Map View)',
+    ax.set_title(f'Ray Coverage >= {threshold} Rays (Map View)',
                 fontsize=fontsize.get('title', 18), fontweight='bold')
     ax.tick_params(axis='both', labelsize=fontsize.get('axis_ticks', 14))
     ax.grid(True, alpha=0.3)
