@@ -23,6 +23,7 @@ from .postprocess_traveltime import (
 )
 from .postprocess_source import process_source_updates
 from .postprocess_raypath import create_ray_path_visualizations, create_ray_path_visualizations_by_pairs
+from .postprocess_dws import create_dws_from_ray_paths
 
 
 def postprocess_latte_outputs(config: DictConfig) -> None:
@@ -173,6 +174,18 @@ def postprocess_latte_outputs(config: DictConfig) -> None:
                 raise
     else:
         print(f"\nRay path visualization: DISABLED")
+
+    # Process DWS computation
+    if hasattr(config, "dws_computation") and config.dws_computation.enabled:
+        print(f"\nDWS computation: ENABLED")
+        try:
+            create_dws_from_ray_paths(config.dws_computation)
+        except Exception as e:
+            print(f"Error in DWS computation: {e}")
+            if config.strict_mode:
+                raise
+    else:
+        print(f"\nDWS computation: DISABLED")
 
     print("\n=== POST-PROCESSING COMPLETE ===")
 

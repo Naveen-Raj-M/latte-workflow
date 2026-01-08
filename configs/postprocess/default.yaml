@@ -174,4 +174,55 @@ ray_path_visualization:
     title_fontsize: 14
     legend_fontsize: 10
 
+# DWS computation configuration
+dws_computation:
+  enabled: false
+
+  # Input files
+  ground_truth_csv: "${travel_time_processing.synthetic_tt_output_csv}"
+  gradient_dir: "${data.base_dir}/gradient"
+
+  # Output file (HDF5 format)
+  output_file: "${data.analysis_output_dir}/dws_values.h5"
+
+  # Grid dimensions (must match the model grid used for eikonal solver)
+  grid:
+    nx: 201
+    ny: 241
+    nz: 85
+    dx: 1.0  # km
+    dy: 1.0  # km
+    dz: 1.0  # km
+    origin_x: 0.0  # km
+    origin_y: 0.0  # km
+    origin_z: 0.0  # km
+
+  # Phase type: 'p', 's', or 'both'
+  phase_type: 'both'
+
+  # Weight column name in ground truth CSV
+  # If column doesn't exist, uniform weights (1.0) will be used
+  weight_column: 'weight'
+
+  # Maximum number of shots to process (0 for all)
+  max_shots: 0
+
+  # Numerical precision for reading gradient binaries
+  precision: 'single'  # 'single' or 'double'
+
+  # Ray tracing parameters
+  tracing:
+    max_steps: 10000  # Maximum integration steps per ray
+    step_size: 0.1  # Integration step size in km
+    tolerance: 0.5  # Distance tolerance to source in km
+    interpolation_method: "trilinear"  # 'nearest' or 'trilinear'
+
+  # Parallel processing parameters
+  parallel:
+    enabled: true
+    n_jobs: -1  # Use all available CPU cores (-1), or specify a number
+    backend: "multiprocessing"  # 'multiprocessing', 'loky', or 'threading'
+    batch_size: "auto"  # 'auto' or specify batch size
+    pre_dispatch: "2*n_jobs"  # Number of tasks to pre-dispatch
+
 strict_mode: true
