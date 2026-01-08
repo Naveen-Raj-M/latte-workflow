@@ -439,18 +439,21 @@ def visualize_checkerboard_test(
         logger.info("Visualizing input model")
         df_input = read_velocity_file(input_csv, show_progress=False)
         visualize_model(df_input, output_dir, config, "input")
+        del df_input  # Free memory
 
     # Visualize checkerboard model
     if config.get("visualize_checkerboard", False) and checkerboard_csv is not None:
         logger.info("Visualizing checkerboard model")
         df_checkerboard = read_velocity_file(checkerboard_csv, show_progress=False)
         visualize_model(df_checkerboard, output_dir, config, "checkerboard")
+        del df_checkerboard  # Free memory
 
     # Visualize inverted model
     if config.get("visualize_inverted", False) and inverted_csv is not None:
         logger.info("Visualizing inverted model")
         df_inverted = read_velocity_file(inverted_csv, show_progress=False)
         visualize_model(df_inverted, output_dir, config, "inverted")
+        del df_inverted  # Free memory
 
     # Visualize difference (inverted - checkerboard)
     if config.get("visualize_difference", False) and inverted_csv is not None and checkerboard_csv is not None:
@@ -459,10 +462,15 @@ def visualize_checkerboard_test(
         df_inverted = read_velocity_file(inverted_csv, show_progress=False)
         df_checkerboard = read_velocity_file(checkerboard_csv, show_progress=False)
 
-        # Calculate difference
-        df_diff = df_inverted.copy()
+        # Calculate difference - avoid copy() for memory efficiency
+        # Create new DataFrame with only necessary columns
         velocity_field = config["velocity_field"]
-        df_diff[velocity_field] = df_inverted[velocity_field] - df_checkerboard[velocity_field]
+        df_diff = pd.DataFrame({
+            'X_grid_km': df_inverted['X_grid_km'].values,
+            'Y_grid_km': df_inverted['Y_grid_km'].values,
+            'Z_grid_km': df_inverted['Z_grid_km'].values,
+            velocity_field: df_inverted[velocity_field].values - df_checkerboard[velocity_field].values
+        })
 
         # Use difference-specific color settings
         diff_config = config.copy()
@@ -472,6 +480,9 @@ def visualize_checkerboard_test(
 
         visualize_model(df_diff, output_dir, diff_config, "difference")
 
+        # Free memory
+        del df_inverted, df_checkerboard, df_diff
+
     # Visualize checkerboard pattern only (checkerboard - input) as percentage perturbation
     if config.get("visualize_checkerboard_pattern", False) and checkerboard_csv is not None and input_csv is not None:
         logger.info("Visualizing checkerboard pattern as percentage perturbation")
@@ -479,17 +490,22 @@ def visualize_checkerboard_test(
         df_checkerboard = read_velocity_file(checkerboard_csv, show_progress=False)
         df_input = read_velocity_file(input_csv, show_progress=False)
 
-        # Calculate pattern as percentage perturbation: ((perturbed - original) / original) * 100
-        df_pattern = df_checkerboard.copy()
         velocity_field = config["velocity_field"]
 
         # Avoid division by zero
         with np.errstate(divide='ignore', invalid='ignore'):
-            perturbation_pct = ((df_checkerboard[velocity_field] - df_input[velocity_field]) / df_input[velocity_field]) * 100.0
+            perturbation_pct = ((df_checkerboard[velocity_field].values - df_input[velocity_field].values)
+                               / df_input[velocity_field].values) * 100.0
             # Replace inf/nan with 0
             perturbation_pct = np.where(np.isfinite(perturbation_pct), perturbation_pct, 0.0)
 
-        df_pattern[velocity_field] = perturbation_pct
+        # Create new DataFrame with only necessary columns - avoid copy()
+        df_pattern = pd.DataFrame({
+            'X_grid_km': df_checkerboard['X_grid_km'].values,
+            'Y_grid_km': df_checkerboard['Y_grid_km'].values,
+            'Z_grid_km': df_checkerboard['Z_grid_km'].values,
+            velocity_field: perturbation_pct
+        })
 
         # Use pattern-specific color settings (now in percentage)
         pattern_config = config.copy()
@@ -500,6 +516,9 @@ def visualize_checkerboard_test(
 
         visualize_model(df_pattern, output_dir, pattern_config, "checkerboard_pattern_pct")
 
+        # Free memory
+        del df_checkerboard, df_input, df_pattern
+
     # Visualize inverted pattern only (inverted - input) as percentage perturbation
     if config.get("visualize_inverted_pattern", False) and inverted_csv is not None and input_csv is not None:
         logger.info("Visualizing inverted pattern as percentage perturbation")
@@ -507,17 +526,22 @@ def visualize_checkerboard_test(
         df_inverted = read_velocity_file(inverted_csv, show_progress=False)
         df_input = read_velocity_file(input_csv, show_progress=False)
 
-        # Calculate pattern as percentage perturbation: ((inverted - original) / original) * 100
-        df_pattern = df_inverted.copy()
         velocity_field = config["velocity_field"]
 
         # Avoid division by zero
         with np.errstate(divide='ignore', invalid='ignore'):
-            perturbation_pct = ((df_inverted[velocity_field] - df_input[velocity_field]) / df_input[velocity_field]) * 100.0
+            perturbation_pct = ((df_inverted[velocity_field].values - df_input[velocity_field].values)
+                               / df_input[velocity_field].values) * 100.0
             # Replace inf/nan with 0
             perturbation_pct = np.where(np.isfinite(perturbation_pct), perturbation_pct, 0.0)
 
-        df_pattern[velocity_field] = perturbation_pct
+        # Create new DataFrame with only necessary columns - avoid copy()
+        df_pattern = pd.DataFrame({
+            'X_grid_km': df_inverted['X_grid_km'].values,
+            'Y_grid_km': df_inverted['Y_grid_km'].values,
+            'Z_grid_km': df_inverted['Z_grid_km'].values,
+            velocity_field: perturbation_pct
+        })
 
         # Use pattern-specific color settings (now in percentage)
         pattern_config = config.copy()
@@ -527,6 +551,9 @@ def visualize_checkerboard_test(
         pattern_config["symmetric_colorbar"] = config.get("pattern_symmetric_colorbar", True)
 
         visualize_model(df_pattern, output_dir, pattern_config, "inverted_pattern_pct")
+
+        # Free memory
+        del df_inverted, df_input, df_pattern
 
     logger.info("All visualizations completed successfully!")
 

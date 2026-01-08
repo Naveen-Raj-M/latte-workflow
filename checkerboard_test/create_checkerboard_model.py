@@ -101,12 +101,13 @@ def apply_checkerboard_perturbation(
 
     Args:
         df: Velocity model DataFrame with X_grid_km, Y_grid_km, Z_grid_km, vp, vs
+            NOTE: This function modifies the input DataFrame in place for memory efficiency
         config: Checkerboard configuration dictionary
 
     Returns:
-        DataFrame with perturbed velocities
+        DataFrame with perturbed velocities (same object as input)
     """
-    df = df.copy()
+    # Note: We modify df in place to avoid memory issues with large datasets
 
     # Extract coordinates
     x = df["X_grid_km"].values
