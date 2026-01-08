@@ -23,6 +23,7 @@ from .distance_analysis import analyze_distance_dependent_residuals
 from .short_distance_analysis import analyze_short_distance_residuals
 from .source_analysis import analyze_source_corrections
 from .gradient_analysis import analyze_gradients_and_search
+from .dws_analysis import analyze_dws
 
 logger = logging.getLogger(__name__)
 
@@ -182,11 +183,11 @@ def run_gradient_analysis(cfg: DictConfig) -> None:
     if not cfg.gradient_analysis.get('enabled', False):
         logger.info("Gradient and search direction analysis disabled, skipping")
         return
-    
+
     logger.info("=" * 60)
     logger.info("STARTING GRADIENT AND SEARCH DIRECTION ANALYSIS")
     logger.info("=" * 60)
-    
+
     with ProcessTimer("Gradient analysis"):
         try:
             ensure_directory_exists(cfg.gradient_analysis.velocity_output_dir)
@@ -197,6 +198,36 @@ def run_gradient_analysis(cfg: DictConfig) -> None:
             logger.info(f"Source Gradient Results saved to: {cfg.gradient_analysis.source_output_dir}")
         except Exception as e:
             logger.error(f"Gradient analysis failed: {e}")
+            raise
+
+
+def run_dws_analysis(cfg: DictConfig) -> None:
+    """Run DWS (Derivative Weight Sum) analysis."""
+    if not cfg.dws_analysis.get('enabled', False):
+        logger.info("DWS analysis disabled, skipping")
+        return
+
+    logger.info("=" * 60)
+    logger.info("STARTING DWS ANALYSIS")
+    logger.info("=" * 60)
+
+    with ProcessTimer("DWS analysis"):
+        try:
+            ensure_directory_exists(cfg.dws_analysis.output_dir)
+            results = analyze_dws(OmegaConf.to_container(cfg, resolve=True))
+            logger.info("DWS analysis completed successfully")
+            logger.info(f"Results saved to: {cfg.dws_analysis.output_dir}")
+
+            # Log summary
+            if 'statistics' in results:
+                stats = results['statistics']
+                logger.info(f"DWS summary:")
+                logger.info(f"  Coverage: {stats['coverage_percentage']:.2f}%")
+                logger.info(f"  DWS range: [{stats['dws_min']:.6e}, {stats['dws_max']:.6e}] km²")
+                logger.info(f"  Mean DWS: {stats['dws_mean']:.6e} km²")
+
+        except Exception as e:
+            logger.error(f"DWS analysis failed: {e}")
             raise
 
 
@@ -215,6 +246,7 @@ def run_single_function(cfg: DictConfig, function_name: str) -> None:
         'short_distance_analysis': run_short_distance_analysis,
         'source_analysis': run_source_analysis,
         'gradient_analysis': run_gradient_analysis,
+        'dws_analysis': run_dws_analysis,
     }
 
     if function_name not in function_map:
@@ -323,6 +355,7 @@ def run_analysis_pipeline(cfg: DictConfig) -> None:
             ('Short Distance Analysis', run_short_distance_analysis),
             ('Source Correction Analysis', run_source_analysis),
             ('Gradient Analysis', run_gradient_analysis),
+            ('DWS Analysis', run_dws_analysis),
         ]
         
         completed_analyses = []
@@ -387,6 +420,8 @@ def validate_configuration(cfg: DictConfig) -> None:
         enabled_analyses.append('source_analysis')
     if cfg.gradient_analysis.get('enabled', False):
         enabled_analyses.append('gradient_analysis')
+    if cfg.dws_analysis.get('enabled', False):
+        enabled_analyses.append('dws_analysis')
     
     if not enabled_analyses:
         logger.error("No analysis modules are enabled!")

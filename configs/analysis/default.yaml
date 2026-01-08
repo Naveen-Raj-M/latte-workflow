@@ -205,6 +205,68 @@ source_analysis:
   generate_summary_report: true
   save_corrected_data: true
 
+# DWS analysis configuration
+dws_analysis:
+  enabled: false
+
+  # Input HDF5 file containing DWS values
+  input_hdf5: "/path/to/dws_values.h5"
+
+  # Output directory for analysis results
+  output_dir: "${paths.output_base_dir}/dws_analysis"
+
+  # Visualization options
+  enable_log_scale: true  # Create both linear and log scale plots
+  enable_coverage_maps: true  # Create binary coverage maps
+  enable_histograms: true  # Create histograms of DWS values
+  enable_vertical_slices: true  # Create vertical slice plots
+
+  # Coverage threshold for coverage maps (km²)
+  # Cells with DWS > threshold are considered "covered"
+  coverage_threshold: 0.0
+
+  # Horizontal slice depths (km) - specify depths where you want to visualize DWS
+  horizontal_slice_depths:
+    - 5.0
+    - 10.0
+    - 15.0
+    - 20.0
+    - 30.0
+    - 40.0
+    - 50.0
+
+  # Vertical slice positions (km)
+  vertical_slices:
+    # XZ slices (constant Y positions)
+    xz_positions:
+      - 120.0  # Y = 120 km
+    # YZ slices (constant X positions)
+    yz_positions:
+      - 100.0  # X = 100 km
+
+  # Plot configuration
+  plot_config:
+    figure_width: 12
+    figure_height: 10
+    dpi: 300
+    colormap: 'viridis'  # For linear scale: viridis, plasma, inferno, magma, jet
+    colormap_log: 'viridis'  # For log scale
+    equal_aspect: true
+    grid: true
+    label_fontsize: 12
+    title_fontsize: 14
+    tick_fontsize: 10
+    depth_tolerance: 0.01  # Tolerance for depth matching (km)
+    position_tolerance: 0.01  # Tolerance for position matching (km)
+
+  # Parallel processing configuration
+  parallel:
+    enabled: true
+    n_jobs: -1  # Use all CPU cores (-1), or specify a number
+
+  # Report generation
+  generate_report: true
+
 paths:
   input_dir: "data/processed"
   output_base_dir: "results/analysis"
