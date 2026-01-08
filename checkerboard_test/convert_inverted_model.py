@@ -107,6 +107,7 @@ def sample_at_coarse_points(
     velocity_3d: np.ndarray,
     coarse_df: pd.DataFrame,
     fine_grid_config: Dict,
+    batch_size: int = 1000000,
 ) -> pd.DataFrame:
     """
     Sample fine grid velocities at coarse grid points.
@@ -115,6 +116,7 @@ def sample_at_coarse_points(
         velocity_3d: 3D velocity array (nz, ny, nx) from LATTE
         coarse_df: Coarse grid DataFrame with X_grid_km, Y_grid_km, Z_grid_km
         fine_grid_config: Fine grid configuration (nx, ny, nz, dx, dy, dz, origin)
+        batch_size: Number of points to process at once (default: 1M)
 
     Returns:
         Updated DataFrame with sampled velocities
@@ -156,8 +158,24 @@ def sample_at_coarse_points(
         df["X_grid_km"].values,
     ])
 
-    # Interpolate
-    sampled_velocity = interpolator(coarse_points)
+    # Interpolate in batches to avoid memory issues
+    n_points = len(coarse_points)
+    n_batches = (n_points + batch_size - 1) // batch_size
+
+    logger.info(f"  Processing {n_points} points in {n_batches} batches")
+
+    sampled_velocity = np.zeros(n_points, dtype=np.float32)
+
+    for i in range(n_batches):
+        start_idx = i * batch_size
+        end_idx = min((i + 1) * batch_size, n_points)
+        batch_points = coarse_points[start_idx:end_idx]
+
+        sampled_velocity[start_idx:end_idx] = interpolator(batch_points)
+
+        if (i + 1) % 5 == 0 or i == n_batches - 1:
+            logger.info(f"  Processed batch {i+1}/{n_batches} "
+                       f"({end_idx}/{n_points} points)")
 
     logger.info(f"  Sampled {len(df)} points")
     logger.info(f"  Sampled velocity range: {np.nanmin(sampled_velocity):.3f} - "
