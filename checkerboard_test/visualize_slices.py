@@ -61,6 +61,113 @@ def prepare_3d_grid(
     return x_coords, y_coords, z_coords, velocity_3d
 
 
+def km_to_grid_index(
+    km_value: float,
+    coords: np.ndarray,
+    tolerance: float = 1e-6,
+) -> Optional[int]:
+    """
+    Convert a physical coordinate (km) to grid index.
+
+    Args:
+        km_value: Physical coordinate value in km
+        coords: Array of coordinate values (km) for the axis
+        tolerance: Tolerance for floating point comparison (km)
+
+    Returns:
+        Grid index if km_value falls exactly on a grid point, None otherwise
+    """
+    # Find the closest coordinate
+    distances = np.abs(coords - km_value)
+    min_idx = np.argmin(distances)
+    min_distance = distances[min_idx]
+
+    # Check if it falls exactly on a grid point (within tolerance)
+    if min_distance <= tolerance:
+        return int(min_idx)
+    else:
+        logger.debug(
+            f"Value {km_value:.3f} km does not fall on grid points. "
+            f"Closest grid point is {coords[min_idx]:.3f} km "
+            f"(distance: {min_distance:.6f} km)"
+        )
+        return None
+
+
+def convert_km_spacing_to_indices(
+    spacing_km: float,
+    coords: np.ndarray,
+    tolerance: float = 1e-6,
+) -> List[int]:
+    """
+    Convert a spacing in km to a list of valid grid indices.
+
+    Args:
+        spacing_km: Spacing between slices in km
+        coords: Array of coordinate values (km) for the axis
+        tolerance: Tolerance for floating point comparison (km)
+
+    Returns:
+        List of valid grid indices that fall on grid points
+    """
+    if spacing_km <= 0:
+        logger.warning(f"Invalid spacing {spacing_km} km, using all grid points")
+        return list(range(len(coords)))
+
+    # Start from the first coordinate and increment by spacing_km
+    valid_indices = []
+    current_km = coords[0]
+
+    while current_km <= coords[-1]:
+        idx = km_to_grid_index(current_km, coords, tolerance)
+        if idx is not None:
+            valid_indices.append(idx)
+        current_km += spacing_km
+
+    return valid_indices
+
+
+def parse_slice_specification(
+    slice_spec: Optional[List],
+    coords: np.ndarray,
+    unit: str = "indices",
+    tolerance: float = 1e-6,
+) -> List[int]:
+    """
+    Parse slice specification and return list of valid grid indices.
+
+    Args:
+        slice_spec: List of slice positions (either indices or km values) or None
+        coords: Array of coordinate values (km) for the axis
+        unit: "indices" or "km" to specify the unit of slice_spec
+        tolerance: Tolerance for floating point comparison (km)
+
+    Returns:
+        List of valid grid indices
+    """
+    if slice_spec is None:
+        return None
+
+    if unit == "indices":
+        # Already in grid indices, return as-is (filter out invalid indices)
+        return [int(i) for i in slice_spec if 0 <= i < len(coords)]
+    elif unit == "km":
+        # Convert km values to grid indices
+        valid_indices = []
+        for km_value in slice_spec:
+            idx = km_to_grid_index(km_value, coords, tolerance)
+            if idx is not None:
+                valid_indices.append(idx)
+            else:
+                logger.warning(
+                    f"Skipping slice at {km_value:.3f} km as it does not fall on a grid point"
+                )
+        return valid_indices
+    else:
+        logger.error(f"Invalid unit '{unit}', expected 'indices' or 'km'")
+        return []
+
+
 def plot_xy_slice(
     x_coords: np.ndarray,
     y_coords: np.ndarray,
@@ -332,80 +439,121 @@ def visualize_model(
     yz_slices = config.get("yz_slices")
     slice_spacing = config.get("slice_spacing", {})
 
+    # Get unit specifications (default to "indices" for backward compatibility)
+    slice_unit = config.get("slice_unit", "indices")  # "indices" or "km"
+    spacing_unit = config.get("spacing_unit", "indices")  # "indices" or "km"
+    tolerance = config.get("tolerance_km", 1e-6)  # Tolerance for km-to-index conversion
+
     # Plot XY slices (depth slices)
     if "xy" in planes:
         logger.info("  Creating XY (depth) slices")
 
         # Determine which slices to plot
+        z_indices = None
         if xy_slices is not None:
-            z_indices = xy_slices
+            # Parse user-specified slices (could be indices or km)
+            z_indices = parse_slice_specification(xy_slices, z_coords, slice_unit, tolerance)
+            if not z_indices:
+                logger.warning("  No valid XY slices found, skipping")
         else:
-            spacing = slice_spacing.get("xy", 1)
-            z_indices = range(0, nz, spacing)
+            # Use spacing to determine slices
+            if spacing_unit == "km":
+                spacing_km = slice_spacing.get("xy", 1.0)
+                z_indices = convert_km_spacing_to_indices(spacing_km, z_coords, tolerance)
+                if not z_indices:
+                    logger.warning(f"  No valid grid points found for spacing {spacing_km} km, skipping XY slices")
+            else:
+                spacing = slice_spacing.get("xy", 1)
+                z_indices = range(0, nz, spacing)
 
-        for k in tqdm(z_indices, desc=f"  {model_name} XY slices"):
-            if k >= nz:
-                continue
+        if z_indices:
+            for k in tqdm(z_indices, desc=f"  {model_name} XY slices"):
+                if k >= nz:
+                    continue
 
-            velocity_slice = velocity_3d_kms[k, :, :]
-            z_value = z_coords[k]
+                velocity_slice = velocity_3d_kms[k, :, :]
+                z_value = z_coords[k]
 
-            output_path = model_dir / f"{velocity_field}_xy_z{k:03d}.{config['figure']['format']}"
+                output_path = model_dir / f"{velocity_field}_xy_z{k:03d}.{config['figure']['format']}"
 
-            plot_xy_slice(
-                x_coords, y_coords, velocity_slice, z_value,
-                output_path, config, title_prefix=f"{model_name.title()} - "
-            )
+                plot_xy_slice(
+                    x_coords, y_coords, velocity_slice, z_value,
+                    output_path, config, title_prefix=f"{model_name.title()} - "
+                )
 
     # Plot XZ slices (N-S vertical)
     if "xz" in planes:
         logger.info("  Creating XZ (N-S vertical) slices")
 
         # Determine which slices to plot
+        y_indices = None
         if xz_slices is not None:
-            y_indices = xz_slices
+            # Parse user-specified slices (could be indices or km)
+            y_indices = parse_slice_specification(xz_slices, y_coords, slice_unit, tolerance)
+            if not y_indices:
+                logger.warning("  No valid XZ slices found, skipping")
         else:
-            spacing = slice_spacing.get("xz", 1)
-            y_indices = range(0, ny, spacing)
+            # Use spacing to determine slices
+            if spacing_unit == "km":
+                spacing_km = slice_spacing.get("xz", 1.0)
+                y_indices = convert_km_spacing_to_indices(spacing_km, y_coords, tolerance)
+                if not y_indices:
+                    logger.warning(f"  No valid grid points found for spacing {spacing_km} km, skipping XZ slices")
+            else:
+                spacing = slice_spacing.get("xz", 1)
+                y_indices = range(0, ny, spacing)
 
-        for j in tqdm(y_indices, desc=f"  {model_name} XZ slices"):
-            if j >= ny:
-                continue
+        if y_indices:
+            for j in tqdm(y_indices, desc=f"  {model_name} XZ slices"):
+                if j >= ny:
+                    continue
 
-            velocity_slice = velocity_3d_kms[:, j, :]
-            y_value = y_coords[j]
+                velocity_slice = velocity_3d_kms[:, j, :]
+                y_value = y_coords[j]
 
-            output_path = model_dir / f"{velocity_field}_xz_y{j:03d}.{config['figure']['format']}"
+                output_path = model_dir / f"{velocity_field}_xz_y{j:03d}.{config['figure']['format']}"
 
-            plot_xz_slice(
-                x_coords, z_coords, velocity_slice, y_value,
-                output_path, config, title_prefix=f"{model_name.title()} - "
-            )
+                plot_xz_slice(
+                    x_coords, z_coords, velocity_slice, y_value,
+                    output_path, config, title_prefix=f"{model_name.title()} - "
+                )
 
     # Plot YZ slices (E-W vertical)
     if "yz" in planes:
         logger.info("  Creating YZ (E-W vertical) slices")
 
         # Determine which slices to plot
+        x_indices = None
         if yz_slices is not None:
-            x_indices = yz_slices
+            # Parse user-specified slices (could be indices or km)
+            x_indices = parse_slice_specification(yz_slices, x_coords, slice_unit, tolerance)
+            if not x_indices:
+                logger.warning("  No valid YZ slices found, skipping")
         else:
-            spacing = slice_spacing.get("yz", 1)
-            x_indices = range(0, nx, spacing)
+            # Use spacing to determine slices
+            if spacing_unit == "km":
+                spacing_km = slice_spacing.get("yz", 1.0)
+                x_indices = convert_km_spacing_to_indices(spacing_km, x_coords, tolerance)
+                if not x_indices:
+                    logger.warning(f"  No valid grid points found for spacing {spacing_km} km, skipping YZ slices")
+            else:
+                spacing = slice_spacing.get("yz", 1)
+                x_indices = range(0, nx, spacing)
 
-        for i in tqdm(x_indices, desc=f"  {model_name} YZ slices"):
-            if i >= nx:
-                continue
+        if x_indices:
+            for i in tqdm(x_indices, desc=f"  {model_name} YZ slices"):
+                if i >= nx:
+                    continue
 
-            velocity_slice = velocity_3d_kms[:, :, i]
-            x_value = x_coords[i]
+                velocity_slice = velocity_3d_kms[:, :, i]
+                x_value = x_coords[i]
 
-            output_path = model_dir / f"{velocity_field}_yz_x{i:03d}.{config['figure']['format']}"
+                output_path = model_dir / f"{velocity_field}_yz_x{i:03d}.{config['figure']['format']}"
 
-            plot_yz_slice(
-                y_coords, z_coords, velocity_slice, x_value,
-                output_path, config, title_prefix=f"{model_name.title()} - "
-            )
+                plot_yz_slice(
+                    y_coords, z_coords, velocity_slice, x_value,
+                    output_path, config, title_prefix=f"{model_name.title()} - "
+                )
 
     logger.info(f"  Visualization complete: {model_dir}")
 

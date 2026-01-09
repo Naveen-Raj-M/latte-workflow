@@ -227,17 +227,27 @@ visualization:
   # Which velocity field to visualize
   velocity_field: "vp"  # "vp" or "vs"
 
-  # Slice indices for each plane (null = plot all slices)
-  # For selective plotting, provide list of indices
-  xy_slices: null      # e.g., [0, 10, 20, 30, 40] for specific depths
-  xz_slices: null      # e.g., [180] for middle north-south slice
-  yz_slices: null      # e.g., [200] for middle east-west slice
+  # Unit for slice positions: "indices" (grid indices) or "km" (physical units)
+  slice_unit: "indices"  # Options: "indices", "km"
 
-  # Slice spacing (if plotting all, plot every Nth slice)
+  # Unit for slice spacing: "indices" (grid spacing) or "km" (physical spacing)
+  spacing_unit: "indices"  # Options: "indices", "km"
+
+  # Tolerance for km-to-index conversion (km) - used when slice_unit or spacing_unit is "km"
+  tolerance_km: 1e-6
+
+  # Slice positions (null = use spacing). Interpreted per slice_unit.
+  # Examples: indices=[0,10,20] or km=[0.0,5.0,10.0]
+  xy_slices: null      # Z-axis (depth) slices
+  xz_slices: null      # Y-axis (N-S vertical) slices
+  yz_slices: null      # X-axis (E-W vertical) slices
+
+  # Slice spacing (used when slices=null). Interpreted per spacing_unit.
+  # Examples: indices=5 (every 5th point) or km=2.5 (every 2.5km on grid)
   slice_spacing:
-    xy: 5   # Plot every 5th depth slice
-    xz: 20  # Plot every 20th Y slice
-    yz: 20  # Plot every 20th X slice
+    xy: 5   # Depth slice spacing
+    xz: 20  # Y slice spacing
+    yz: 20  # X slice spacing
 
   # Color scale settings
   colormap: "seismic"  # Matplotlib colormap
