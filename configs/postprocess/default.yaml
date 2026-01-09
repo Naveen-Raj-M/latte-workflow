@@ -9,6 +9,22 @@ general:
     st0: "single"  # Options: single, double
   max_depth_km: null
 
+# Global performance settings for parallel processing
+performance:
+  parallel_processing: true  # Enable parallel processing across modules
+  n_jobs: -1  # Number of parallel workers (-1 = use all available cores, 1 = sequential)
+  backend: "multiprocessing"  # Options: loky, multiprocessing, threading
+  batch_size: "auto"  # Batch size for chunking tasks. Options: "auto", integer, or null
+  pre_dispatch: "2*n_jobs"  # Number of tasks to pre-dispatch
+  show_progress: true  # Show progress bars during processing
+
+# Global ray tracing settings (used by ray_path_visualization and dws_computation)
+tracing:
+  max_steps: 10000  # Maximum integration steps per ray
+  step_size: 0.1  # Integration step size in km (smaller = more accurate but slower)
+  tolerance: 0.5  # Distance tolerance to source in km (stop when within this distance)
+  interpolation_method: "trilinear"  # Options: nearest, trilinear
+  
 data:
   base_dir: "/path/to/latte/output"
   analysis_output_dir: "/path/to/analysis/output"
@@ -35,13 +51,10 @@ velocity_processing:
   velocity_output_format: "csv"  # Default to csv for backward compatibility
   velocity_output_csv: "${data.analysis_output_dir}/velocity_cartesian_latte_output.csv"
   velocity_output_hdf5: "${data.analysis_output_dir}/velocity_cartesian_latte_output.h5"
-  # HDF5-specific options
+  # HDF5-specific options (uses global performance settings)
   hdf5_options:
     compression: "gzip"
     compression_level: 4
-    parallel_processing: true
-    n_jobs: -1  # -1 = all cores
-    show_progress: true
     use_coarse_dataset: false  # If true, read from coarse dataset for faster processing
     # Coarse grid subsampling for output
     create_coarse_dataset: false  # Create coarse dataset INSIDE HDF5 file
@@ -91,18 +104,21 @@ source_processing:
   srch_sz_file: "${data.base_dir}/model/srch_sz.bin"
   srch_st0_file: "${data.base_dir}/model/srch_st0.bin"
 
-ray_path_visualization:
+# Ray path diagnosis configuration (combines visualization and DWS computation)
+# Uses global performance and tracing settings for ray path computation
+ray_path_diagnosis:
   enabled: false
-  phase_type: "both"  # Options: both, p, s
-  gradient_dir: "${data.base_dir}/gradient"  # Directory containing gradient files
-  ground_truth_csv: "${travel_time_processing.synthetic_tt_output_csv}"  # Use synthetic travel times as ground truth
-  shot_map_file: "${travel_time_processing.shot_map_file}"
-  output_dir: "${data.analysis_output_dir}/ray_paths"
-  precision: "single"  # Options: single, double (must match gradient file precision)
-  max_shots: 0  # Maximum number of shots to process (0 = all)
-  verbose: true
 
-  # Grid dimensions (must match the model grid used for eikonal solver)
+  # Common input files
+  ground_truth_csv: "${travel_time_processing.synthetic_tt_output_csv}"
+  gradient_dir: "${data.base_dir}/gradient"
+  shot_map_file: "${travel_time_processing.shot_map_file}"
+
+  # Output directories
+  output_dir: "${data.analysis_output_dir}/ray_paths"
+  dws_output_file: "${data.analysis_output_dir}/dws_values.h5"
+
+  # Common grid dimensions (must match the model grid used for eikonal solver)
   grid:
     nx: 401
     ny: 361
@@ -114,115 +130,55 @@ ray_path_visualization:
     origin_y: 0.0  # km
     origin_z: 0.0  # km
 
-  # Ray tracing parameters
-  tracing:
-    max_steps: 10000  # Maximum integration steps per ray
-    step_size: 0.1  # Integration step size in km (smaller = more accurate but slower)
-    tolerance: 0.5  # Distance tolerance to source in km (stop when within this distance)
-    interpolation_method: "nearest"  # Options: nearest, trilinear
-                                     # - nearest: Floor-based nearest neighbor (faster, less accurate, may show artifacts in constant velocity)
-                                     # - trilinear: Trilinear interpolation (slower, more accurate, smoother rays)
+  # Common processing parameters
+  phase_type: "both"  # Options: both, p, s
+  precision: "single"  # Options: single, double (must match gradient file precision)
+  max_shots: 0  # Maximum number of shots to process (0 = all)
+  parallel_mode: "by_pairs"  # Options: by_shots, by_pairs (affects ray path computation)
+  
+  # What to compute/output (both use same ray paths computed once)
+  save_visualizations: true  # Generate and save ray path plots
+  compute_dws: true  # Compute Derivative Weight Sum
 
-  # Parallel processing parameters
-  parallel:
-    enabled: true  # Enable parallel processing across multiple CPU cores
-    n_jobs: -1  # Number of parallel workers (-1 = use all available cores, 1 = sequential)
-    mode: "by_pairs"  # Options: by_shots, by_pairs
-                      # - by_shots: Parallelize over shots (faster I/O, may have load imbalance)
-                      # - by_pairs: Parallelize over shot-receiver pairs (better load balancing, more I/O)
-    backend: "loky"  # Options: loky, multiprocessing, threading
-                     # - loky: Default, good isolation but higher overhead
-                     # - multiprocessing: Faster startup, better CPU utilization for CPU-bound tasks
-                     # - threading: Best for I/O-bound tasks, shares memory
-    batch_size: "auto"  # Batch size for chunking tasks. Options: "auto", integer, or null
-                        # - "auto": Let joblib decide (recommended)
-                        # - integer: Fixed batch size (e.g., 10 shots per batch)
-                        # - null: No batching (one shot per task)
-    pre_dispatch: "2*n_jobs"  # Number of tasks to pre-dispatch
-                              # - "2*n_jobs": Queue 2x CPU cores worth of tasks (recommended)
-                              # - "all": Queue all tasks at once (high memory usage)
-                              # - integer: Fixed number of tasks to queue
+  # Visualization-specific parameters (only used if save_visualizations=true)
+  visualization:
+    verbose: true
 
-  # Plotting parameters
-  plot:
-    planes: ["xy", "xz", "yz"]  # Projection planes to plot
-    format: "png"  # Options: png, pdf, svg
-    dpi: 300
-    figure_width: 12
-    figure_height: 10
-    subsample_fraction: 1.0  # Fraction of ray paths to plot (0.0-1.0). Use <1.0 for faster plotting with many rays
+    # Plotting parameters
+    plot:
+      planes: ["xy", "xz", "yz"]  # Projection planes to plot
+      format: "png"  # Options: png, pdf, svg
+      dpi: 300
+      figure_width: 12
+      figure_height: 10
+      subsample_fraction: 1.0  # Fraction of ray paths to plot (0.0-1.0). Use <1.0 for faster plotting with many rays
 
-    # Ray path styling
-    ray_color: "blue"
-    ray_alpha: 0.3  # Transparency (0-1)
-    ray_linewidth: 0.5
+      # Ray path styling
+      ray_color: "blue"
+      ray_alpha: 0.3  # Transparency (0-1)
+      ray_linewidth: 0.5
 
-    # Source styling
-    source_color: "red"
-    source_marker: "*"  # Options: *, o, ^, v, s, D
-    source_size: 100
+      # Source styling
+      source_color: "red"
+      source_marker: "*"  # Options: *, o, ^, v, s, D
+      source_size: 100
 
-    # Receiver styling
-    receiver_color: "green"
-    receiver_marker: "^"  # Options: *, o, ^, v, s, D
-    receiver_size: 50
+      # Receiver styling
+      receiver_color: "green"
+      receiver_marker: "^"  # Options: *, o, ^, v, s, D
+      receiver_size: 50
 
-    # Plot formatting
-    grid: true
-    equal_aspect: true  # Equal scaling on both axes
-    label_fontsize: 12
-    title_fontsize: 14
-    legend_fontsize: 10
+      # Plot formatting
+      grid: true
+      equal_aspect: true  # Equal scaling on both axes
+      label_fontsize: 12
+      title_fontsize: 14
+      legend_fontsize: 10
 
-# DWS computation configuration
-dws_computation:
-  enabled: false
-
-  # Input files
-  ground_truth_csv: "${travel_time_processing.synthetic_tt_output_csv}"
-  gradient_dir: "${data.base_dir}/gradient"
-
-  # Output file (HDF5 format)
-  output_file: "${data.analysis_output_dir}/dws_values.h5"
-
-  # Grid dimensions (must match the model grid used for eikonal solver)
-  grid:
-    nx: 201
-    ny: 241
-    nz: 85
-    dx: 1.0  # km
-    dy: 1.0  # km
-    dz: 1.0  # km
-    origin_x: 0.0  # km
-    origin_y: 0.0  # km
-    origin_z: 0.0  # km
-
-  # Phase type: 'p', 's', or 'both'
-  phase_type: 'both'
-
-  # Weight column name in ground truth CSV
-  # If column doesn't exist, uniform weights (1.0) will be used
-  weight_column: 'weight'
-
-  # Maximum number of shots to process (0 for all)
-  max_shots: 0
-
-  # Numerical precision for reading gradient binaries
-  precision: 'single'  # 'single' or 'double'
-
-  # Ray tracing parameters
-  tracing:
-    max_steps: 10000  # Maximum integration steps per ray
-    step_size: 0.1  # Integration step size in km
-    tolerance: 0.5  # Distance tolerance to source in km
-    interpolation_method: "trilinear"  # 'nearest' or 'trilinear'
-
-  # Parallel processing parameters
-  parallel:
-    enabled: true
-    n_jobs: -1  # Use all available CPU cores (-1), or specify a number
-    backend: "multiprocessing"  # 'multiprocessing', 'loky', or 'threading'
-    batch_size: "auto"  # 'auto' or specify batch size
-    pre_dispatch: "2*n_jobs"  # Number of tasks to pre-dispatch
+  # DWS-specific parameters (only used if compute_dws=true)
+  dws:
+    # Weight column name in ground truth CSV
+    # If column doesn't exist, uniform weights (1.0) will be used
+    weight_column: 'weight'
 
 strict_mode: true

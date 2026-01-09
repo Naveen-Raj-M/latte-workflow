@@ -28,7 +28,9 @@ from .postprocess_raypath import (
     read_gradient_metadata,
     read_gradient_binaries,
     reshape_gradients,
-    trace_ray_path
+    trace_ray_path,
+    get_performance_setting,
+    get_tracing_setting
 )
 
 
@@ -290,28 +292,28 @@ def compute_dws_from_ray_paths(config: DictConfig) -> np.ndarray:
 
         print(f"Created {len(tasks)} ray tracing tasks ({len(unique_shots)} shots)")
 
-        # Get parallelization parameters
-        use_parallel = hasattr(config, 'parallel') and config.parallel.enabled
-        n_jobs = config.parallel.n_jobs if use_parallel else 1
-        backend = getattr(config.parallel, 'backend', 'loky') if use_parallel else 'loky'
-        batch_size = getattr(config.parallel, 'batch_size', 'auto') if use_parallel else 'auto'
-        pre_dispatch = getattr(config.parallel, 'pre_dispatch', '2*n_jobs') if use_parallel else '2*n_jobs'
+        # Get parallelization parameters from global config
+        parallel_processing = get_performance_setting(config, 'parallel_processing', True)
+        n_jobs = get_performance_setting(config, 'n_jobs', 1) if parallel_processing else 1
+        backend = get_performance_setting(config, 'backend', 'loky')
+        batch_size = get_performance_setting(config, 'batch_size', 'auto')
+        pre_dispatch = get_performance_setting(config, 'pre_dispatch', '2*n_jobs')
 
-        if use_parallel and n_jobs != 1:
+        if parallel_processing and n_jobs != 1:
             print(f"Processing tasks using {n_jobs if n_jobs > 0 else 'all'} CPU cores...")
             print(f"  Backend: {backend}, Batch size: {batch_size}, Pre-dispatch: {pre_dispatch}")
         else:
             print(f"Processing tasks sequentially...")
 
-        # Prepare tracing parameters
+        # Prepare tracing parameters from global config
         tracing_params = {
-            'max_steps': config.tracing.max_steps,
-            'step_size': config.tracing.step_size,
-            'tolerance': config.tracing.tolerance
+            'max_steps': get_tracing_setting(config, 'max_steps', 10000),
+            'step_size': get_tracing_setting(config, 'step_size', 0.1),
+            'tolerance': get_tracing_setting(config, 'tolerance', 0.5)
         }
 
-        # Get interpolation method
-        interpolation_method = getattr(config.tracing, 'interpolation_method', 'nearest')
+        # Get interpolation method from global config
+        interpolation_method = get_tracing_setting(config, 'interpolation_method', 'nearest')
         print(f"Using '{interpolation_method}' interpolation for ray tracing")
 
         # Grid dimensions
@@ -481,4 +483,76 @@ def create_dws_from_ray_paths(config: DictConfig) -> None:
     print("\n" + "="*80)
     print("DWS COMPUTATION AND SAVING COMPLETE")
     print(f"Output file: {config.output_file}")
+    print("="*80)
+
+
+def compute_dws_from_precomputed_rays(config: DictConfig, precomputed_rays: Dict) -> None:
+    """
+    Compute DWS (Derivative Weight Sum) from pre-computed ray paths.
+
+    This function takes pre-computed ray paths (from compute_all_ray_paths)
+    and computes DWS values without re-tracing rays.
+
+    Args:
+        config: DWS computation configuration object
+        precomputed_rays: Dictionary with phase keys ('p', 's') containing:
+            - 'ray_paths': List of ray path arrays
+            - 'sources': List of source positions
+            - 'receivers': List of receiver positions
+            - 'weights': List of observation weights
+    """
+    print("\n" + "="*80)
+    print("COMPUTING DWS FROM PRE-COMPUTED RAY PATHS")
+    print("="*80)
+
+    # Create output directory
+    ensure_directory_exists(os.path.dirname(config.dws_output_file))
+
+    # Initialize DWS grid
+    nx, ny, nz = config.grid.nx, config.grid.ny, config.grid.nz
+    dws_grid = np.zeros((nz, ny, nx), dtype=np.float64)
+
+    # Get grid dimensions
+    grid_dims = dict(config.grid)
+
+    # Process each phase
+    for phase, phase_data in precomputed_rays.items():
+        print(f"\n{'='*80}")
+        print(f"Processing {phase.upper()}-wave DWS")
+        print(f"{'='*80}")
+
+        ray_paths = phase_data['ray_paths']
+        weights = phase_data['weights']
+
+        print(f"  Ray paths to process: {len(ray_paths)}")
+
+        # Determine if 3D
+        is_3d = ny > 1
+
+        # Accumulate DWS contributions from each ray
+        n_valid = 0
+        for ray_path, weight in tqdm(zip(ray_paths, weights), total=len(ray_paths), desc=f"Computing {phase}-wave DWS"):
+            if len(ray_path) <= 1:
+                continue
+
+            # Compute cell contributions for this ray
+            cell_contributions = compute_ray_segment_contributions(
+                ray_path, grid_dims, is_3d
+            )
+
+            # Weight contributions by observation weight and square the lengths
+            for (i, j, k), length in cell_contributions.items():
+                if 0 <= i < nx and 0 <= j < ny and 0 <= k < nz:
+                    dws_grid[k, j, i] += weight * (length ** 2)
+
+            n_valid += 1
+
+        print(f"  Successfully computed DWS from {n_valid}/{len(ray_paths)} ray paths")
+
+    # Save to HDF5
+    save_dws_to_hdf5(dws_grid, config, config.dws_output_file)
+
+    print("\n" + "="*80)
+    print("DWS COMPUTATION COMPLETE")
+    print(f"Output file: {config.dws_output_file}")
     print("="*80)

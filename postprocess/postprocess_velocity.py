@@ -522,12 +522,41 @@ def expand_to_fine_grid(df_coarse: pd.DataFrame,
     return df_fine
 
 
+def get_performance_setting(config: DictConfig, key: str, default):
+    """
+    Get performance setting from global performance config or local section.
+
+    Args:
+        config: Full configuration object (parent config, not local section)
+        key: Setting key (e.g., 'n_jobs', 'show_progress')
+        default: Default value if not found
+
+    Returns:
+        Setting value with proper fallback hierarchy
+    """
+    # Check global performance section first
+    if hasattr(config, '_parent') and hasattr(config._parent, 'performance'):
+        perf_config = config._parent.performance
+        if hasattr(perf_config, key):
+            return getattr(perf_config, key)
+    elif hasattr(config, 'performance'):
+        perf_config = config.performance
+        if hasattr(perf_config, key):
+            return getattr(perf_config, key)
+
+    # Fallback to default
+    return default
+
+
 def create_velocity_csv_from_binaries(config: DictConfig, phase_type: str = "both", max_depth_km: Optional[float] = None) -> None:
     """Main function to create velocity CSV from binary files."""
     print("\n=== CREATING VELOCITY CSV FROM BINARIES ===")
     print(f"Phase type: {phase_type}")
     if max_depth_km is not None:
         print(f"Max depth filter: {max_depth_km} km")
+
+    # Get performance settings from global config
+    show_progress = get_performance_setting(config, 'show_progress', True)
 
     # Load original velocity file (CSV or HDF5)
     # Check for HDF5 input first, fallback to CSV
@@ -538,13 +567,11 @@ def create_velocity_csv_from_binaries(config: DictConfig, phase_type: str = "bot
         print(f"\nLoading original velocity from HDF5: {input_path}")
         if use_coarse:
             print("  Using coarse dataset for faster processing")
-        df_original = read_velocity_file(input_path, dataset=dataset,
-                                        show_progress=config.get('hdf5_options', {}).get('show_progress', True))
+        df_original = read_velocity_file(input_path, dataset=dataset, show_progress=show_progress)
     else:
         input_path = config.original_velocity_csv
         print(f"\nLoading original velocity from CSV: {input_path}")
-        df_original = read_velocity_file(input_path,
-                                        show_progress=config.get('hdf5_options', {}).get('show_progress', True))
+        df_original = read_velocity_file(input_path, show_progress=show_progress)
 
     print(f"  Loaded from: {input_path}")
     print(f"  Rows: {len(df_original):,}")
@@ -683,11 +710,15 @@ def create_velocity_csv_from_binaries(config: DictConfig, phase_type: str = "bot
             'dz_coarse': hdf5_opts.coarse_grid.dz,
         }
 
+    # Get performance settings from global config
+    show_progress = get_performance_setting(config, 'show_progress', True)
+    n_jobs = get_performance_setting(config, 'n_jobs', 1)
+
     # Write CSV if requested
     if output_format in ['csv', 'both']:
         ensure_directory_exists(os.path.dirname(config.velocity_output_csv))
         write_velocity_file(df_output, config.velocity_output_csv, format='csv',
-                           show_progress=hdf5_opts.get('show_progress', True))
+                           show_progress=show_progress)
         print(f"CSV written: {config.velocity_output_csv}")
 
     # Write HDF5 if requested
@@ -699,8 +730,8 @@ def create_velocity_csv_from_binaries(config: DictConfig, phase_type: str = "bot
             compression=hdf5_opts.get('compression', 'gzip'),
             compression_opts=hdf5_opts.get('compression_level', 4),
             metadata=metadata,
-            show_progress=hdf5_opts.get('show_progress', True),
-            n_jobs=hdf5_opts.get('n_jobs', 1)
+            show_progress=show_progress,
+            n_jobs=n_jobs
         )
         print(f"HDF5 written: {config.velocity_output_hdf5}")
 
@@ -721,15 +752,15 @@ def create_velocity_csv_from_binaries(config: DictConfig, phase_type: str = "bot
                     fine_dx=fine_grid.dx,
                     fine_dy=fine_grid.dy,
                     fine_dz=fine_grid.dz,
-                    n_jobs=hdf5_opts.get('n_jobs', 1),
-                    show_progress=hdf5_opts.get('show_progress', True)
+                    n_jobs=n_jobs,
+                    show_progress=show_progress
                 )
 
                 # Write coarse CSV
                 ensure_directory_exists(os.path.dirname(output_coarse_csv))
                 write_velocity_file(
                     df_output_coarse, output_coarse_csv, format='csv',
-                    show_progress=hdf5_opts.get('show_progress', True)
+                    show_progress=show_progress
                 )
                 print(f"Coarse CSV written: {output_coarse_csv}")
                 print(f"  Original rows: {len(df_output):,}")

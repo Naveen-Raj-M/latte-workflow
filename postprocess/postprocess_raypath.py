@@ -25,6 +25,58 @@ from joblib import Parallel, delayed
 from utils.io_utils import ensure_directory_exists, check_file_exists
 
 
+def get_performance_setting(config: DictConfig, key: str, default):
+    """
+    Get performance setting from global performance config.
+
+    Args:
+        config: Configuration object
+        key: Setting key (e.g., 'n_jobs', 'backend', 'batch_size', 'pre_dispatch')
+        default: Default value if not found
+
+    Returns:
+        Setting value with proper fallback
+    """
+    # Check global performance section
+    if hasattr(config, '_parent') and hasattr(config._parent, 'performance'):
+        perf_config = config._parent.performance
+        if hasattr(perf_config, key):
+            return getattr(perf_config, key)
+    elif hasattr(config, 'performance'):
+        perf_config = config.performance
+        if hasattr(perf_config, key):
+            return getattr(perf_config, key)
+
+    # Fallback to default
+    return default
+
+
+def get_tracing_setting(config: DictConfig, key: str, default):
+    """
+    Get ray tracing setting from global tracing config.
+
+    Args:
+        config: Configuration object
+        key: Setting key (e.g., 'max_steps', 'step_size', 'tolerance', 'interpolation_method')
+        default: Default value if not found
+
+    Returns:
+        Setting value with proper fallback
+    """
+    # Check global tracing section
+    if hasattr(config, '_parent') and hasattr(config._parent, 'tracing'):
+        tracing_config = config._parent.tracing
+        if hasattr(tracing_config, key):
+            return getattr(tracing_config, key)
+    elif hasattr(config, 'tracing'):
+        tracing_config = config.tracing
+        if hasattr(tracing_config, key):
+            return getattr(tracing_config, key)
+
+    # Fallback to default
+    return default
+
+
 def read_gradient_metadata(gradient_dir: str, shot_id: int) -> Dict[str, float]:
     """
     Read gradient metadata file for a specific shot.
@@ -768,28 +820,28 @@ def create_ray_path_visualizations_by_pairs(config: DictConfig) -> None:
 
         print(f"Created {len(tasks)} ray tracing tasks ({len(unique_shots)} shots)")
 
-        # Get parallelization parameters
-        use_parallel = hasattr(config, 'parallel') and config.parallel.enabled
-        n_jobs = config.parallel.n_jobs if use_parallel else 1
-        backend = getattr(config.parallel, 'backend', 'loky') if use_parallel else 'loky'
-        batch_size = getattr(config.parallel, 'batch_size', 'auto') if use_parallel else 'auto'
-        pre_dispatch = getattr(config.parallel, 'pre_dispatch', '2*n_jobs') if use_parallel else '2*n_jobs'
+        # Get parallelization parameters from global config
+        parallel_processing = get_performance_setting(config, 'parallel_processing', True)
+        n_jobs = get_performance_setting(config, 'n_jobs', 1) if parallel_processing else 1
+        backend = get_performance_setting(config, 'backend', 'loky')
+        batch_size = get_performance_setting(config, 'batch_size', 'auto')
+        pre_dispatch = get_performance_setting(config, 'pre_dispatch', '2*n_jobs')
 
-        if use_parallel and n_jobs != 1:
+        if parallel_processing and n_jobs != 1:
             print(f"Processing tasks using {n_jobs if n_jobs > 0 else 'all'} CPU cores...")
             print(f"  Backend: {backend}, Batch size: {batch_size}, Pre-dispatch: {pre_dispatch}")
         else:
             print(f"Processing tasks sequentially...")
 
-        # Prepare tracing parameters
+        # Prepare tracing parameters from global config
         tracing_params = {
-            'max_steps': config.tracing.max_steps,
-            'step_size': config.tracing.step_size,
-            'tolerance': config.tracing.tolerance
+            'max_steps': get_tracing_setting(config, 'max_steps', 10000),
+            'step_size': get_tracing_setting(config, 'step_size', 0.1),
+            'tolerance': get_tracing_setting(config, 'tolerance', 0.5)
         }
 
-        # Get interpolation method
-        interpolation_method = getattr(config.tracing, 'interpolation_method', 'nearest')
+        # Get interpolation method from global config
+        interpolation_method = get_tracing_setting(config, 'interpolation_method', 'nearest')
         print(f"Using '{interpolation_method}' interpolation for ray tracing")
 
         # Process all shot-receiver pairs in parallel
@@ -898,30 +950,28 @@ def create_ray_path_visualizations(config: DictConfig) -> None:
         if config.max_shots > 0:
             unique_shots = unique_shots[:config.max_shots]
 
-        # Determine number of parallel jobs
-        use_parallel = hasattr(config, 'parallel') and config.parallel.enabled
-        n_jobs = config.parallel.n_jobs if use_parallel else 1
+        # Get parallelization parameters from global config
+        parallel_processing = get_performance_setting(config, 'parallel_processing', True)
+        n_jobs = get_performance_setting(config, 'n_jobs', 1) if parallel_processing else 1
+        backend = get_performance_setting(config, 'backend', 'loky')
+        batch_size = get_performance_setting(config, 'batch_size', 'auto')
+        pre_dispatch = get_performance_setting(config, 'pre_dispatch', '2*n_jobs')
 
-        # Get parallel processing parameters
-        backend = getattr(config.parallel, 'backend', 'loky') if use_parallel else 'loky'
-        batch_size = getattr(config.parallel, 'batch_size', 'auto') if use_parallel else 'auto'
-        pre_dispatch = getattr(config.parallel, 'pre_dispatch', '2*n_jobs') if use_parallel else '2*n_jobs'
-
-        if use_parallel and n_jobs != 1:
+        if parallel_processing and n_jobs != 1:
             print(f"Processing {len(unique_shots)} shots using {n_jobs if n_jobs > 0 else 'all'} CPU cores...")
             print(f"  Backend: {backend}, Batch size: {batch_size}, Pre-dispatch: {pre_dispatch}")
         else:
             print(f"Processing {len(unique_shots)} shots sequentially...")
 
-        # Prepare tracing parameters dictionary
+        # Prepare tracing parameters from global config
         tracing_params = {
-            'max_steps': config.tracing.max_steps,
-            'step_size': config.tracing.step_size,
-            'tolerance': config.tracing.tolerance
+            'max_steps': get_tracing_setting(config, 'max_steps', 10000),
+            'step_size': get_tracing_setting(config, 'step_size', 0.1),
+            'tolerance': get_tracing_setting(config, 'tolerance', 0.5)
         }
 
-        # Get interpolation method from config (default to 'nearest' for backward compatibility)
-        interpolation_method = getattr(config.tracing, 'interpolation_method', 'nearest')
+        # Get interpolation method from global config
+        interpolation_method = get_tracing_setting(config, 'interpolation_method', 'nearest')
         print(f"Using '{interpolation_method}' interpolation for ray tracing")
 
         # Process shots in parallel or sequential
@@ -968,6 +1018,70 @@ def create_ray_path_visualizations(config: DictConfig) -> None:
                 plane,
                 output_file,
                 config
+            )
+
+    print("\n" + "="*80)
+    print("RAY PATH VISUALIZATION COMPLETE")
+    print("="*80)
+
+
+def create_visualizations_from_precomputed_rays(config: DictConfig, precomputed_rays: Dict) -> None:
+    """
+    Create ray path visualizations from pre-computed ray paths.
+
+    This function takes pre-computed ray paths (from compute_all_ray_paths)
+    and generates visualization plots without re-tracing rays.
+
+    Args:
+        config: Visualization configuration object
+        precomputed_rays: Dictionary with phase keys ('p', 's') containing:
+            - 'ray_paths': List of ray path arrays
+            - 'sources': List of source positions
+            - 'receivers': List of receiver positions
+    """
+    print("\n" + "="*80)
+    print("RAY PATH VISUALIZATION (FROM PRE-COMPUTED RAYS)")
+    print("="*80)
+
+    # Create output directory
+    ensure_directory_exists(config.output_dir)
+
+    # Normalize config structure for compatibility with plot_ray_paths_projection
+    # The plotting function expects config.plot, but we have config.visualization.plot
+    if hasattr(config, 'visualization') and hasattr(config.visualization, 'plot'):
+        # Create a temporary config object with plot at the root level
+        from omegaconf import OmegaConf
+        plot_config = config.visualization.plot
+        # Create a shallow wrapper that has 'plot' at the root
+        config_for_plotting = OmegaConf.create({'plot': OmegaConf.to_container(plot_config)})
+    else:
+        config_for_plotting = config
+
+    # Get plotting config
+    plot_cfg = config.visualization.plot if hasattr(config, 'visualization') else config.plot
+
+    # Create plots for each phase
+    for phase, phase_data in precomputed_rays.items():
+        print(f"\n{'='*80}")
+        print(f"Creating {phase.upper()}-wave visualization")
+        print(f"{'='*80}")
+
+        ray_paths = phase_data['ray_paths']
+        sources = phase_data['sources']
+        receivers = phase_data['receivers']
+
+        print(f"  Ray paths to plot: {len(ray_paths)}")
+
+        # Create plots for each projection plane
+        for plane in plot_cfg.planes:
+            output_file = f"{config.output_dir}/ray_paths_{phase}_wave_{plane}.{plot_cfg.format}"
+            plot_ray_paths_projection(
+                ray_paths,
+                sources,
+                receivers,
+                plane,
+                output_file,
+                config_for_plotting  # Use normalized config with plot at root level
             )
 
     print("\n" + "="*80)

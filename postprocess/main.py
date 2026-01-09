@@ -22,8 +22,13 @@ from .postprocess_traveltime import (
     create_synthetic_travel_time_csv_with_exchange
 )
 from .postprocess_source import process_source_updates
-from .postprocess_raypath import create_ray_path_visualizations, create_ray_path_visualizations_by_pairs
-from .postprocess_dws import create_dws_from_ray_paths
+from .postprocess_raypath import (
+    create_ray_path_visualizations,
+    create_ray_path_visualizations_by_pairs,
+    create_visualizations_from_precomputed_rays
+)
+from .postprocess_dws import create_dws_from_ray_paths, compute_dws_from_precomputed_rays
+from .compute_ray_paths import compute_all_ray_paths
 
 
 def postprocess_latte_outputs(config: DictConfig) -> None:
@@ -153,39 +158,44 @@ def postprocess_latte_outputs(config: DictConfig) -> None:
     else:
         print(f"\nSource parameter processing: DISABLED")
 
-    # Process ray path visualization
-    if hasattr(config, "ray_path_visualization") and config.ray_path_visualization.enabled:
-        print(f"\nRay path visualization: ENABLED")
+    # Process ray path diagnosis (combines visualization and DWS with shared ray computation)
+    if hasattr(config, "ray_path_diagnosis") and config.ray_path_diagnosis.enabled:
+        print(f"\nRay path diagnosis: ENABLED")
         try:
-            # Choose parallelization mode
-            parallel_mode = "by_shots"  # default
-            if hasattr(config.ray_path_visualization, 'parallel') and hasattr(config.ray_path_visualization.parallel, 'mode'):
-                parallel_mode = config.ray_path_visualization.parallel.mode
+            diag_config = config.ray_path_diagnosis
 
-            if parallel_mode == "by_pairs":
-                print(f"  Using PAIR-LEVEL parallelization (better load balancing)")
-                create_ray_path_visualizations_by_pairs(config.ray_path_visualization)
-            else:
-                print(f"  Using SHOT-LEVEL parallelization (lower I/O overhead)")
-                create_ray_path_visualizations(config.ray_path_visualization)
+            # Check what outputs are requested
+            save_viz = getattr(diag_config, 'save_visualizations', False)
+            compute_dws = getattr(diag_config, 'compute_dws', False)
+
+            if not save_viz and not compute_dws:
+                print(f"  WARNING: Both save_visualizations and compute_dws are disabled.")
+                print(f"           Enable at least one to produce output.")
+            elif save_viz and compute_dws:
+                print(f"  Outputs: Visualizations + DWS (ray paths computed once and shared)")
+            elif save_viz:
+                print(f"  Outputs: Visualizations only")
+            elif compute_dws:
+                print(f"  Outputs: DWS only")
+
+            if save_viz or compute_dws:
+                # Compute ray paths once (shared computation)
+                precomputed_rays = compute_all_ray_paths(diag_config)
+
+                # Generate visualizations if requested
+                if save_viz:
+                    create_visualizations_from_precomputed_rays(diag_config, precomputed_rays)
+
+                # Compute DWS if requested
+                if compute_dws:
+                    compute_dws_from_precomputed_rays(diag_config, precomputed_rays)
+
         except Exception as e:
-            print(f"Error in ray path visualization: {e}")
+            print(f"Error in ray path diagnosis: {e}")
             if config.strict_mode:
                 raise
     else:
-        print(f"\nRay path visualization: DISABLED")
-
-    # Process DWS computation
-    if hasattr(config, "dws_computation") and config.dws_computation.enabled:
-        print(f"\nDWS computation: ENABLED")
-        try:
-            create_dws_from_ray_paths(config.dws_computation)
-        except Exception as e:
-            print(f"Error in DWS computation: {e}")
-            if config.strict_mode:
-                raise
-    else:
-        print(f"\nDWS computation: DISABLED")
+        print(f"\nRay path diagnosis: DISABLED")
 
     print("\n=== POST-PROCESSING COMPLETE ===")
 
