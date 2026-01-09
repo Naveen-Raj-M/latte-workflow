@@ -325,7 +325,8 @@ def _read_csv_velocity(
 def _read_hdf5_velocity(
     filepath: Union[str, Path],
     dataset: str = 'velocity',
-    show_progress: bool = True
+    show_progress: bool = True,
+    columns: Optional[List[str]] = None
 ) -> pd.DataFrame:
     """
     Read velocity from HDF5 file.
@@ -334,6 +335,7 @@ def _read_hdf5_velocity(
         filepath: Path to HDF5 file
         dataset: Dataset name ('velocity' or 'velocity_coarse')
         show_progress: Whether to show progress bar
+        columns: Optional list of column names to read (default: read all)
 
     Returns:
         Velocity DataFrame
@@ -354,20 +356,30 @@ def _read_hdf5_velocity(
                     )
 
                 pbar.set_description(f"{desc} - Loading data")
-                data = f[dataset][:]
-                pbar.update(70)
 
                 # Get column names from attributes
                 if 'columns' in f[dataset].attrs:
-                    columns = f[dataset].attrs['columns']
-                    if isinstance(columns[0], bytes):
-                        columns = [c.decode('utf-8') for c in columns]
+                    all_columns = f[dataset].attrs['columns']
+                    if isinstance(all_columns[0], bytes):
+                        all_columns = [c.decode('utf-8') for c in all_columns]
                 else:
                     # Use default column names
-                    columns = VELOCITY_COLUMNS
+                    all_columns = VELOCITY_COLUMNS
+
+                # Load data (all columns or selected columns)
+                if columns is None:
+                    data = f[dataset][:]
+                    selected_columns = all_columns
+                else:
+                    # Read only selected columns
+                    col_indices = [all_columns.index(c) for c in columns if c in all_columns]
+                    data = f[dataset][:, col_indices]
+                    selected_columns = [all_columns[i] for i in col_indices]
+
+                pbar.update(70)
 
                 pbar.set_description(f"{desc} - Creating DataFrame")
-                df = pd.DataFrame(data, columns=columns)
+                df = pd.DataFrame(data, columns=selected_columns)
                 pbar.update(20)
 
         logger.info(f"Loaded {len(df):,} points from {filepath}:{dataset}")
@@ -379,16 +391,25 @@ def _read_hdf5_velocity(
                     f"Available datasets: {list(f.keys())}"
                 )
 
-            data = f[dataset][:]
-
+            # Get column names from attributes
             if 'columns' in f[dataset].attrs:
-                columns = f[dataset].attrs['columns']
-                if isinstance(columns[0], bytes):
-                    columns = [c.decode('utf-8') for c in columns]
+                all_columns = f[dataset].attrs['columns']
+                if isinstance(all_columns[0], bytes):
+                    all_columns = [c.decode('utf-8') for c in all_columns]
             else:
-                columns = VELOCITY_COLUMNS
+                all_columns = VELOCITY_COLUMNS
 
-            df = pd.DataFrame(data, columns=columns)
+            # Load data (all columns or selected columns)
+            if columns is None:
+                data = f[dataset][:]
+                selected_columns = all_columns
+            else:
+                # Read only selected columns
+                col_indices = [all_columns.index(c) for c in columns if c in all_columns]
+                data = f[dataset][:, col_indices]
+                selected_columns = [all_columns[i] for i in col_indices]
+
+            df = pd.DataFrame(data, columns=selected_columns)
 
     return df
 
@@ -524,6 +545,7 @@ def read_velocity_file(
     format: str = 'auto',
     dataset: str = 'velocity',
     show_progress: bool = True,
+    columns: Optional[List[str]] = None,
     **kwargs
 ) -> pd.DataFrame:
     """
@@ -534,7 +556,8 @@ def read_velocity_file(
         format: 'auto' (detect from extension), 'csv', or 'hdf5'
         dataset: HDF5 dataset name ('velocity' or 'velocity_coarse')
         show_progress: Whether to show progress bar
-        **kwargs: Additional arguments for pd.read_csv
+        columns: Optional list of column names to read (HDF5 only, for memory efficiency)
+        **kwargs: Additional arguments for pd.read_csv (CSV only)
 
     Returns:
         DataFrame with velocity model data
@@ -547,6 +570,8 @@ def read_velocity_file(
     Example:
         >>> df = read_velocity_file('velocity_initial.csv')
         >>> df = read_velocity_file('velocity_final.h5', dataset='velocity_coarse')
+        >>> # Memory efficient: read only necessary columns
+        >>> df = read_velocity_file('velocity.h5', columns=['X_grid_km', 'Y_grid_km', 'Z_grid_km', 'vp'])
     """
     filepath = Path(filepath)
 
@@ -559,9 +584,11 @@ def read_velocity_file(
 
     # Read based on format
     if format == 'csv':
+        if columns is not None:
+            kwargs['usecols'] = columns
         df = _read_csv_velocity(filepath, show_progress=show_progress, **kwargs)
     elif format == 'hdf5':
-        df = _read_hdf5_velocity(filepath, dataset=dataset, show_progress=show_progress)
+        df = _read_hdf5_velocity(filepath, dataset=dataset, show_progress=show_progress, columns=columns)
     else:
         raise ValueError(f"Unknown format: {format}. Use 'csv' or 'hdf5'.")
 
