@@ -42,7 +42,8 @@ def generate_dws_report(
     statistics: Dict[str, Any],
     metadata: Dict[str, Any],
     results: Dict[str, Any],
-    output_file: str
+    output_file: str,
+    use_m2_units: bool = False
 ) -> None:
     """
     Generate comprehensive DWS analysis report.
@@ -52,8 +53,13 @@ def generate_dws_report(
         metadata: DWS metadata dictionary
         results: Analysis results dictionary
         output_file: Output file path
+        use_m2_units: If True, display values in m² instead of km²
     """
     logger.info(f"Generating DWS analysis report: {output_file}")
+
+    # Unit conversion
+    unit_label = 'm²' if use_m2_units else 'km²'
+    unit_conversion = 1e6 if use_m2_units else 1.0
 
     with open(output_file, 'w') as f:
         # Header
@@ -118,23 +124,38 @@ def generate_dws_report(
         # DWS Value Statistics
         f.write("DWS VALUE STATISTICS\n")
         f.write("-"*80 + "\n")
-        f.write(f"Minimum: {safe_format_float(statistics.get('dws_min'), '.6e')} km²\n")
-        f.write(f"Maximum: {safe_format_float(statistics.get('dws_max'), '.6e')} km²\n")
-        f.write(f"Mean: {safe_format_float(statistics.get('dws_mean'), '.6e')} km²\n")
-        f.write(f"Median: {safe_format_float(statistics.get('dws_median'), '.6e')} km²\n")
-        f.write(f"Std Dev: {safe_format_float(statistics.get('dws_std'), '.6e')} km²\n")
+        # Apply unit conversion to statistics
+        dws_min = statistics.get('dws_min')
+        dws_max = statistics.get('dws_max')
+        dws_mean = statistics.get('dws_mean')
+        dws_median = statistics.get('dws_median')
+        dws_std = statistics.get('dws_std')
+
+        f.write(f"Minimum: {safe_format_float(dws_min * unit_conversion if dws_min is not None else None, '.6e')} {unit_label}\n")
+        f.write(f"Maximum: {safe_format_float(dws_max * unit_conversion if dws_max is not None else None, '.6e')} {unit_label}\n")
+        f.write(f"Mean: {safe_format_float(dws_mean * unit_conversion if dws_mean is not None else None, '.6e')} {unit_label}\n")
+        f.write(f"Median: {safe_format_float(dws_median * unit_conversion if dws_median is not None else None, '.6e')} {unit_label}\n")
+        f.write(f"Std Dev: {safe_format_float(dws_std * unit_conversion if dws_std is not None else None, '.6e')} {unit_label}\n")
         f.write("\n")
 
         # Percentiles
         f.write("DWS PERCENTILES\n")
         f.write("-"*80 + "\n")
         percentiles = statistics.get('dws_percentiles', {})
-        f.write(f"25th percentile: {safe_format_float(percentiles.get('25'), '.6e')} km²\n")
-        f.write(f"50th percentile: {safe_format_float(percentiles.get('50'), '.6e')} km²\n")
-        f.write(f"75th percentile: {safe_format_float(percentiles.get('75'), '.6e')} km²\n")
-        f.write(f"90th percentile: {safe_format_float(percentiles.get('90'), '.6e')} km²\n")
-        f.write(f"95th percentile: {safe_format_float(percentiles.get('95'), '.6e')} km²\n")
-        f.write(f"99th percentile: {safe_format_float(percentiles.get('99'), '.6e')} km²\n")
+        # Apply unit conversion to percentiles
+        p25 = percentiles.get('25')
+        p50 = percentiles.get('50')
+        p75 = percentiles.get('75')
+        p90 = percentiles.get('90')
+        p95 = percentiles.get('95')
+        p99 = percentiles.get('99')
+
+        f.write(f"25th percentile: {safe_format_float(p25 * unit_conversion if p25 is not None else None, '.6e')} {unit_label}\n")
+        f.write(f"50th percentile: {safe_format_float(p50 * unit_conversion if p50 is not None else None, '.6e')} {unit_label}\n")
+        f.write(f"75th percentile: {safe_format_float(p75 * unit_conversion if p75 is not None else None, '.6e')} {unit_label}\n")
+        f.write(f"90th percentile: {safe_format_float(p90 * unit_conversion if p90 is not None else None, '.6e')} {unit_label}\n")
+        f.write(f"95th percentile: {safe_format_float(p95 * unit_conversion if p95 is not None else None, '.6e')} {unit_label}\n")
+        f.write(f"99th percentile: {safe_format_float(p99 * unit_conversion if p99 is not None else None, '.6e')} {unit_label}\n")
         f.write("\n")
 
         # Visualization Summary

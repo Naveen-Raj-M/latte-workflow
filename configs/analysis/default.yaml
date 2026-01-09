@@ -220,8 +220,9 @@ dws_analysis:
   enable_coverage_maps: true  # Create binary coverage maps
   enable_histograms: true  # Create histograms of DWS values
   enable_vertical_slices: true  # Create vertical slice plots
+  use_m2_units: false  # If true, plot DWS values in m² instead of km² (1 km² = 1,000,000 m²)
 
-  # Coverage threshold for coverage maps (km²)
+  # Coverage threshold for coverage maps (in km², not affected by use_m2_units)
   # Cells with DWS > threshold are considered "covered"
   coverage_threshold: 0.0
 

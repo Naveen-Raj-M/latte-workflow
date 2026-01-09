@@ -60,6 +60,11 @@ def plot_horizontal_slice(
     y = df_slice['Y_grid_km'].values
     dws = df_slice['dws'].values
 
+    # Unit conversion: check if we should use m² instead of km²
+    use_m2_units = config.get('use_m2_units', False)
+    unit_label = 'm²' if use_m2_units else 'km²'
+    unit_conversion = 1e6 if use_m2_units else 1.0  # 1 km² = 1,000,000 m²
+
     # Create grid
     x_unique = np.sort(np.unique(x))
     y_unique = np.sort(np.unique(y))
@@ -71,7 +76,7 @@ def plot_horizontal_slice(
         i_x = np.searchsorted(x_unique, row['X_grid_km'])
         i_y = np.searchsorted(y_unique, row['Y_grid_km'])
         if i_x < len(x_unique) and i_y < len(y_unique):
-            dws_grid[i_y, i_x] = row['dws']
+            dws_grid[i_y, i_x] = row['dws'] * unit_conversion
 
     # Handle log scale
     if log_scale:
@@ -109,7 +114,7 @@ def plot_horizontal_slice(
     )
 
     # Colorbar
-    cbar = plt.colorbar(im, ax=ax, label='DWS (km²)')
+    cbar = plt.colorbar(im, ax=ax, label=f'DWS ({unit_label})')
     cbar.ax.tick_params(labelsize=config.get('tick_fontsize', 10))
 
     # Labels and title
@@ -182,6 +187,11 @@ def plot_vertical_slice(
     z = df_slice['Z_grid_km'].values
     dws = df_slice['dws'].values
 
+    # Unit conversion: check if we should use m² instead of km²
+    use_m2_units = config.get('use_m2_units', False)
+    unit_label = 'm²' if use_m2_units else 'km²'
+    unit_conversion = 1e6 if use_m2_units else 1.0  # 1 km² = 1,000,000 m²
+
     # Create grid
     x_unique = np.sort(np.unique(x))
     z_unique = np.sort(np.unique(z))
@@ -199,7 +209,7 @@ def plot_vertical_slice(
         i_z = np.searchsorted(z_unique, row['Z_grid_km'])
 
         if i_x < len(x_unique) and i_z < len(z_unique):
-            dws_grid[i_z, i_x] = row['dws']
+            dws_grid[i_z, i_x] = row['dws'] * unit_conversion
 
     # Handle log scale
     if log_scale:
@@ -237,7 +247,7 @@ def plot_vertical_slice(
     )
 
     # Colorbar
-    cbar = plt.colorbar(im, ax=ax, label='DWS (km²)')
+    cbar = plt.colorbar(im, ax=ax, label=f'DWS ({unit_label})')
     cbar.ax.tick_params(labelsize=config.get('tick_fontsize', 10))
 
     # Labels and title
@@ -285,8 +295,13 @@ def plot_dws_histogram(
     """
     logger.info(f"Creating DWS histogram")
 
-    # Filter out zeros for log scale
-    dws_values = df['dws'].values
+    # Unit conversion: check if we should use m² instead of km²
+    use_m2_units = config.get('use_m2_units', False)
+    unit_label = 'm²' if use_m2_units else 'km²'
+    unit_conversion = 1e6 if use_m2_units else 1.0  # 1 km² = 1,000,000 m²
+
+    # Filter out zeros for log scale and apply unit conversion
+    dws_values = df['dws'].values * unit_conversion
     if log_scale_x:
         dws_values = dws_values[dws_values > 0]
 
@@ -302,7 +317,7 @@ def plot_dws_histogram(
         ax.hist(dws_values, bins=bins, edgecolor='black', alpha=0.7)
         scale_str = "(Linear Scale)"
 
-    ax.set_xlabel(f'DWS (km²) {scale_str}', fontsize=config.get('label_fontsize', 12))
+    ax.set_xlabel(f'DWS ({unit_label}) {scale_str}', fontsize=config.get('label_fontsize', 12))
     ax.set_ylabel('Frequency', fontsize=config.get('label_fontsize', 12))
     ax.set_title('DWS Distribution', fontsize=config.get('title_fontsize', 14))
     ax.grid(config.get('grid', True), alpha=0.3)

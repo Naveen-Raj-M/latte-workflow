@@ -215,6 +215,10 @@ def analyze_dws(config_dict: Dict[str, Any]) -> Dict[str, Any]:
     enable_coverage_maps = config.get('enable_coverage_maps', True)
     enable_histograms = config.get('enable_histograms', True)
     enable_vertical_slices = config.get('enable_vertical_slices', False)
+    use_m2_units = config.get('use_m2_units', False)
+
+    # Add unit settings to plot_config
+    plot_config['use_m2_units'] = use_m2_units
 
     # Parallel processing settings
     parallel_config = config.get('parallel', {})
@@ -360,7 +364,7 @@ def analyze_dws(config_dict: Dict[str, Any]) -> Dict[str, Any]:
     if config.get('generate_report', True):
         logger.info("Generating DWS analysis report...")
         report_file = output_dir / 'reports' / 'dws_analysis_report.txt'
-        generate_dws_report(stats, metadata, results, str(report_file))
+        generate_dws_report(stats, metadata, results, str(report_file), use_m2_units=use_m2_units)
 
     logger.info("="*80)
     logger.info("DWS ANALYSIS COMPLETE")
