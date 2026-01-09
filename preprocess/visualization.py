@@ -135,6 +135,11 @@ def create_station_event_visualization(config: DictConfig,
     logger = logging.getLogger(__name__)
     vis_config = config.visualization.station_event_vis
 
+    # Check if station/event visualization is enabled
+    if not vis_config.get('enabled', True):
+        logger.info("Station/event visualization disabled")
+        return
+
     if len(events_df) == 0:
         logger.warning("No events to visualize")
         return

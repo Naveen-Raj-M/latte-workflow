@@ -162,6 +162,7 @@ visualization:
   enabled: true
   # Station and event visualization (map view and cross-sections)
   station_event_vis:
+    enabled: true  # Set to false to disable station/event plotting
     output_dir: "${data.output_base_dir}/visualizations"
     figure_dpi: 150
     figure_size: [12, 10]
@@ -223,7 +224,9 @@ visualization:
     threshold: 1  # Set to 0 to show all cells, >0 to highlight well-covered regions
     # Report generation
     generate_report: true  # Generate ray_path_density_report.txt with statistics
-    # Which planes to plot (summed projections)
+    # Master control for ray density plots (summed projections)
+    plot_ray_density: true  # Set to false to disable all xy/xz/yz projection plots
+    # Which planes to plot (summed projections) - only used if plot_ray_density is true
     plot_xy: true  # Map view (summed over depth)
     plot_xz: true  # Vertical cross-section (summed over Y)
     plot_yz: true  # Vertical cross-section (summed over X)

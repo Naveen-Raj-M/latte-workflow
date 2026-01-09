@@ -13,8 +13,10 @@ Workflow order:
 
 import logging
 from pathlib import Path
+from typing import Tuple, Optional
 
 import hydra
+import pandas as pd
 from omegaconf import DictConfig, OmegaConf
 
 # Import preprocessing functions
@@ -58,13 +60,14 @@ def run_data_loading(cfg: DictConfig):
     return events_df, stations_df, arrivals_df, picks_df
 
 
-def run_coordinate_transform(cfg: DictConfig, events_df, stations_df):
+def run_coordinate_transform(cfg: DictConfig, events_df, stations_df, picks_df):
     """Transform coordinates from geodetic to Cartesian.
 
     Args:
         cfg: Configuration settings.
         events_df: DataFrame with events in geodetic coordinates.
         stations_df: DataFrame with stations in geodetic coordinates.
+        picks_df: DataFrame with picks.
 
     Returns:
         Tuple of (events_cart_df, stations_cart_df).
@@ -80,6 +83,14 @@ def run_coordinate_transform(cfg: DictConfig, events_df, stations_df):
         events_cart, stations_cart = transform_coordinates(
             cfg, events_df, stations_df
         )
+
+        # Also save picks to coordinate_transform output directory for independent visualization
+        if picks_df is not None and not picks_df.empty:
+            output_dir = Path(cfg.coordinate_transform.output_dir)
+            ensure_directory_exists(output_dir)
+            picks_csv = output_dir / 'picks_cartesian.csv'
+            picks_df.to_csv(picks_csv, index=False)
+            print(f"  Picks: {len(picks_df)} saved to {picks_csv}")
 
         print(f"\nTransformed coordinates:")
         print(f"  Events: {len(events_cart)} to Cartesian")
@@ -146,34 +157,119 @@ def run_velocity_model(cfg: DictConfig, events_cart, stations_cart) -> None:
             print(f"Vs binary file: {cfg.initial_velocity_model.vs_binary}")
 
 
-def run_visualization(cfg: DictConfig, events_df, stations_df,
-                     picks_df, events_cart=None, stations_cart=None) -> None:
+def load_existing_data_for_visualization(cfg: DictConfig) -> Tuple[Optional[pd.DataFrame],
+                                                                   Optional[pd.DataFrame],
+                                                                   Optional[pd.DataFrame],
+                                                                   Optional[pd.DataFrame],
+                                                                   Optional[pd.DataFrame]]:
+    """Load data from existing CSV files for visualization.
+
+    This function attempts to load previously saved data files to enable
+    visualization without running the entire preprocessing pipeline.
+
+    Args:
+        cfg: Configuration settings.
+
+    Returns:
+        Tuple of (events_df, stations_df, events_cart, stations_cart, picks_df).
+        Any or all can be None if files don't exist.
+    """
+    logger = logging.getLogger(__name__)
+
+    # Try to load geodetic coordinates (for station/event vis)
+    events_geo_path = Path(cfg.data.output_base_dir) / "events_geodetic.csv"
+    stations_geo_path = Path(cfg.data.output_base_dir) / "stations_geodetic.csv"
+
+    # Try to load Cartesian coordinates (for ray density)
+    events_cart_path = Path(cfg.coordinate_transform.output_dir) / "events_cartesian.csv"
+    stations_cart_path = Path(cfg.coordinate_transform.output_dir) / "stations_cartesian.csv"
+    picks_path = Path(cfg.coordinate_transform.output_dir) / "picks_cartesian.csv"
+
+    events_df = None
+    stations_df = None
+    events_cart = None
+    stations_cart = None
+    picks_df = None
+
+    # Load geodetic if available
+    if events_geo_path.exists() and stations_geo_path.exists():
+        try:
+            events_df = pd.read_csv(events_geo_path)
+            stations_df = pd.read_csv(stations_geo_path)
+            logger.info(f"Loaded {len(events_df)} events and {len(stations_df)} stations from geodetic CSVs")
+        except Exception as e:
+            logger.warning(f"Failed to load geodetic CSVs: {e}")
+            events_df = None
+            stations_df = None
+
+    # Load Cartesian if available
+    if events_cart_path.exists() and stations_cart_path.exists():
+        try:
+            events_cart = pd.read_csv(events_cart_path)
+            stations_cart = pd.read_csv(stations_cart_path)
+            logger.info(f"Loaded {len(events_cart)} events and {len(stations_cart)} stations from Cartesian CSVs")
+        except Exception as e:
+            logger.warning(f"Failed to load Cartesian CSVs: {e}")
+            events_cart = None
+            stations_cart = None
+
+    if picks_path.exists():
+        try:
+            picks_df = pd.read_csv(picks_path)
+            logger.info(f"Loaded {len(picks_df)} picks from CSV")
+        except Exception as e:
+            logger.warning(f"Failed to load picks CSV: {e}")
+            picks_df = None
+
+    return events_df, stations_df, events_cart, stations_cart, picks_df
+
+
+def run_visualization(cfg: DictConfig, events_df=None, stations_df=None,
+                     picks_df=None, events_cart=None, stations_cart=None,
+                     load_from_files=False) -> None:
     """Create visualizations.
 
     Args:
         cfg: Configuration settings.
-        events_df: DataFrame with events (geodetic coordinates).
-        stations_df: DataFrame with stations (geodetic coordinates).
-        picks_df: DataFrame with picks.
-        events_cart: DataFrame with events (Cartesian coordinates). Optional.
-        stations_cart: DataFrame with stations (Cartesian coordinates). Optional.
+        events_df: DataFrame with events (geodetic coordinates). If None and load_from_files=True, will try to load.
+        stations_df: DataFrame with stations (geodetic coordinates). If None and load_from_files=True, will try to load.
+        picks_df: DataFrame with picks. If None and load_from_files=True, will try to load.
+        events_cart: DataFrame with events (Cartesian coordinates). If None and load_from_files=True, will try to load.
+        stations_cart: DataFrame with stations (Cartesian coordinates). If None and load_from_files=True, will try to load.
+        load_from_files: If True, attempt to load data from existing CSV files when data is None.
     """
     if not cfg.visualization.enabled:
         return
+
+    logger = logging.getLogger(__name__)
+
+    # If load_from_files is True and data is None, try loading from CSVs
+    if load_from_files and (events_df is None or stations_df is None):
+        logger.info("Attempting to load existing data for visualization...")
+        events_df, stations_df, events_cart, stations_cart, picks_df = load_existing_data_for_visualization(cfg)
+
+        if events_df is None and stations_df is None and events_cart is None:
+            logger.warning("No existing data files found for visualization")
+            print("\nWARNING: No existing data files found. Run the full workflow first to generate data.")
+            return
 
     print("\n" + "="*60)
     print("CREATING VISUALIZATIONS")
     print("="*60)
 
     # Station and event visualization
-    if 'station_event_vis' in cfg.visualization:
-        print("\nCreating station and event visualization...")
-        with ProcessTimer("Station/Event Visualization"):
-            create_station_event_visualization(
-                cfg, events_df, stations_df, picks_df
-            )
-            print(f"  Station/event visualizations saved to: "
-                  f"{cfg.visualization.station_event_vis.output_dir}")
+    if ('station_event_vis' in cfg.visualization and
+        cfg.visualization.station_event_vis.get('enabled', True)):
+        if events_df is not None and stations_df is not None:
+            print("\nCreating station and event visualization...")
+            with ProcessTimer("Station/Event Visualization"):
+                create_station_event_visualization(
+                    cfg, events_df, stations_df, picks_df
+                )
+                print(f"  Station/event visualizations saved to: "
+                      f"{cfg.visualization.station_event_vis.output_dir}")
+        else:
+            logger.warning("Station/event visualization enabled but geodetic coordinate data not available")
 
     # Velocity model visualization
     if ('velocity_model_vis' in cfg.visualization and
@@ -190,15 +286,26 @@ def run_visualization(cfg: DictConfig, events_df, stations_df,
 
     # Ray density visualization
     if ('ray_density' in cfg.visualization and
-        cfg.visualization.ray_density.enabled and
-        events_cart is not None and stations_cart is not None):
-        print("\nCreating ray density visualization...")
-        with ProcessTimer("Ray Density Visualization"):
-            create_ray_density_visualization(
-                cfg, events_cart, stations_cart, picks_df
-            )
-            print(f"  Ray density visualizations saved to: "
-                  f"{cfg.visualization.ray_density.output_dir}")
+        cfg.visualization.ray_density.enabled):
+        # Check if we have Cartesian coordinates (requires coordinate_transform to be enabled)
+        has_cartesian = (events_cart is not None and stations_cart is not None and
+                        picks_df is not None and
+                        'x' in events_cart.columns and 'y' in events_cart.columns and 'z' in events_cart.columns)
+
+        if has_cartesian:
+            print("\nCreating ray density visualization...")
+            with ProcessTimer("Ray Density Visualization"):
+                create_ray_density_visualization(
+                    cfg, events_cart, stations_cart, picks_df
+                )
+                print(f"  Ray density visualizations saved to: "
+                      f"{cfg.visualization.ray_density.output_dir}")
+        else:
+            if not cfg.coordinate_transform.enabled:
+                logger.warning("Ray density visualization requires coordinate_transform to be enabled")
+                print("  WARNING: Ray density visualization skipped - requires coordinate_transform.enabled: true")
+            else:
+                logger.warning("Ray density visualization enabled but Cartesian coordinate data or picks not available")
 
 
 def setup_output_directories(config: DictConfig) -> None:
@@ -324,7 +431,7 @@ def run_preprocessing_pipeline(config: DictConfig) -> None:
 
         # Step 2: Transform coordinates (flattening)
         events_cart, stations_cart = run_coordinate_transform(
-            config, events_df, stations_df
+            config, events_df, stations_df, picks_df
         )
 
         # Step 3: Geometry and travel time files

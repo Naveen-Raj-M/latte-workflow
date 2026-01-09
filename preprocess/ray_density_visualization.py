@@ -794,20 +794,24 @@ def create_ray_density_visualization(config: DictConfig,
         vis_config.fontsize = config.visualization.station_event_vis.fontsize
 
     # Create plots for each plane (summed projections)
-    if ray_density_config.get('plot_xy', True):
-        plot_ray_density_xy(density_3d, grid_dims,
-                           output_dir / 'ray_density_xy.png',
-                           threshold, vis_config)
+    # Only create these plots if plot_ray_density is enabled
+    plot_density = ray_density_config.get('plot_ray_density', True)
 
-    if ray_density_config.get('plot_xz', True):
-        plot_ray_density_xz(density_3d, grid_dims,
-                           output_dir / 'ray_density_xz.png',
-                           threshold, vis_config)
+    if plot_density:
+        if ray_density_config.get('plot_xy', True):
+            plot_ray_density_xy(density_3d, grid_dims,
+                               output_dir / 'ray_density_xy.png',
+                               threshold, vis_config)
 
-    if ray_density_config.get('plot_yz', True):
-        plot_ray_density_yz(density_3d, grid_dims,
-                           output_dir / 'ray_density_yz.png',
-                           threshold, vis_config)
+        if ray_density_config.get('plot_xz', True):
+            plot_ray_density_xz(density_3d, grid_dims,
+                               output_dir / 'ray_density_xz.png',
+                               threshold, vis_config)
+
+        if ray_density_config.get('plot_yz', True):
+            plot_ray_density_yz(density_3d, grid_dims,
+                               output_dir / 'ray_density_yz.png',
+                               threshold, vis_config)
 
     # Create new visualization: Map view with threshold-based depth layer counting
     if ray_density_config.get('plot_xy_threshold_count', False):
