@@ -197,18 +197,29 @@ def analyze_dws(config_dict: Dict[str, Any]) -> Dict[str, Any]:
         json.dump(stats, f, indent=2)
     logger.info(f"Saved statistics: {stats_file}")
 
-    # Plot configuration
+    # Merge plot configuration from analysis.plot_style and dws_analysis.plot_config
+    # Start with global plot_style settings
+    plot_style = config_dict.get('analysis', {}).get('plot_style', {})
     plot_config = config.get('plot_config', {})
-    plot_config.setdefault('figure_width', 12)
-    plot_config.setdefault('figure_height', 10)
-    plot_config.setdefault('dpi', 300)
-    plot_config.setdefault('colormap', 'viridis')
-    plot_config.setdefault('colormap_log', 'viridis')
-    plot_config.setdefault('equal_aspect', True)
-    plot_config.setdefault('grid', True)
-    plot_config.setdefault('label_fontsize', 12)
-    plot_config.setdefault('title_fontsize', 14)
-    plot_config.setdefault('tick_fontsize', 10)
+
+    # Build merged config with proper precedence (dws_analysis.plot_config overrides plot_style)
+    merged_config = {
+        # Base settings from plot_style
+        'dpi': config_dict.get('analysis', {}).get('dpi', 300),
+        'label_fontsize': plot_style.get('label_size', 12),
+        'title_fontsize': plot_style.get('title_size', 14),
+        'tick_fontsize': plot_style.get('tick_size', 10),
+        # DWS-specific defaults
+        'figure_width': 12,
+        'figure_height': 10,
+        'colormap': 'viridis',
+        'colormap_log': 'viridis',
+        'equal_aspect': True,
+        'grid': True,
+    }
+    # Override with DWS-specific settings from plot_config
+    merged_config.update(plot_config)
+    plot_config = merged_config
 
     # Get visualization settings
     enable_log_scale = config.get('enable_log_scale', True)
@@ -220,10 +231,10 @@ def analyze_dws(config_dict: Dict[str, Any]) -> Dict[str, Any]:
     # Add unit settings to plot_config
     plot_config['use_m2_units'] = use_m2_units
 
-    # Parallel processing settings
-    parallel_config = config.get('parallel', {})
-    use_parallel = parallel_config.get('enabled', True)
-    n_jobs = parallel_config.get('n_jobs', -1)
+    # Parallel processing settings from performance config
+    performance_config = config_dict.get('performance', {})
+    use_parallel = performance_config.get('parallel_processing', False)
+    n_jobs = performance_config.get('n_jobs', 1)
 
     results = {
         'statistics': stats,

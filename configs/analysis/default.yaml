@@ -245,25 +245,16 @@ dws_analysis:
     yz_positions:
       - 100.0  # X = 100 km
 
-  # Plot configuration
+  # DWS-specific plot configuration (inherits from analysis.plot_style for fonts/dpi)
   plot_config:
     figure_width: 12
     figure_height: 10
-    dpi: 300
     colormap: 'viridis'  # For linear scale: viridis, plasma, inferno, magma, jet
     colormap_log: 'viridis'  # For log scale
-    equal_aspect: true
+    equal_aspect: false
     grid: true
-    label_fontsize: 12
-    title_fontsize: 14
-    tick_fontsize: 10
     depth_tolerance: 0.01  # Tolerance for depth matching (km)
     position_tolerance: 0.01  # Tolerance for position matching (km)
-
-  # Parallel processing configuration
-  parallel:
-    enabled: true
-    n_jobs: -1  # Use all CPU cores (-1), or specify a number
 
   # Report generation
   generate_report: true
@@ -282,7 +273,7 @@ paths:
 
 performance:
   max_memory_gb: 8.0
-  subsample_large_datasets: true
+  subsample_large_datasets: false
   subsample_threshold: 100000
   parallel_processing: false
   n_jobs: 1
