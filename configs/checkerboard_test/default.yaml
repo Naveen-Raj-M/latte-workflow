@@ -225,7 +225,7 @@ visualization:
     - "yz"  # East-West vertical slices
 
   # Which velocity field to visualize
-  velocity_field: "vp"  # "vp" or "vs"
+  velocity_field: "vp"  # "vp", "vs", or "both"
 
   # Unit for slice positions: "indices" (grid indices) or "km" (physical units)
   slice_unit: "indices"  # Options: "indices", "km"

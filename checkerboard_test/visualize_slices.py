@@ -426,134 +426,143 @@ def visualize_model(
     model_dir = output_dir / model_name
     model_dir.mkdir(parents=True, exist_ok=True)
 
-    # Prepare 3D grid
+    # Handle "both" option - visualize both vp and vs
     velocity_field = config["velocity_field"]
-    x_coords, y_coords, z_coords, velocity_3d_kms = prepare_3d_grid(df, velocity_field)
+    if velocity_field == "both":
+        velocity_fields = ["vp", "vs"]
+    else:
+        velocity_fields = [velocity_field]
 
-    nx, ny, nz = len(x_coords), len(y_coords), len(z_coords)
+    for vel_field in velocity_fields:
+        logger.info(f"  Processing velocity field: {vel_field}")
 
-    # Get slice configuration
-    planes = config["planes"]
-    xy_slices = config.get("xy_slices")
-    xz_slices = config.get("xz_slices")
-    yz_slices = config.get("yz_slices")
-    slice_spacing = config.get("slice_spacing", {})
+        # Prepare 3D grid
+        x_coords, y_coords, z_coords, velocity_3d_kms = prepare_3d_grid(df, vel_field)
 
-    # Get unit specifications (default to "indices" for backward compatibility)
-    slice_unit = config.get("slice_unit", "indices")  # "indices" or "km"
-    spacing_unit = config.get("spacing_unit", "indices")  # "indices" or "km"
-    tolerance = config.get("tolerance_km", 1e-6)  # Tolerance for km-to-index conversion
+        nx, ny, nz = len(x_coords), len(y_coords), len(z_coords)
 
-    # Plot XY slices (depth slices)
-    if "xy" in planes:
-        logger.info("  Creating XY (depth) slices")
+        # Get slice configuration
+        planes = config["planes"]
+        xy_slices = config.get("xy_slices")
+        xz_slices = config.get("xz_slices")
+        yz_slices = config.get("yz_slices")
+        slice_spacing = config.get("slice_spacing", {})
 
-        # Determine which slices to plot
-        z_indices = None
-        if xy_slices is not None:
-            # Parse user-specified slices (could be indices or km)
-            z_indices = parse_slice_specification(xy_slices, z_coords, slice_unit, tolerance)
-            if not z_indices:
-                logger.warning("  No valid XY slices found, skipping")
-        else:
-            # Use spacing to determine slices
-            if spacing_unit == "km":
-                spacing_km = slice_spacing.get("xy", 1.0)
-                z_indices = convert_km_spacing_to_indices(spacing_km, z_coords, tolerance)
+        # Get unit specifications (default to "indices" for backward compatibility)
+        slice_unit = config.get("slice_unit", "indices")  # "indices" or "km"
+        spacing_unit = config.get("spacing_unit", "indices")  # "indices" or "km"
+        tolerance = config.get("tolerance_km", 1e-6)  # Tolerance for km-to-index conversion
+
+        # Plot XY slices (depth slices)
+        if "xy" in planes:
+            logger.info(f"    Creating XY (depth) slices for {vel_field}")
+
+            # Determine which slices to plot
+            z_indices = None
+            if xy_slices is not None:
+                # Parse user-specified slices (could be indices or km)
+                z_indices = parse_slice_specification(xy_slices, z_coords, slice_unit, tolerance)
                 if not z_indices:
-                    logger.warning(f"  No valid grid points found for spacing {spacing_km} km, skipping XY slices")
+                    logger.warning("    No valid XY slices found, skipping")
             else:
-                spacing = slice_spacing.get("xy", 1)
-                z_indices = range(0, nz, spacing)
+                # Use spacing to determine slices
+                if spacing_unit == "km":
+                    spacing_km = slice_spacing.get("xy", 1.0)
+                    z_indices = convert_km_spacing_to_indices(spacing_km, z_coords, tolerance)
+                    if not z_indices:
+                        logger.warning(f"    No valid grid points found for spacing {spacing_km} km, skipping XY slices")
+                else:
+                    spacing = slice_spacing.get("xy", 1)
+                    z_indices = range(0, nz, spacing)
 
-        if z_indices:
-            for k in tqdm(z_indices, desc=f"  {model_name} XY slices"):
-                if k >= nz:
-                    continue
+            if z_indices:
+                for k in tqdm(z_indices, desc=f"    {model_name} {vel_field} XY slices"):
+                    if k >= nz:
+                        continue
 
-                velocity_slice = velocity_3d_kms[k, :, :]
-                z_value = z_coords[k]
+                    velocity_slice = velocity_3d_kms[k, :, :]
+                    z_value = z_coords[k]
 
-                output_path = model_dir / f"{velocity_field}_xy_z{k:03d}.{config['figure']['format']}"
+                    output_path = model_dir / f"{vel_field}_xy_z{k:03d}.{config['figure']['format']}"
 
-                plot_xy_slice(
-                    x_coords, y_coords, velocity_slice, z_value,
-                    output_path, config, title_prefix=f"{model_name.title()} - "
-                )
+                    plot_xy_slice(
+                        x_coords, y_coords, velocity_slice, z_value,
+                        output_path, config, title_prefix=f"{model_name.title()} {vel_field.upper()} - "
+                    )
 
-    # Plot XZ slices (N-S vertical)
-    if "xz" in planes:
-        logger.info("  Creating XZ (N-S vertical) slices")
+        # Plot XZ slices (N-S vertical)
+        if "xz" in planes:
+            logger.info(f"    Creating XZ (N-S vertical) slices for {vel_field}")
 
-        # Determine which slices to plot
-        y_indices = None
-        if xz_slices is not None:
-            # Parse user-specified slices (could be indices or km)
-            y_indices = parse_slice_specification(xz_slices, y_coords, slice_unit, tolerance)
-            if not y_indices:
-                logger.warning("  No valid XZ slices found, skipping")
-        else:
-            # Use spacing to determine slices
-            if spacing_unit == "km":
-                spacing_km = slice_spacing.get("xz", 1.0)
-                y_indices = convert_km_spacing_to_indices(spacing_km, y_coords, tolerance)
+            # Determine which slices to plot
+            y_indices = None
+            if xz_slices is not None:
+                # Parse user-specified slices (could be indices or km)
+                y_indices = parse_slice_specification(xz_slices, y_coords, slice_unit, tolerance)
                 if not y_indices:
-                    logger.warning(f"  No valid grid points found for spacing {spacing_km} km, skipping XZ slices")
+                    logger.warning("    No valid XZ slices found, skipping")
             else:
-                spacing = slice_spacing.get("xz", 1)
-                y_indices = range(0, ny, spacing)
+                # Use spacing to determine slices
+                if spacing_unit == "km":
+                    spacing_km = slice_spacing.get("xz", 1.0)
+                    y_indices = convert_km_spacing_to_indices(spacing_km, y_coords, tolerance)
+                    if not y_indices:
+                        logger.warning(f"    No valid grid points found for spacing {spacing_km} km, skipping XZ slices")
+                else:
+                    spacing = slice_spacing.get("xz", 1)
+                    y_indices = range(0, ny, spacing)
 
-        if y_indices:
-            for j in tqdm(y_indices, desc=f"  {model_name} XZ slices"):
-                if j >= ny:
-                    continue
+            if y_indices:
+                for j in tqdm(y_indices, desc=f"    {model_name} {vel_field} XZ slices"):
+                    if j >= ny:
+                        continue
 
-                velocity_slice = velocity_3d_kms[:, j, :]
-                y_value = y_coords[j]
+                    velocity_slice = velocity_3d_kms[:, j, :]
+                    y_value = y_coords[j]
 
-                output_path = model_dir / f"{velocity_field}_xz_y{j:03d}.{config['figure']['format']}"
+                    output_path = model_dir / f"{vel_field}_xz_y{j:03d}.{config['figure']['format']}"
 
-                plot_xz_slice(
-                    x_coords, z_coords, velocity_slice, y_value,
-                    output_path, config, title_prefix=f"{model_name.title()} - "
-                )
+                    plot_xz_slice(
+                        x_coords, z_coords, velocity_slice, y_value,
+                        output_path, config, title_prefix=f"{model_name.title()} {vel_field.upper()} - "
+                    )
 
-    # Plot YZ slices (E-W vertical)
-    if "yz" in planes:
-        logger.info("  Creating YZ (E-W vertical) slices")
+        # Plot YZ slices (E-W vertical)
+        if "yz" in planes:
+            logger.info(f"    Creating YZ (E-W vertical) slices for {vel_field}")
 
-        # Determine which slices to plot
-        x_indices = None
-        if yz_slices is not None:
-            # Parse user-specified slices (could be indices or km)
-            x_indices = parse_slice_specification(yz_slices, x_coords, slice_unit, tolerance)
-            if not x_indices:
-                logger.warning("  No valid YZ slices found, skipping")
-        else:
-            # Use spacing to determine slices
-            if spacing_unit == "km":
-                spacing_km = slice_spacing.get("yz", 1.0)
-                x_indices = convert_km_spacing_to_indices(spacing_km, x_coords, tolerance)
+            # Determine which slices to plot
+            x_indices = None
+            if yz_slices is not None:
+                # Parse user-specified slices (could be indices or km)
+                x_indices = parse_slice_specification(yz_slices, x_coords, slice_unit, tolerance)
                 if not x_indices:
-                    logger.warning(f"  No valid grid points found for spacing {spacing_km} km, skipping YZ slices")
+                    logger.warning("    No valid YZ slices found, skipping")
             else:
-                spacing = slice_spacing.get("yz", 1)
-                x_indices = range(0, nx, spacing)
+                # Use spacing to determine slices
+                if spacing_unit == "km":
+                    spacing_km = slice_spacing.get("yz", 1.0)
+                    x_indices = convert_km_spacing_to_indices(spacing_km, x_coords, tolerance)
+                    if not x_indices:
+                        logger.warning(f"    No valid grid points found for spacing {spacing_km} km, skipping YZ slices")
+                else:
+                    spacing = slice_spacing.get("yz", 1)
+                    x_indices = range(0, nx, spacing)
 
-        if x_indices:
-            for i in tqdm(x_indices, desc=f"  {model_name} YZ slices"):
-                if i >= nx:
-                    continue
+            if x_indices:
+                for i in tqdm(x_indices, desc=f"    {model_name} {vel_field} YZ slices"):
+                    if i >= nx:
+                        continue
 
-                velocity_slice = velocity_3d_kms[:, :, i]
-                x_value = x_coords[i]
+                    velocity_slice = velocity_3d_kms[:, :, i]
+                    x_value = x_coords[i]
 
-                output_path = model_dir / f"{velocity_field}_yz_x{i:03d}.{config['figure']['format']}"
+                    output_path = model_dir / f"{vel_field}_yz_x{i:03d}.{config['figure']['format']}"
 
-                plot_yz_slice(
-                    y_coords, z_coords, velocity_slice, x_value,
-                    output_path, config, title_prefix=f"{model_name.title()} - "
-                )
+                    plot_yz_slice(
+                        y_coords, z_coords, velocity_slice, x_value,
+                        output_path, config, title_prefix=f"{model_name.title()} {vel_field.upper()} - "
+                    )
 
     logger.info(f"  Visualization complete: {model_dir}")
 
@@ -610,26 +619,39 @@ def visualize_checkerboard_test(
         df_inverted = read_velocity_file(inverted_csv, show_progress=False)
         df_checkerboard = read_velocity_file(checkerboard_csv, show_progress=False)
 
-        # Calculate difference - avoid copy() for memory efficiency
-        # Create new DataFrame with only necessary columns
+        # Handle "both" option - process both vp and vs
         velocity_field = config["velocity_field"]
-        df_diff = pd.DataFrame({
-            'X_grid_km': df_inverted['X_grid_km'].values,
-            'Y_grid_km': df_inverted['Y_grid_km'].values,
-            'Z_grid_km': df_inverted['Z_grid_km'].values,
-            velocity_field: df_inverted[velocity_field].values - df_checkerboard[velocity_field].values
-        })
+        if velocity_field == "both":
+            velocity_fields = ["vp", "vs"]
+        else:
+            velocity_fields = [velocity_field]
 
-        # Use difference-specific color settings
-        diff_config = config.copy()
-        diff_config["vmin"] = config.get("diff_vmin", -0.5)  # km/s
-        diff_config["vmax"] = config.get("diff_vmax", 0.5)  # km/s
-        diff_config["symmetric_colorbar"] = config.get("symmetric_colorbar", True)
+        for vel_field in velocity_fields:
+            logger.info(f"  Processing difference for {vel_field}")
 
-        visualize_model(df_diff, output_dir, diff_config, "difference")
+            # Calculate difference - avoid copy() for memory efficiency
+            # Create new DataFrame with only necessary columns
+            df_diff = pd.DataFrame({
+                'X_grid_km': df_inverted['X_grid_km'].values,
+                'Y_grid_km': df_inverted['Y_grid_km'].values,
+                'Z_grid_km': df_inverted['Z_grid_km'].values,
+                vel_field: df_inverted[vel_field].values - df_checkerboard[vel_field].values
+            })
+
+            # Use difference-specific color settings
+            diff_config = config.copy()
+            diff_config["velocity_field"] = vel_field  # Override to process single field
+            diff_config["vmin"] = config.get("diff_vmin", -0.5)  # km/s
+            diff_config["vmax"] = config.get("diff_vmax", 0.5)  # km/s
+            diff_config["symmetric_colorbar"] = config.get("symmetric_colorbar", True)
+
+            visualize_model(df_diff, output_dir, diff_config, f"difference_{vel_field}" if velocity_field == "both" else "difference")
+
+            # Free memory
+            del df_diff
 
         # Free memory
-        del df_inverted, df_checkerboard, df_diff
+        del df_inverted, df_checkerboard
 
     # Visualize checkerboard pattern only (checkerboard - input) as percentage perturbation
     if config.get("visualize_checkerboard_pattern", False) and checkerboard_csv is not None and input_csv is not None:
@@ -638,34 +660,46 @@ def visualize_checkerboard_test(
         df_checkerboard = read_velocity_file(checkerboard_csv, show_progress=False)
         df_input = read_velocity_file(input_csv, show_progress=False)
 
+        # Handle "both" option - process both vp and vs
         velocity_field = config["velocity_field"]
+        if velocity_field == "both":
+            velocity_fields = ["vp", "vs"]
+        else:
+            velocity_fields = [velocity_field]
 
-        # Avoid division by zero
-        with np.errstate(divide='ignore', invalid='ignore'):
-            perturbation_pct = ((df_checkerboard[velocity_field].values - df_input[velocity_field].values)
-                               / df_input[velocity_field].values) * 100.0
-            # Replace inf/nan with 0
-            perturbation_pct = np.where(np.isfinite(perturbation_pct), perturbation_pct, 0.0)
+        for vel_field in velocity_fields:
+            logger.info(f"  Processing checkerboard pattern for {vel_field}")
 
-        # Create new DataFrame with only necessary columns - avoid copy()
-        df_pattern = pd.DataFrame({
-            'X_grid_km': df_checkerboard['X_grid_km'].values,
-            'Y_grid_km': df_checkerboard['Y_grid_km'].values,
-            'Z_grid_km': df_checkerboard['Z_grid_km'].values,
-            velocity_field: perturbation_pct
-        })
+            # Avoid division by zero
+            with np.errstate(divide='ignore', invalid='ignore'):
+                perturbation_pct = ((df_checkerboard[vel_field].values - df_input[vel_field].values)
+                                   / df_input[vel_field].values) * 100.0
+                # Replace inf/nan with 0
+                perturbation_pct = np.where(np.isfinite(perturbation_pct), perturbation_pct, 0.0)
 
-        # Use pattern-specific color settings (now in percentage)
-        pattern_config = config.copy()
-        pattern_config["vmin"] = config.get("pattern_vmin", -10.0)  # percentage
-        pattern_config["vmax"] = config.get("pattern_vmax", 10.0)   # percentage
-        pattern_config["colormap"] = config.get("pattern_colormap", "seismic")
-        pattern_config["symmetric_colorbar"] = config.get("pattern_symmetric_colorbar", True)
+            # Create new DataFrame with only necessary columns - avoid copy()
+            df_pattern = pd.DataFrame({
+                'X_grid_km': df_checkerboard['X_grid_km'].values,
+                'Y_grid_km': df_checkerboard['Y_grid_km'].values,
+                'Z_grid_km': df_checkerboard['Z_grid_km'].values,
+                vel_field: perturbation_pct
+            })
 
-        visualize_model(df_pattern, output_dir, pattern_config, "checkerboard_pattern_pct")
+            # Use pattern-specific color settings (now in percentage)
+            pattern_config = config.copy()
+            pattern_config["velocity_field"] = vel_field  # Override to process single field
+            pattern_config["vmin"] = config.get("pattern_vmin", -10.0)  # percentage
+            pattern_config["vmax"] = config.get("pattern_vmax", 10.0)   # percentage
+            pattern_config["colormap"] = config.get("pattern_colormap", "seismic")
+            pattern_config["symmetric_colorbar"] = config.get("pattern_symmetric_colorbar", True)
+
+            visualize_model(df_pattern, output_dir, pattern_config, f"checkerboard_pattern_pct_{vel_field}" if velocity_field == "both" else "checkerboard_pattern_pct")
+
+            # Free memory
+            del df_pattern
 
         # Free memory
-        del df_checkerboard, df_input, df_pattern
+        del df_checkerboard, df_input
 
     # Visualize inverted pattern only (inverted - input) as percentage perturbation
     if config.get("visualize_inverted_pattern", False) and inverted_csv is not None and input_csv is not None:
@@ -674,34 +708,46 @@ def visualize_checkerboard_test(
         df_inverted = read_velocity_file(inverted_csv, show_progress=False)
         df_input = read_velocity_file(input_csv, show_progress=False)
 
+        # Handle "both" option - process both vp and vs
         velocity_field = config["velocity_field"]
+        if velocity_field == "both":
+            velocity_fields = ["vp", "vs"]
+        else:
+            velocity_fields = [velocity_field]
 
-        # Avoid division by zero
-        with np.errstate(divide='ignore', invalid='ignore'):
-            perturbation_pct = ((df_inverted[velocity_field].values - df_input[velocity_field].values)
-                               / df_input[velocity_field].values) * 100.0
-            # Replace inf/nan with 0
-            perturbation_pct = np.where(np.isfinite(perturbation_pct), perturbation_pct, 0.0)
+        for vel_field in velocity_fields:
+            logger.info(f"  Processing inverted pattern for {vel_field}")
 
-        # Create new DataFrame with only necessary columns - avoid copy()
-        df_pattern = pd.DataFrame({
-            'X_grid_km': df_inverted['X_grid_km'].values,
-            'Y_grid_km': df_inverted['Y_grid_km'].values,
-            'Z_grid_km': df_inverted['Z_grid_km'].values,
-            velocity_field: perturbation_pct
-        })
+            # Avoid division by zero
+            with np.errstate(divide='ignore', invalid='ignore'):
+                perturbation_pct = ((df_inverted[vel_field].values - df_input[vel_field].values)
+                                   / df_input[vel_field].values) * 100.0
+                # Replace inf/nan with 0
+                perturbation_pct = np.where(np.isfinite(perturbation_pct), perturbation_pct, 0.0)
 
-        # Use pattern-specific color settings (now in percentage)
-        pattern_config = config.copy()
-        pattern_config["vmin"] = config.get("pattern_vmin", -10.0)  # percentage
-        pattern_config["vmax"] = config.get("pattern_vmax", 10.0)   # percentage
-        pattern_config["colormap"] = config.get("pattern_colormap", "seismic")
-        pattern_config["symmetric_colorbar"] = config.get("pattern_symmetric_colorbar", True)
+            # Create new DataFrame with only necessary columns - avoid copy()
+            df_pattern = pd.DataFrame({
+                'X_grid_km': df_inverted['X_grid_km'].values,
+                'Y_grid_km': df_inverted['Y_grid_km'].values,
+                'Z_grid_km': df_inverted['Z_grid_km'].values,
+                vel_field: perturbation_pct
+            })
 
-        visualize_model(df_pattern, output_dir, pattern_config, "inverted_pattern_pct")
+            # Use pattern-specific color settings (now in percentage)
+            pattern_config = config.copy()
+            pattern_config["velocity_field"] = vel_field  # Override to process single field
+            pattern_config["vmin"] = config.get("pattern_vmin", -10.0)  # percentage
+            pattern_config["vmax"] = config.get("pattern_vmax", 10.0)   # percentage
+            pattern_config["colormap"] = config.get("pattern_colormap", "seismic")
+            pattern_config["symmetric_colorbar"] = config.get("pattern_symmetric_colorbar", True)
+
+            visualize_model(df_pattern, output_dir, pattern_config, f"inverted_pattern_pct_{vel_field}" if velocity_field == "both" else "inverted_pattern_pct")
+
+            # Free memory
+            del df_pattern
 
         # Free memory
-        del df_inverted, df_input, df_pattern
+        del df_inverted, df_input
 
     logger.info("All visualizations completed successfully!")
 
