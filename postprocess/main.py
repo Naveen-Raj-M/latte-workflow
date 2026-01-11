@@ -28,7 +28,7 @@ from .postprocess_raypath import (
     create_visualizations_from_precomputed_rays
 )
 from .postprocess_dws import create_dws_from_ray_paths, compute_dws_from_precomputed_rays
-from .compute_ray_paths import compute_all_ray_paths
+from .compute_ray_paths import compute_all_ray_paths, load_event_id_list_and_convert_to_shot_ids
 
 
 def postprocess_latte_outputs(config: DictConfig) -> None:
@@ -179,24 +179,54 @@ def postprocess_latte_outputs(config: DictConfig) -> None:
                 print(f"  Outputs: DWS only")
 
             if save_viz or compute_dws:
-                # Determine if we should subsample during computation (optimization)
-                # Only subsample during computation if:
-                #   1. Only visualization is enabled (no DWS)
-                #   2. subsample_fraction < 1.0
-                subsample_fraction = getattr(diag_config, 'subsample_fraction', 1.0)
-                subsample_during_computation = (
-                    save_viz and not compute_dws and subsample_fraction < 1.0
-                )
+                # Load event ID list if provided (takes precedence over subsample_fraction)
+                event_id_list_file = getattr(diag_config, 'event_id_list_file', None)
+                filter_shot_ids = None
 
-                if subsample_during_computation:
-                    print(f"  OPTIMIZATION ENABLED: Computing only {subsample_fraction*100:.1f}% of ray paths")
-                    print(f"  (DWS disabled, so we can skip computing unused rays)")
-                elif subsample_fraction < 1.0 and compute_dws:
-                    print(f"  Computing ALL ray paths (DWS enabled)")
-                    print(f"  Will plot {subsample_fraction*100:.1f}% for visualization")
+                if event_id_list_file and event_id_list_file != "null":
+                    shot_map_file = getattr(diag_config, 'shot_map_file', None)
+                    if shot_map_file:
+                        filter_shot_ids = load_event_id_list_and_convert_to_shot_ids(
+                            event_id_list_file, shot_map_file
+                        )
+                        if filter_shot_ids:
+                            print(f"  EVENT FILTERING ENABLED: {len(filter_shot_ids)} events from list")
+                    else:
+                        print(f"  WARNING: event_id_list_file provided but shot_map_file not found")
+                        print(f"           Falling back to subsample_fraction")
+
+                # Determine if we should filter/subsample during computation (optimization)
+                # Priority: event_id_list_file > subsample_fraction
+                # Only optimize during computation if:
+                #   1. Only visualization is enabled (no DWS)
+                #   2. Either event filtering or subsample_fraction is active
+                subsample_fraction = getattr(diag_config, 'subsample_fraction', 1.0)
+                subsample_during_computation = False
+
+                if save_viz and not compute_dws:
+                    if filter_shot_ids is not None:
+                        subsample_during_computation = True
+                        print(f"  OPTIMIZATION ENABLED: Computing rays only for {len(filter_shot_ids)} selected events")
+                        print(f"  (DWS disabled, so we can skip computing rays for other events)")
+                    elif subsample_fraction < 1.0:
+                        subsample_during_computation = True
+                        print(f"  OPTIMIZATION ENABLED: Computing only {subsample_fraction*100:.1f}% of ray paths")
+                        print(f"  (DWS disabled, so we can skip computing unused rays)")
+                else:
+                    # DWS is enabled, compute all rays
+                    if filter_shot_ids is not None:
+                        print(f"  Computing ALL ray paths (DWS enabled)")
+                        print(f"  Will plot only {len(filter_shot_ids)} selected events for visualization")
+                    elif subsample_fraction < 1.0:
+                        print(f"  Computing ALL ray paths (DWS enabled)")
+                        print(f"  Will plot {subsample_fraction*100:.1f}% for visualization")
 
                 # Compute ray paths once (shared computation)
-                precomputed_rays = compute_all_ray_paths(diag_config, subsample_during_computation)
+                precomputed_rays = compute_all_ray_paths(
+                    diag_config,
+                    subsample_during_computation,
+                    filter_shot_ids
+                )
 
                 # Generate visualizations if requested
                 if save_viz:

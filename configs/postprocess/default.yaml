@@ -140,7 +140,15 @@ ray_path_diagnosis:
   save_visualizations: true  # Generate and save ray path plots
   compute_dws: true  # Compute Derivative Weight Sum
 
-  # Ray path subsampling (applies to computation and/or visualization)
+  # Event filtering (takes precedence over subsample_fraction)
+  # Path to text file with event IDs (one per line) to visualize/compute
+  # If provided:
+  #   - If ONLY visualization is enabled (compute_dws=false): computes ray paths ONLY for these events
+  #   - If DWS is enabled (compute_dws=true): computes ALL ray paths, but plots ONLY these events
+  # Set to null to disable event filtering and use subsample_fraction instead
+  event_id_list_file: null  # Path to event ID list file, or null
+
+  # Ray path subsampling (only used when event_id_list_file is null)
   # If subsample_fraction < 1.0:
   #   - If ONLY visualization is enabled (compute_dws=false): computes ray paths for only this fraction
   #   - If DWS is enabled (compute_dws=true): computes ALL ray paths, but plots only this fraction

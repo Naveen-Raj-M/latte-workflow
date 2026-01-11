@@ -1074,9 +1074,10 @@ def create_visualizations_from_precomputed_rays(config: DictConfig, precomputed_
         print(f"Creating {phase.upper()}-wave visualization")
         print(f"{'='*80}")
 
-        ray_paths = phase_data['ray_paths']
-        sources = phase_data['sources']
-        receivers = phase_data['receivers']
+        # Use viz_* keys if available (event-filtered for DWS mode), otherwise use regular keys
+        ray_paths = phase_data.get('viz_ray_paths', phase_data['ray_paths'])
+        sources = phase_data.get('viz_sources', phase_data['sources'])
+        receivers = phase_data.get('viz_receivers', phase_data['receivers'])
 
         print(f"  Ray paths to plot: {len(ray_paths)}")
 

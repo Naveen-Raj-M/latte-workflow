@@ -15,11 +15,74 @@ from joblib import Parallel, delayed
 from postprocess.postprocess_raypath import (
     process_single_ray,
     get_performance_setting,
-    get_tracing_setting
+    get_tracing_setting,
+    load_shot_mapping
 )
 
 
-def compute_all_ray_paths(config: DictConfig, subsample_during_computation: bool = False) -> Dict[str, Dict]:
+def load_event_id_list_and_convert_to_shot_ids(
+    event_id_list_file: str,
+    shot_map_file: str
+) -> Optional[set]:
+    """
+    Load event IDs from a file and convert them to shot IDs using shot mapping.
+
+    Args:
+        event_id_list_file: Path to text file with event IDs (one per line)
+        shot_map_file: Path to shot mapping file (Shot_ID -> Original_Event_ID)
+
+    Returns:
+        Set of shot IDs corresponding to the event IDs in the list, or None if files not found
+    """
+    if not event_id_list_file or event_id_list_file == "null":
+        return None
+
+    try:
+        # Read event ID list
+        print(f"\nLoading event ID list: {event_id_list_file}")
+        with open(event_id_list_file, 'r') as f:
+            event_ids = set(line.strip() for line in f if line.strip())
+        print(f"  Found {len(event_ids)} event IDs in list")
+
+        # Load shot mapping (Shot_ID -> Event_ID)
+        print(f"Loading shot mapping: {shot_map_file}")
+        shot_map = load_shot_mapping(shot_map_file)
+
+        # Create reverse mapping (Event_ID -> Shot_ID)
+        event_to_shot = {event_id: shot_id for shot_id, event_id in shot_map.items()}
+
+        # Convert event IDs to shot IDs
+        shot_ids = set()
+        missing_events = []
+        for event_id in event_ids:
+            if event_id in event_to_shot:
+                shot_ids.add(event_to_shot[event_id])
+            else:
+                missing_events.append(event_id)
+
+        if missing_events:
+            print(f"  WARNING: {len(missing_events)} event IDs not found in shot mapping:")
+            for event_id in missing_events[:5]:  # Show first 5
+                print(f"    - {event_id}")
+            if len(missing_events) > 5:
+                print(f"    ... and {len(missing_events) - 5} more")
+
+        print(f"  Converted to {len(shot_ids)} shot IDs")
+        return shot_ids
+
+    except FileNotFoundError as e:
+        print(f"  ERROR: File not found: {e}")
+        return None
+    except Exception as e:
+        print(f"  ERROR: Failed to load event ID list: {e}")
+        return None
+
+
+def compute_all_ray_paths(
+    config: DictConfig,
+    subsample_during_computation: bool = False,
+    filter_shot_ids: Optional[set] = None
+) -> Dict[str, Dict]:
     """
     Compute all ray paths for configured phase types (P and/or S waves).
 
@@ -38,6 +101,9 @@ def compute_all_ray_paths(config: DictConfig, subsample_during_computation: bool
             - dws.weight_column: Weight column name (optional)
         subsample_during_computation: If True, apply subsampling before ray tracing.
             Should be True only when visualization-only mode is enabled (no DWS).
+        filter_shot_ids: Optional set of shot IDs to filter by. If provided:
+            - When subsample_during_computation=True: only compute rays for these shots
+            - When subsample_during_computation=False: compute all rays but mark which to visualize
 
     Returns:
         Dictionary with phase as keys ('p', 's') and values containing:
@@ -129,7 +195,13 @@ def compute_all_ray_paths(config: DictConfig, subsample_during_computation: bool
         # Get unique shots
         unique_shots = df_phase['shot_id'].unique()
 
-        # Limit number of shots if specified
+        # Apply event filtering if provided and we're in visualization-only mode
+        if filter_shot_ids is not None and subsample_during_computation:
+            n_shots_before = len(unique_shots)
+            unique_shots = np.array([s for s in unique_shots if s in filter_shot_ids])
+            print(f"  EVENT FILTER: Selected {len(unique_shots)}/{n_shots_before} shots from event ID list")
+
+        # Limit number of shots if specified (applied after event filtering)
         if max_shots > 0:
             unique_shots = unique_shots[:max_shots]
             print(f"  Limited to {max_shots} shots")
@@ -230,13 +302,34 @@ def compute_all_ray_paths(config: DictConfig, subsample_during_computation: bool
         print(f"  Successfully traced {len(ray_paths_valid)}/{len(tasks)} ray paths ({100*len(ray_paths_valid)/len(tasks):.1f}%)")
         print(f"  Failed rays: {len(tasks) - len(ray_paths_valid)}")
 
-        result[phase] = {
-            'ray_paths': ray_paths_valid,
-            'sources': sources_valid,
-            'receivers': receivers_valid,
-            'shot_ids': shot_ids_valid,
-            'weights': weights_valid
-        }
+        # If event filtering is active but we computed all rays (DWS mode),
+        # filter rays for visualization while keeping all for DWS
+        if filter_shot_ids is not None and not subsample_during_computation:
+            # Filter rays for visualization (keep rays only for specified events)
+            viz_indices = [i for i in range(len(shot_ids_valid)) if shot_ids_valid[i] in filter_shot_ids]
+            print(f"  EVENT FILTER: Will plot {len(viz_indices)}/{len(ray_paths_valid)} rays matching event ID list")
+            print(f"  (All {len(ray_paths_valid)} rays will be used for DWS computation)")
+
+            result[phase] = {
+                'ray_paths': ray_paths_valid,
+                'sources': sources_valid,
+                'receivers': receivers_valid,
+                'shot_ids': shot_ids_valid,
+                'weights': weights_valid,
+                # Store filtered versions for visualization
+                'viz_ray_paths': [ray_paths_valid[i] for i in viz_indices],
+                'viz_sources': [sources_valid[i] for i in viz_indices],
+                'viz_receivers': [receivers_valid[i] for i in viz_indices],
+                'viz_shot_ids': [shot_ids_valid[i] for i in viz_indices]
+            }
+        else:
+            result[phase] = {
+                'ray_paths': ray_paths_valid,
+                'sources': sources_valid,
+                'receivers': receivers_valid,
+                'shot_ids': shot_ids_valid,
+                'weights': weights_valid
+            }
 
     print("\n" + "="*80)
     print("RAY PATH COMPUTATION COMPLETE")
