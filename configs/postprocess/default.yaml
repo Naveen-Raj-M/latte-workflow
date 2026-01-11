@@ -140,6 +140,12 @@ ray_path_diagnosis:
   save_visualizations: true  # Generate and save ray path plots
   compute_dws: true  # Compute Derivative Weight Sum
 
+  # Ray path subsampling (applies to computation and/or visualization)
+  # If subsample_fraction < 1.0:
+  #   - If ONLY visualization is enabled (compute_dws=false): computes ray paths for only this fraction
+  #   - If DWS is enabled (compute_dws=true): computes ALL ray paths, but plots only this fraction
+  subsample_fraction: 1.0  # Fraction of ray paths (0.0-1.0). Use <1.0 for faster computation/plotting
+
   # Visualization-specific parameters (only used if save_visualizations=true)
   visualization:
     verbose: true
@@ -151,7 +157,6 @@ ray_path_diagnosis:
       dpi: 300
       figure_width: 12
       figure_height: 10
-      subsample_fraction: 1.0  # Fraction of ray paths to plot (0.0-1.0). Use <1.0 for faster plotting with many rays
 
       # Ray path styling
       ray_color: "blue"

@@ -179,8 +179,24 @@ def postprocess_latte_outputs(config: DictConfig) -> None:
                 print(f"  Outputs: DWS only")
 
             if save_viz or compute_dws:
+                # Determine if we should subsample during computation (optimization)
+                # Only subsample during computation if:
+                #   1. Only visualization is enabled (no DWS)
+                #   2. subsample_fraction < 1.0
+                subsample_fraction = getattr(diag_config, 'subsample_fraction', 1.0)
+                subsample_during_computation = (
+                    save_viz and not compute_dws and subsample_fraction < 1.0
+                )
+
+                if subsample_during_computation:
+                    print(f"  OPTIMIZATION ENABLED: Computing only {subsample_fraction*100:.1f}% of ray paths")
+                    print(f"  (DWS disabled, so we can skip computing unused rays)")
+                elif subsample_fraction < 1.0 and compute_dws:
+                    print(f"  Computing ALL ray paths (DWS enabled)")
+                    print(f"  Will plot {subsample_fraction*100:.1f}% for visualization")
+
                 # Compute ray paths once (shared computation)
-                precomputed_rays = compute_all_ray_paths(diag_config)
+                precomputed_rays = compute_all_ray_paths(diag_config, subsample_during_computation)
 
                 # Generate visualizations if requested
                 if save_viz:

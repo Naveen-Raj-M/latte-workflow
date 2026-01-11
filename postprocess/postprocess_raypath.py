@@ -446,14 +446,18 @@ def plot_ray_paths_projection(ray_paths: List[np.ndarray],
     t_start = time.time()
 
     # Subsample ray paths if requested for faster plotting
-    subsample_fraction = getattr(config.plot, 'subsample_fraction', 1.0)
+    # Check for subsample_fraction at root level first (new location), then in plot config (backward compat)
+    subsample_fraction = getattr(config, 'subsample_fraction', None)
+    if subsample_fraction is None:
+        subsample_fraction = getattr(config.plot, 'subsample_fraction', 1.0)
+
     if subsample_fraction < 1.0 and len(ray_paths) > 0:
         n_rays_original = len(ray_paths)
         n_rays_to_plot = max(1, int(n_rays_original * subsample_fraction))
         # Random subsample for representative visualization
         indices = np.random.choice(n_rays_original, n_rays_to_plot, replace=False)
         ray_paths = [ray_paths[i] for i in sorted(indices)]
-        print(f"    Subsampled {n_rays_to_plot}/{n_rays_original} ray paths ({subsample_fraction*100:.1f}%)")
+        print(f"    Subsampled {n_rays_to_plot}/{n_rays_original} ray paths for plotting ({subsample_fraction*100:.1f}%)")
 
     fig, ax = plt.subplots(figsize=(config.plot.figure_width, config.plot.figure_height))
 
@@ -1052,8 +1056,12 @@ def create_visualizations_from_precomputed_rays(config: DictConfig, precomputed_
         # Create a temporary config object with plot at the root level
         from omegaconf import OmegaConf
         plot_config = config.visualization.plot
-        # Create a shallow wrapper that has 'plot' at the root
-        config_for_plotting = OmegaConf.create({'plot': OmegaConf.to_container(plot_config)})
+        # Create a shallow wrapper that has 'plot' at the root and subsample_fraction
+        config_dict = {'plot': OmegaConf.to_container(plot_config)}
+        # Pass subsample_fraction from parent config if it exists
+        if hasattr(config, 'subsample_fraction'):
+            config_dict['subsample_fraction'] = config.subsample_fraction
+        config_for_plotting = OmegaConf.create(config_dict)
     else:
         config_for_plotting = config
 

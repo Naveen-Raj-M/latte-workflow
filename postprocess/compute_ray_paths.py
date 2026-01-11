@@ -19,7 +19,7 @@ from postprocess.postprocess_raypath import (
 )
 
 
-def compute_all_ray_paths(config: DictConfig) -> Dict[str, Dict]:
+def compute_all_ray_paths(config: DictConfig, subsample_during_computation: bool = False) -> Dict[str, Dict]:
     """
     Compute all ray paths for configured phase types (P and/or S waves).
 
@@ -34,7 +34,10 @@ def compute_all_ray_paths(config: DictConfig) -> Dict[str, Dict]:
             - phase_type: 'p', 's', or 'both'
             - precision: Numerical precision ('single' or 'double')
             - max_shots: Maximum shots to process (0 = all)
+            - subsample_fraction: Fraction of rays to compute/plot (0.0-1.0)
             - dws.weight_column: Weight column name (optional)
+        subsample_during_computation: If True, apply subsampling before ray tracing.
+            Should be True only when visualization-only mode is enabled (no DWS).
 
     Returns:
         Dictionary with phase as keys ('p', 's') and values containing:
@@ -167,6 +170,28 @@ def compute_all_ray_paths(config: DictConfig) -> Dict[str, Dict]:
                 weights_list.append(weight)
 
         print(f"  Created {len(tasks)} ray tracing tasks ({len(unique_shots)} shots)")
+
+        # Apply subsampling during computation if requested (visualization-only mode)
+        if subsample_during_computation:
+            subsample_fraction = getattr(config, 'subsample_fraction', 1.0)
+            if subsample_fraction < 1.0:
+                n_tasks_original = len(tasks)
+                n_tasks_to_compute = max(1, int(n_tasks_original * subsample_fraction))
+                # Random subsample for representative ray coverage
+                indices = np.random.choice(n_tasks_original, n_tasks_to_compute, replace=False)
+                indices = sorted(indices)  # Sort to maintain some spatial coherence
+
+                # Subsample all lists
+                tasks = [tasks[i] for i in indices]
+                shot_ids_list = [shot_ids_list[i] for i in indices]
+                sources_list = [sources_list[i] for i in indices]
+                receivers_list = [receivers_list[i] for i in indices]
+                weights_list = [weights_list[i] for i in indices]
+
+                print(f"  OPTIMIZATION: Subsampling for visualization-only mode")
+                print(f"  Computing {n_tasks_to_compute}/{n_tasks_original} ray paths ({subsample_fraction*100:.1f}%)")
+            else:
+                print(f"  No subsampling (subsample_fraction = {subsample_fraction})")
 
         # Trace all rays in parallel
         if parallel_processing and n_jobs != 1:
