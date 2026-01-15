@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Dict, Optional
 
 import matplotlib.pyplot as plt
+from matplotlib.collections import LineCollection
 import numpy as np
 import pandas as pd
 from omegaconf import DictConfig
@@ -259,7 +260,7 @@ def _plot_map_view(source_lons: np.ndarray, source_lats: np.ndarray,
             zorder=2
         )
 
-    # Plot pick lines connecting events to receivers
+    # Plot pick lines connecting events to receivers using LineCollection for speed
     if (vis_config.get('plot_pick_lines', False) and
         picks_df is not None and not picks_df.empty and
         events_df is not None and stations_df is not None):
@@ -272,23 +273,42 @@ def _plot_map_view(source_lons: np.ndarray, source_lats: np.ndarray,
         station_lat_col = 'lat' if 'lat' in stations_df.columns else 'latitude'
         station_lon_col = 'lon' if 'lon' in stations_df.columns else 'longitude'
 
-        # Create lookup dictionaries for coordinates
-        event_coords = {row['event_id']: (row[event_lon_col], row[event_lat_col])
-                       for _, row in events_df.iterrows()}
-        station_coords = {row['station_id']: (row[station_lon_col], row[station_lat_col])
-                         for _, row in stations_df.iterrows()}
+        # Create lookup dictionaries for coordinates (vectorized using set_index)
+        event_coords = events_df.set_index('event_id')[[event_lon_col, event_lat_col]]
+        station_coords = stations_df.set_index('station_id')[[station_lon_col, station_lat_col]]
 
-        # Draw lines for each pick
-        for _, pick in picks_df.iterrows():
-            event_id = pick['event_id']
-            station_id = pick['station_id']
+        # Vectorized: merge picks with event and station coordinates
+        picks_with_coords = picks_df.merge(
+            event_coords, left_on='event_id', right_index=True, how='inner'
+        ).merge(
+            station_coords, left_on='station_id', right_index=True, how='inner',
+            suffixes=('_event', '_station')
+        )
 
-            if event_id in event_coords and station_id in station_coords:
-                event_lon, event_lat = event_coords[event_id]
-                station_lon, station_lat = station_coords[station_id]
+        if len(picks_with_coords) > 0:
+            # Build segments array for LineCollection
+            # Each segment is [[event_lon, event_lat], [station_lon, station_lat]]
+            event_lons = picks_with_coords[f'{event_lon_col}_event'].values
+            event_lats = picks_with_coords[f'{event_lat_col}_event'].values
+            station_lons = picks_with_coords[f'{station_lon_col}_station'].values
+            station_lats = picks_with_coords[f'{station_lat_col}_station'].values
 
-                ax.plot([event_lon, station_lon], [event_lat, station_lat],
-                       color='gray', alpha=pick_alpha, linewidth=0.5, zorder=1)
+            # Create segments as (N, 2, 2) array: N lines, 2 points each, 2 coords (lon, lat)
+            segments = np.stack([
+                np.column_stack([event_lons, event_lats]),
+                np.column_stack([station_lons, station_lats])
+            ], axis=1)
+
+            # Create LineCollection for efficient rendering
+            lc = LineCollection(
+                segments,
+                colors='gray',
+                alpha=pick_alpha,
+                linewidths=0.5,
+                zorder=1,
+                rasterized=True  # Improves performance for large numbers of lines
+            )
+            ax.add_collection(lc)
 
     ax.set_xlabel('Longitude (°)', fontsize=fs_axis_label)
     ax.set_ylabel('Latitude (°)', fontsize=fs_axis_label)
@@ -381,7 +401,7 @@ def _plot_cross_section_lat(source_lats: np.ndarray, source_depths: np.ndarray,
             zorder=2
         )
 
-    # Plot pick lines connecting events to receivers
+    # Plot pick lines connecting events to receivers using LineCollection for speed
     if (vis_config.get('plot_pick_lines', False) and
         picks_df is not None and not picks_df.empty and
         events_df is not None and stations_df is not None):
@@ -392,23 +412,45 @@ def _plot_cross_section_lat(source_lats: np.ndarray, source_depths: np.ndarray,
         event_lat_col = 'lat' if 'lat' in events_df.columns else 'latitude'
         station_lat_col = 'lat' if 'lat' in stations_df.columns else 'latitude'
 
-        # Create lookup dictionaries for coordinates
-        event_coords = {row['event_id']: (row[event_lat_col], row['depth'])
-                       for _, row in events_df.iterrows()}
-        station_coords = {row['station_id']: (row[station_lat_col], row['depth'])
-                         for _, row in stations_df.iterrows()}
+        # Create coordinate DataFrames for vectorized merge
+        event_coords = events_df.set_index('event_id')[[event_lat_col, 'depth']].rename(
+            columns={event_lat_col: 'lat', 'depth': 'depth'}
+        )
+        station_coords = stations_df.set_index('station_id')[[station_lat_col, 'depth']].rename(
+            columns={station_lat_col: 'lat', 'depth': 'depth'}
+        )
 
-        # Draw lines for each pick
-        for _, pick in picks_df.iterrows():
-            event_id = pick['event_id']
-            station_id = pick['station_id']
+        # Vectorized: merge picks with event and station coordinates
+        picks_with_coords = picks_df.merge(
+            event_coords, left_on='event_id', right_index=True, how='inner'
+        ).merge(
+            station_coords, left_on='station_id', right_index=True, how='inner',
+            suffixes=('_event', '_station')
+        )
 
-            if event_id in event_coords and station_id in station_coords:
-                event_lat, event_depth = event_coords[event_id]
-                station_lat, station_depth = station_coords[station_id]
+        if len(picks_with_coords) > 0:
+            # Build segments array for LineCollection
+            event_lats = picks_with_coords['lat_event'].values
+            event_depths = picks_with_coords['depth_event'].values
+            station_lats = picks_with_coords['lat_station'].values
+            station_depths = picks_with_coords['depth_station'].values
 
-                ax.plot([event_lat, station_lat], [event_depth, station_depth],
-                       color='gray', alpha=pick_alpha, linewidth=0.5, zorder=1)
+            # Create segments as (N, 2, 2) array: N lines, 2 points each, 2 coords (lat, depth)
+            segments = np.stack([
+                np.column_stack([event_lats, event_depths]),
+                np.column_stack([station_lats, station_depths])
+            ], axis=1)
+
+            # Create LineCollection for efficient rendering
+            lc = LineCollection(
+                segments,
+                colors='gray',
+                alpha=pick_alpha,
+                linewidths=0.5,
+                zorder=1,
+                rasterized=True  # Improves performance for large numbers of lines
+            )
+            ax.add_collection(lc)
 
     ax.set_xlabel('Latitude (°)', fontsize=fs_axis_label)
     ax.set_ylabel('Depth (km)', fontsize=fs_axis_label)
@@ -493,7 +535,7 @@ def _plot_cross_section_lon(source_lons: np.ndarray, source_depths: np.ndarray,
             zorder=2
         )
 
-    # Plot pick lines connecting events to receivers
+    # Plot pick lines connecting events to receivers using LineCollection for speed
     if (vis_config.get('plot_pick_lines', False) and
         picks_df is not None and not picks_df.empty and
         events_df is not None and stations_df is not None):
@@ -504,23 +546,45 @@ def _plot_cross_section_lon(source_lons: np.ndarray, source_depths: np.ndarray,
         event_lon_col = 'lon' if 'lon' in events_df.columns else 'longitude'
         station_lon_col = 'lon' if 'lon' in stations_df.columns else 'longitude'
 
-        # Create lookup dictionaries for coordinates
-        event_coords = {row['event_id']: (row[event_lon_col], row['depth'])
-                       for _, row in events_df.iterrows()}
-        station_coords = {row['station_id']: (row[station_lon_col], row['depth'])
-                         for _, row in stations_df.iterrows()}
+        # Create coordinate DataFrames for vectorized merge
+        event_coords = events_df.set_index('event_id')[[event_lon_col, 'depth']].rename(
+            columns={event_lon_col: 'lon', 'depth': 'depth'}
+        )
+        station_coords = stations_df.set_index('station_id')[[station_lon_col, 'depth']].rename(
+            columns={station_lon_col: 'lon', 'depth': 'depth'}
+        )
 
-        # Draw lines for each pick
-        for _, pick in picks_df.iterrows():
-            event_id = pick['event_id']
-            station_id = pick['station_id']
+        # Vectorized: merge picks with event and station coordinates
+        picks_with_coords = picks_df.merge(
+            event_coords, left_on='event_id', right_index=True, how='inner'
+        ).merge(
+            station_coords, left_on='station_id', right_index=True, how='inner',
+            suffixes=('_event', '_station')
+        )
 
-            if event_id in event_coords and station_id in station_coords:
-                event_lon, event_depth = event_coords[event_id]
-                station_lon, station_depth = station_coords[station_id]
+        if len(picks_with_coords) > 0:
+            # Build segments array for LineCollection
+            event_lons = picks_with_coords['lon_event'].values
+            event_depths = picks_with_coords['depth_event'].values
+            station_lons = picks_with_coords['lon_station'].values
+            station_depths = picks_with_coords['depth_station'].values
 
-                ax.plot([event_lon, station_lon], [event_depth, station_depth],
-                       color='gray', alpha=pick_alpha, linewidth=0.5, zorder=1)
+            # Create segments as (N, 2, 2) array: N lines, 2 points each, 2 coords (lon, depth)
+            segments = np.stack([
+                np.column_stack([event_lons, event_depths]),
+                np.column_stack([station_lons, station_depths])
+            ], axis=1)
+
+            # Create LineCollection for efficient rendering
+            lc = LineCollection(
+                segments,
+                colors='gray',
+                alpha=pick_alpha,
+                linewidths=0.5,
+                zorder=1,
+                rasterized=True  # Improves performance for large numbers of lines
+            )
+            ax.add_collection(lc)
 
     ax.set_xlabel('Longitude (°)', fontsize=fs_axis_label)
     ax.set_ylabel('Depth (km)', fontsize=fs_axis_label)
