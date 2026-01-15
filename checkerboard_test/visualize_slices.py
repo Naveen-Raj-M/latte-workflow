@@ -81,8 +81,9 @@ def visualize_model(
 
         # Update config with computed limits
         plot_config = config.copy()
-        plot_config["vmin"] = vmin
-        plot_config["vmax"] = vmax
+        # Convert numpy floats to native Python floats for OmegaConf compatibility
+        plot_config["vmin"] = float(vmin) if vmin is not None else None
+        plot_config["vmax"] = float(vmax) if vmax is not None else None
 
         # Compute fair recovery mask if applicable
         recovery_3d = None
