@@ -67,7 +67,13 @@ def run_checkerboard_workflow(config: Union[Dict, DictConfig]) -> None:
     checkerboard_dir = output_dir / "checkerboard_model"
     noisy_traveltime_dir = output_dir / "noisy_traveltimes"
     inverted_dir = output_dir / "inverted_model"
-    visualization_dir = output_dir / "visualizations"
+
+    # Get visualization output directory from config, with fallback to default
+    viz_output_dir_config = visualization_config.get('output_dir') if isinstance(visualization_config, DictConfig) else visualization_config.get('output_dir')
+    if viz_output_dir_config:
+        visualization_dir = Path(viz_output_dir_config)
+    else:
+        visualization_dir = output_dir / "visualizations"
 
     # Step 1: Create checkerboard model
     step1_enabled = workflow_config.step1_create_checkerboard if isinstance(workflow_config, DictConfig) else workflow_config.get("step1_create_checkerboard", True)

@@ -208,6 +208,10 @@ visualization:
   # Enable visualization
   enabled: true
 
+  # Output directory for visualizations (optional)
+  # If not specified, defaults to ${general.output_dir}/visualizations
+  output_dir: null  # e.g., "/path/to/custom/visualization/directory"
+
   # Which models to visualize
   visualize_input: true          # Original velocity model
   visualize_checkerboard: true   # Checkerboard perturbed model
@@ -267,11 +271,19 @@ visualization:
   pattern_colormap: "seismic"  # Colormap for pattern plots
   pattern_symmetric_colorbar: true  # Force symmetric colorbar for patterns
 
+  use_uniform_colorbar: false  # Use same vmin/vmax across all slices of same model/field (from entire 3D volume)
+  amplitude_threshold_viz: null  # Mark regions with |perturbation| > threshold as black (%, e.g., 7.0), null to disable
+  show_recovery_contours: false  # Show boundaries of fairly recovered regions (inverted_pattern only)
+  recovery_threshold_pct: 3.0  # Fair recovery: same sign AND |inverted| >= threshold (%)
+
   # Figure settings
   figure:
     dpi: 150
     figsize: [10, 8]
     format: "png"  # "png", "pdf", or "svg"
+    recovery_contour_color: "green"  # Color for recovery contour lines
+    recovery_contour_linestyle: "-"  # Line style: "-", "--", "-.", ":"
+    recovery_contour_linewidth: 2  # Line width in points
 
   # Annotation settings
   show_colorbar: true

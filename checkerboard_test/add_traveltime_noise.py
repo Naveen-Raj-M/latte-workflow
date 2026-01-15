@@ -285,7 +285,76 @@ def process_traveltime_directory(
         logger.info(f"  Std: {summary_df['noise_std'].mean():.6f} s")
         logger.info(f"  RMS: {summary_df['noise_rms'].mean():.6f} s")
 
+    # Create a comprehensive CSV with all ground truth columns + synthetic_tt
+    logger.info("\nCreating noisy_traveltimes.csv with all metadata...")
+    create_noisy_traveltimes_csv(df, output_dir, output_dir, output_dtype)
+
     return stats
+
+
+def create_noisy_traveltimes_csv(
+    ground_truth_df: pd.DataFrame,
+    noisy_traveltime_dir: Path,
+    output_dir: Path,
+    dtype: np.dtype = np.float32,
+) -> None:
+    """
+    Create a CSV file with all ground truth columns plus synthetic_tt from noisy binaries.
+
+    Args:
+        ground_truth_df: Ground truth DataFrame with all metadata
+        noisy_traveltime_dir: Directory containing noisy traveltime binary files
+        output_dir: Output directory for CSV
+        dtype: Data type of binary files
+    """
+    # Create a copy of ground truth dataframe to preserve all columns
+    output_df = ground_truth_df.copy()
+
+    # Add synthetic_tt column (initialize with NaN)
+    output_df["synthetic_tt"] = np.nan
+
+    # Group by shot_id and phase to read corresponding binary files
+    grouped = ground_truth_df.groupby(["shot_id", "phase"])
+
+    for (shot_id, phase), group in tqdm(grouped, desc="Creating noisy traveltimes CSV"):
+        phase_lower = phase.lower()
+        binary_file = noisy_traveltime_dir / f"shot_{shot_id}_traveltime_{phase_lower}.bin"
+
+        if binary_file.exists():
+            try:
+                # Read noisy traveltime binary
+                noisy_tt = read_traveltime_binary(binary_file, dtype=dtype)
+
+                # Get the indices for this shot_id and phase in the original dataframe
+                indices = group.index
+
+                # Verify size matches
+                if len(noisy_tt) != len(indices):
+                    logger.warning(
+                        f"Size mismatch for shot {shot_id} phase {phase}: "
+                        f"binary has {len(noisy_tt)} values, CSV has {len(indices)} rows"
+                    )
+                    # Take minimum to avoid index errors
+                    n_values = min(len(noisy_tt), len(indices))
+                    output_df.loc[indices[:n_values], "synthetic_tt"] = noisy_tt[:n_values]
+                else:
+                    # Fill synthetic_tt for this shot/phase combination
+                    output_df.loc[indices, "synthetic_tt"] = noisy_tt
+
+            except Exception as e:
+                logger.error(f"Error reading {binary_file}: {e}")
+        else:
+            logger.warning(f"Binary file not found: {binary_file}")
+
+    # Save to CSV
+    output_csv = output_dir / "noisy_traveltimes.csv"
+    output_df.to_csv(output_csv, index=False)
+    logger.info(f"Noisy traveltimes CSV saved to: {output_csv}")
+
+    # Log how many rows have valid synthetic_tt values
+    valid_count = output_df["synthetic_tt"].notna().sum()
+    total_count = len(output_df)
+    logger.info(f"  {valid_count}/{total_count} rows have valid synthetic_tt values")
 
 
 if __name__ == "__main__":
