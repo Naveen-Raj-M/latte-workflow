@@ -151,80 +151,84 @@ def create_threshold_segmented_colormap(
     vmax: float,
     threshold: float,
     symmetric: bool = True,
+    n_samples: int = 50,
 ) -> Tuple[mcolors.LinearSegmentedColormap, mcolors.Normalize]:
     """
     Create a segmented colormap with black for values exceeding threshold.
 
-    This creates a colormap where:
-    - Values < -threshold map to black
-    - Values in [-threshold, 0] map to left half of base colormap
-    - Values in [0, threshold] map to right half of base colormap
-    - Values > threshold map to black
+    The colorbar shows the full range (vmin to vmax), but:
+    - Values in [-threshold, +threshold] use the base colormap (centered at 0)
+    - Values outside ±threshold are black
 
     Args:
         base_cmap_name: Name of base colormap
-        vmin: Minimum value
-        vmax: Maximum value
-        threshold: Threshold for black regions
+        vmin: Global minimum value
+        vmax: Global maximum value
+        threshold: Threshold for black regions (values with |v| > threshold are black)
         symmetric: Whether to center colormap at zero
+        n_samples: Number of color samples for smooth gradient in threshold region
 
     Returns:
         (colormap, norm) tuple
     """
     base_cmap = plt.get_cmap(base_cmap_name)
 
-    # Calculate positions in [0, 1] space
+    # Calculate normalized positions for the boundaries
     total_range = vmax - vmin
     if total_range <= 0:
-        total_range = 1.0
+        total_range = 1e-6
 
-    # Position of -threshold in normalized space
-    pos_neg_thresh = (-threshold - vmin) / total_range
-    # Position of 0 in normalized space
-    pos_zero = (0 - vmin) / total_range
-    # Position of +threshold in normalized space
-    pos_pos_thresh = (threshold - vmin) / total_range
-
-    # Clamp positions to [0, 1]
-    pos_neg_thresh = max(0.0, min(1.0, pos_neg_thresh))
-    pos_zero = max(0.0, min(1.0, pos_zero))
-    pos_pos_thresh = max(0.0, min(1.0, pos_pos_thresh))
-
-    # Build color segments
-    # Format: (position, color_left, color_right)
-    cdict = {'red': [], 'green': [], 'blue': []}
+    # Position in [0, 1] normalized space
+    pos_neg_thresh = max(0.0, (-threshold - vmin) / total_range)
+    pos_pos_thresh = min(1.0, (threshold - vmin) / total_range)
 
     black = (0.0, 0.0, 0.0)
 
-    # Sample base colormap colors
-    color_at_0 = base_cmap(0.0)[:3]  # Left end (e.g., blue for seismic)
-    color_at_half = base_cmap(0.5)[:3]  # Center (e.g., white for seismic)
-    color_at_1 = base_cmap(1.0)[:3]  # Right end (e.g., red for seismic)
+    # Build the colormap segments
+    cdict = {'red': [], 'green': [], 'blue': []}
 
-    for i, channel in enumerate(['red', 'green', 'blue']):
+    for channel_idx, channel in enumerate(['red', 'green', 'blue']):
         segments = []
 
-        # Start with black if vmin < -threshold
+        # Black region from vmin to -threshold (if applicable)
         if vmin < -threshold:
-            segments.append((0.0, black[i], black[i]))
-            segments.append((pos_neg_thresh, black[i], color_at_0[i]))
-        else:
-            segments.append((0.0, color_at_0[i], color_at_0[i]))
+            segments.append((0.0, black[channel_idx], black[channel_idx]))
+            segments.append((pos_neg_thresh, black[channel_idx], black[channel_idx]))
 
-        # Transition through center
-        if 0.0 < pos_zero < 1.0:
-            segments.append((pos_zero, color_at_half[i], color_at_half[i]))
+        # Gradient region from -threshold to +threshold
+        # Sample the base colormap and map to the threshold region
+        for i in range(n_samples):
+            # Position in base colormap [0, 1]
+            t = i / (n_samples - 1) if n_samples > 1 else 0.5
+            color = base_cmap(t)
 
-        # Transition to positive threshold
+            # Position in final colormap
+            if vmin < -threshold and vmax > threshold:
+                # Both black regions exist
+                pos = pos_neg_thresh + t * (pos_pos_thresh - pos_neg_thresh)
+            elif vmin < -threshold:
+                # Only lower black region
+                pos = pos_neg_thresh + t * (1.0 - pos_neg_thresh)
+            elif vmax > threshold:
+                # Only upper black region
+                pos = t * pos_pos_thresh
+            else:
+                # No black regions
+                pos = t
+
+            segments.append((pos, color[channel_idx], color[channel_idx]))
+
+        # Black region from +threshold to vmax (if applicable)
         if vmax > threshold:
-            segments.append((pos_pos_thresh, color_at_1[i], black[i]))
-            segments.append((1.0, black[i], black[i]))
-        else:
-            segments.append((1.0, color_at_1[i], color_at_1[i]))
+            segments.append((pos_pos_thresh, black[channel_idx], black[channel_idx]))
+            segments.append((1.0, black[channel_idx], black[channel_idx]))
 
         cdict[channel] = segments
 
-    custom_cmap = mcolors.LinearSegmentedColormap(f'{base_cmap_name}_thresh', cdict)
+    # Create the colormap
+    custom_cmap = mcolors.LinearSegmentedColormap(f'{base_cmap_name}_threshold', cdict)
+
+    # Use standard normalization with global vmin/vmax
     norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
 
     return custom_cmap, norm
