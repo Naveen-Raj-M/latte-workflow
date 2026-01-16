@@ -13,7 +13,10 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 from typing import Dict, Optional
 
-from checkerboard_test.colormap_utils import create_centered_norm
+from checkerboard_test.colormap_utils import (
+    create_centered_norm,
+    create_threshold_segmented_colormap,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -74,35 +77,30 @@ def plot_xy_slice(
     # Handle threshold and colorbar limits for pattern plots
     norm = None
     extend = 'neither'
-    plot_data = velocity_slice
 
     if is_pattern_plot and threshold is not None:
-        # Get base colormap and set bad color for masked values
-        cmap = plt.get_cmap(config.get("colormap", "seismic")).copy()
-        cmap.set_bad('black')
-
         # Determine colorbar limits
         if use_uniform:
-            # Uniform colorbar: show global range, mask values outside ±threshold as black
+            # Uniform colorbar: show global range with black for values exceeding threshold
             vmin, vmax = data_vmin, data_vmax
-            # Mask values that exceed the threshold (strictly greater than)
-            mask = (np.abs(velocity_slice) > threshold)
-            if np.any(mask):
-                plot_data = np.ma.masked_where(mask, velocity_slice)
+            # Create segmented colormap with black regions for values beyond threshold
+            cmap, norm = create_threshold_segmented_colormap(
+                config.get("colormap", "seismic"),
+                vmin, vmax, threshold,
+                symmetric=symmetric,
+            )
         else:
             # Local colorbar with threshold: use ±threshold as limits
             vmin, vmax = -threshold, threshold
-            # Use set_over/set_under for values exceeding limits
+            cmap = plt.get_cmap(config.get("colormap", "seismic")).copy()
             cmap.set_over('black')
             cmap.set_under('black')
             # Check if local data exceeds threshold
             if local_vmin < -threshold or local_vmax > threshold:
                 extend = 'both'
-
-        # For centered symmetric colorbar (without forcing equal magnitude)
-        if symmetric:
-            # Use TwoSlopeNorm to center at zero
-            norm = create_centered_norm(vmin, vmax, vcenter=0.0)
+            # For centered symmetric colorbar
+            if symmetric:
+                norm = create_centered_norm(vmin, vmax, vcenter=0.0)
 
     else:
         # Standard colormap (no threshold)
@@ -126,7 +124,7 @@ def plot_xy_slice(
         plot_kwargs['vmin'] = vmin
         plot_kwargs['vmax'] = vmax
 
-    im = ax.pcolormesh(X, Y, plot_data, **plot_kwargs)
+    im = ax.pcolormesh(X, Y, velocity_slice, **plot_kwargs)
 
     # Add fair recovery contours if provided
     if recovery_mask is not None and config.get("show_recovery_contours", False):
@@ -233,35 +231,30 @@ def plot_xz_slice(
     # Handle threshold and colorbar limits for pattern plots
     norm = None
     extend = 'neither'
-    plot_data = velocity_slice
 
     if is_pattern_plot and threshold is not None:
-        # Get base colormap and set bad color for masked values
-        cmap = plt.get_cmap(config.get("colormap", "seismic")).copy()
-        cmap.set_bad('black')
-
         # Determine colorbar limits
         if use_uniform:
-            # Uniform colorbar: show global range, mask values outside ±threshold as black
+            # Uniform colorbar: show global range with black for values exceeding threshold
             vmin, vmax = data_vmin, data_vmax
-            # Mask values that exceed the threshold (strictly greater than)
-            mask = (np.abs(velocity_slice) > threshold)
-            if np.any(mask):
-                plot_data = np.ma.masked_where(mask, velocity_slice)
+            # Create segmented colormap with black regions for values beyond threshold
+            cmap, norm = create_threshold_segmented_colormap(
+                config.get("colormap", "seismic"),
+                vmin, vmax, threshold,
+                symmetric=symmetric,
+            )
         else:
             # Local colorbar with threshold: use ±threshold as limits
             vmin, vmax = -threshold, threshold
-            # Use set_over/set_under for values exceeding limits
+            cmap = plt.get_cmap(config.get("colormap", "seismic")).copy()
             cmap.set_over('black')
             cmap.set_under('black')
             # Check if local data exceeds threshold
             if local_vmin < -threshold or local_vmax > threshold:
                 extend = 'both'
-
-        # For centered symmetric colorbar (without forcing equal magnitude)
-        if symmetric:
-            # Use TwoSlopeNorm to center at zero
-            norm = create_centered_norm(vmin, vmax, vcenter=0.0)
+            # For centered symmetric colorbar
+            if symmetric:
+                norm = create_centered_norm(vmin, vmax, vcenter=0.0)
 
     else:
         # Standard colormap (no threshold)
@@ -285,7 +278,7 @@ def plot_xz_slice(
         plot_kwargs['vmin'] = vmin
         plot_kwargs['vmax'] = vmax
 
-    im = ax.pcolormesh(X, Z, plot_data, **plot_kwargs)
+    im = ax.pcolormesh(X, Z, velocity_slice, **plot_kwargs)
 
     # Add fair recovery contours if provided
     if recovery_mask is not None and config.get("show_recovery_contours", False):
@@ -392,35 +385,30 @@ def plot_yz_slice(
     # Handle threshold and colorbar limits for pattern plots
     norm = None
     extend = 'neither'
-    plot_data = velocity_slice
 
     if is_pattern_plot and threshold is not None:
-        # Get base colormap and set bad color for masked values
-        cmap = plt.get_cmap(config.get("colormap", "seismic")).copy()
-        cmap.set_bad('black')
-
         # Determine colorbar limits
         if use_uniform:
-            # Uniform colorbar: show global range, mask values outside ±threshold as black
+            # Uniform colorbar: show global range with black for values exceeding threshold
             vmin, vmax = data_vmin, data_vmax
-            # Mask values that exceed the threshold (strictly greater than)
-            mask = (np.abs(velocity_slice) > threshold)
-            if np.any(mask):
-                plot_data = np.ma.masked_where(mask, velocity_slice)
+            # Create segmented colormap with black regions for values beyond threshold
+            cmap, norm = create_threshold_segmented_colormap(
+                config.get("colormap", "seismic"),
+                vmin, vmax, threshold,
+                symmetric=symmetric,
+            )
         else:
             # Local colorbar with threshold: use ±threshold as limits
             vmin, vmax = -threshold, threshold
-            # Use set_over/set_under for values exceeding limits
+            cmap = plt.get_cmap(config.get("colormap", "seismic")).copy()
             cmap.set_over('black')
             cmap.set_under('black')
             # Check if local data exceeds threshold
             if local_vmin < -threshold or local_vmax > threshold:
                 extend = 'both'
-
-        # For centered symmetric colorbar (without forcing equal magnitude)
-        if symmetric:
-            # Use TwoSlopeNorm to center at zero
-            norm = create_centered_norm(vmin, vmax, vcenter=0.0)
+            # For centered symmetric colorbar
+            if symmetric:
+                norm = create_centered_norm(vmin, vmax, vcenter=0.0)
 
     else:
         # Standard colormap (no threshold)
@@ -444,7 +432,7 @@ def plot_yz_slice(
         plot_kwargs['vmin'] = vmin
         plot_kwargs['vmax'] = vmax
 
-    im = ax.pcolormesh(Y, Z, plot_data, **plot_kwargs)
+    im = ax.pcolormesh(Y, Z, velocity_slice, **plot_kwargs)
 
     # Add fair recovery contours if provided
     if recovery_mask is not None and config.get("show_recovery_contours", False):

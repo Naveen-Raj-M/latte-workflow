@@ -75,6 +75,161 @@ def create_centered_norm(
     return mcolors.TwoSlopeNorm(vmin=vmin, vcenter=vcenter, vmax=vmax)
 
 
+def create_threshold_colormap_with_black(
+    base_cmap_name: str,
+    vmin: float,
+    vmax: float,
+    threshold: float,
+    n_colors: int = 256,
+) -> Tuple[mcolors.ListedColormap, mcolors.BoundaryNorm]:
+    """
+    Create a colormap with black regions for values exceeding ±threshold.
+
+    The colormap shows:
+    - Black for values < -threshold
+    - Base colormap for values in [-threshold, +threshold], centered at 0
+    - Black for values > +threshold
+
+    Args:
+        base_cmap_name: Name of the base matplotlib colormap (e.g., "seismic")
+        vmin: Minimum value for colorbar
+        vmax: Maximum value for colorbar
+        threshold: Threshold value (values with |v| > threshold are black)
+        n_colors: Number of colors in the colormap
+
+    Returns:
+        (colormap, norm) tuple
+    """
+    base_cmap = plt.get_cmap(base_cmap_name)
+
+    # Create boundaries for the colormap segments
+    # We need to handle cases where vmin > -threshold or vmax < threshold
+    boundaries = []
+    colors_list = []
+
+    # Add lower black region if vmin < -threshold
+    if vmin < -threshold:
+        boundaries.append(vmin)
+        # Number of colors for this segment proportional to its range
+        n_low_black = max(1, int(n_colors * (-threshold - vmin) / (vmax - vmin)))
+        colors_list.extend(['black'] * n_low_black)
+
+    # Add the threshold boundaries
+    boundaries.append(-threshold)
+    boundaries.append(threshold)
+
+    # Add colors for the middle region (from base colormap)
+    n_middle = max(1, int(n_colors * (2 * threshold) / (vmax - vmin)))
+    # Sample from base colormap, centered at 0.5 (which is white for seismic)
+    middle_colors = [base_cmap(i / (n_middle - 1)) if n_middle > 1 else base_cmap(0.5)
+                     for i in range(n_middle)]
+    colors_list.extend(middle_colors)
+
+    # Add upper black region if vmax > threshold
+    if vmax > threshold:
+        boundaries.append(vmax)
+        n_high_black = max(1, int(n_colors * (vmax - threshold) / (vmax - vmin)))
+        colors_list.extend(['black'] * n_high_black)
+
+    # Handle edge cases where threshold exceeds data range
+    if len(boundaries) < 2:
+        # Fallback to base colormap
+        return base_cmap, None
+
+    # Create the colormap
+    custom_cmap = mcolors.ListedColormap(colors_list, name=f'{base_cmap_name}_threshold')
+
+    # Create BoundaryNorm
+    norm = mcolors.BoundaryNorm(boundaries, custom_cmap.N)
+
+    return custom_cmap, norm
+
+
+def create_threshold_segmented_colormap(
+    base_cmap_name: str,
+    vmin: float,
+    vmax: float,
+    threshold: float,
+    symmetric: bool = True,
+) -> Tuple[mcolors.LinearSegmentedColormap, mcolors.Normalize]:
+    """
+    Create a segmented colormap with black for values exceeding threshold.
+
+    This creates a colormap where:
+    - Values < -threshold map to black
+    - Values in [-threshold, 0] map to left half of base colormap
+    - Values in [0, threshold] map to right half of base colormap
+    - Values > threshold map to black
+
+    Args:
+        base_cmap_name: Name of base colormap
+        vmin: Minimum value
+        vmax: Maximum value
+        threshold: Threshold for black regions
+        symmetric: Whether to center colormap at zero
+
+    Returns:
+        (colormap, norm) tuple
+    """
+    base_cmap = plt.get_cmap(base_cmap_name)
+
+    # Calculate positions in [0, 1] space
+    total_range = vmax - vmin
+    if total_range <= 0:
+        total_range = 1.0
+
+    # Position of -threshold in normalized space
+    pos_neg_thresh = (-threshold - vmin) / total_range
+    # Position of 0 in normalized space
+    pos_zero = (0 - vmin) / total_range
+    # Position of +threshold in normalized space
+    pos_pos_thresh = (threshold - vmin) / total_range
+
+    # Clamp positions to [0, 1]
+    pos_neg_thresh = max(0.0, min(1.0, pos_neg_thresh))
+    pos_zero = max(0.0, min(1.0, pos_zero))
+    pos_pos_thresh = max(0.0, min(1.0, pos_pos_thresh))
+
+    # Build color segments
+    # Format: (position, color_left, color_right)
+    cdict = {'red': [], 'green': [], 'blue': []}
+
+    black = (0.0, 0.0, 0.0)
+
+    # Sample base colormap colors
+    color_at_0 = base_cmap(0.0)[:3]  # Left end (e.g., blue for seismic)
+    color_at_half = base_cmap(0.5)[:3]  # Center (e.g., white for seismic)
+    color_at_1 = base_cmap(1.0)[:3]  # Right end (e.g., red for seismic)
+
+    for i, channel in enumerate(['red', 'green', 'blue']):
+        segments = []
+
+        # Start with black if vmin < -threshold
+        if vmin < -threshold:
+            segments.append((0.0, black[i], black[i]))
+            segments.append((pos_neg_thresh, black[i], color_at_0[i]))
+        else:
+            segments.append((0.0, color_at_0[i], color_at_0[i]))
+
+        # Transition through center
+        if 0.0 < pos_zero < 1.0:
+            segments.append((pos_zero, color_at_half[i], color_at_half[i]))
+
+        # Transition to positive threshold
+        if vmax > threshold:
+            segments.append((pos_pos_thresh, color_at_1[i], black[i]))
+            segments.append((1.0, black[i], black[i]))
+        else:
+            segments.append((1.0, color_at_1[i], color_at_1[i]))
+
+        cdict[channel] = segments
+
+    custom_cmap = mcolors.LinearSegmentedColormap(f'{base_cmap_name}_thresh', cdict)
+    norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+
+    return custom_cmap, norm
+
+
 def compute_uniform_colorbar_limits(
     velocity_3d: np.ndarray,
     symmetric: bool = False,
