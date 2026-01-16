@@ -261,18 +261,6 @@ visualization:
     labels: 12
     colorbar: 10
 
-  # ============================================
-  # Per-visualization configuration
-  # ============================================
-  # Each visualization type has its own settings.
-  # Colorbar behavior:
-  #   - Model plots (input/checkerboard/inverted): Always autoscale, no centering
-  #   - Difference plots: centered_at_zero centers cbar at 0 (asymmetric range OK)
-  #   - Pattern plots: centered_at_zero + optional threshold with black regions
-  #
-  # uniform_cbar: true = global min/max across all slices, false = local per slice
-  # threshold: Scale cmap to +/-threshold, values beyond shown as black
-
   # Original velocity model visualization
   visualize_input:
     enabled: false
