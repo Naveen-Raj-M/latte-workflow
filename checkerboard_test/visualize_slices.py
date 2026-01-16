@@ -347,7 +347,8 @@ def visualize_checkerboard_test(
                 vel_field: perturbation_pct
             })
 
-            pattern_config = config.copy()
+            # Convert to regular dict to allow adding new keys
+            pattern_config = dict(config)
             pattern_config["velocity_field"] = vel_field
             # Use pattern_vmin/vmax if provided, otherwise None to compute from data
             pattern_config["vmin"] = config.get("pattern_vmin")
@@ -396,7 +397,8 @@ def visualize_checkerboard_test(
                 vel_field: perturbation_pct
             })
 
-            pattern_config = config.copy()
+            # Convert to regular dict to allow adding new keys
+            pattern_config = dict(config)
             pattern_config["velocity_field"] = vel_field
             # Use pattern_vmin/vmax if provided, otherwise None to compute from data
             pattern_config["vmin"] = config.get("pattern_vmin")
