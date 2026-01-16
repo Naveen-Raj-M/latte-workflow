@@ -4,6 +4,7 @@ Colormap utility functions for visualization.
 This module provides functions for creating custom colormaps, including:
 - Three-color scheme for marking values beyond thresholds with black
 - Uniform colorbar computation across multiple slices
+- Symmetric colorbar centered at zero with asymmetric data ranges
 """
 
 import logging
@@ -19,14 +20,13 @@ def create_threshold_colormap(
     base_cmap_name: str,
     threshold: Optional[float] = None,
     black_color: str = "black",
-) -> Tuple[mcolors.Colormap, Optional[mcolors.BoundaryNorm]]:
+) -> mcolors.Colormap:
     """
-    Create a three-color scheme colormap for perturbation visualization.
+    Create a colormap with black color for out-of-range values.
 
-    If threshold is specified:
-    - Values < -threshold: black
-    - Values between -threshold and +threshold: base colormap
-    - Values > +threshold: black
+    The colormap uses set_over() and set_under() to mark values
+    that exceed ±threshold as black. The actual threshold clipping
+    is handled by setting vmin=-threshold and vmax=threshold on the plot.
 
     Args:
         base_cmap_name: Name of the base matplotlib colormap (e.g., "seismic")
@@ -34,42 +34,45 @@ def create_threshold_colormap(
         black_color: Color to use for values exceeding threshold
 
     Returns:
-        (colormap, norm) tuple. norm is None if threshold is None, otherwise BoundaryNorm
+        Colormap with over/under colors set to black
     """
-    if threshold is None:
-        # No threshold, return base colormap
-        return plt.get_cmap(base_cmap_name), None
+    # Get the base colormap and make a copy
+    base_cmap = plt.get_cmap(base_cmap_name).copy()
 
-    # Get the base colormap
-    base_cmap = plt.get_cmap(base_cmap_name)
+    if threshold is not None:
+        # Set colors for values that exceed the threshold
+        base_cmap.set_over(black_color)
+        base_cmap.set_under(black_color)
 
-    # Number of colors in the middle range
-    n_middle = 256
+    return base_cmap
 
-    # Create color list: black, base_cmap colors, black
-    colors = []
 
-    # Add black for values below -threshold (10% of colormap)
-    n_low_black = int(n_middle * 0.1)
-    colors.extend([black_color] * n_low_black)
+def create_centered_norm(
+    vmin: float,
+    vmax: float,
+    vcenter: float = 0.0,
+) -> mcolors.TwoSlopeNorm:
+    """
+    Create a norm that centers the colormap at a specific value.
 
-    # Add base colormap for middle range (80% of colormap)
-    n_middle_colors = int(n_middle * 0.8)
-    middle_colors = base_cmap(np.linspace(0, 1, n_middle_colors))
-    colors.extend(middle_colors)
+    This allows asymmetric data ranges (e.g., -5% to +7%) while keeping
+    the colormap centered at zero (so white/neutral color is at zero).
 
-    # Add black for values above +threshold (10% of colormap)
-    n_high_black = int(n_middle * 0.1)
-    colors.extend([black_color] * n_high_black)
+    Args:
+        vmin: Minimum value
+        vmax: Maximum value
+        vcenter: Center value (default 0.0)
 
-    # Create custom colormap
-    custom_cmap = mcolors.ListedColormap(colors, name=f'{base_cmap_name}_threshold')
+    Returns:
+        TwoSlopeNorm for centered colormap
+    """
+    # Ensure vmin < vcenter < vmax
+    if vmin >= vcenter:
+        vmin = vcenter - 1e-6
+    if vmax <= vcenter:
+        vmax = vcenter + 1e-6
 
-    # Create boundary norm to map data values to colors
-    # This ensures proper mapping: < -threshold -> low black, > +threshold -> high black
-    # We create boundaries that extend beyond ±threshold to catch all outliers
-
-    return custom_cmap, None
+    return mcolors.TwoSlopeNorm(vmin=vmin, vcenter=vcenter, vmax=vmax)
 
 
 def compute_uniform_colorbar_limits(
@@ -77,15 +80,18 @@ def compute_uniform_colorbar_limits(
     symmetric: bool = False,
     vmin: Optional[float] = None,
     vmax: Optional[float] = None,
+    force_equal_magnitude: bool = True,
 ) -> Tuple[float, float]:
     """
     Compute colorbar limits from entire 3D volume for uniform colorbars.
 
     Args:
         velocity_3d: 3D array of velocity values
-        symmetric: If True, force symmetric colorbar around zero
+        symmetric: If True, center colorbar around zero (use TwoSlopeNorm for actual centering)
         vmin: Manual minimum (if None, computed from data)
         vmax: Manual maximum (if None, computed from data)
+        force_equal_magnitude: If True and symmetric, force vmin=-vmax_abs and vmax=vmax_abs
+                               If False and symmetric, keep actual data range but centered at zero
 
     Returns:
         (vmin, vmax) tuple
@@ -106,8 +112,8 @@ def compute_uniform_colorbar_limits(
         computed_vmin = np.nanmin(velocity_3d)
         computed_vmax = np.nanmax(velocity_3d)
 
-    # Apply symmetry if requested
-    if symmetric:
+    # Apply symmetry if requested AND force_equal_magnitude is True
+    if symmetric and force_equal_magnitude:
         vmax_abs = max(abs(computed_vmin), abs(computed_vmax))
         computed_vmin = -vmax_abs
         computed_vmax = vmax_abs
@@ -117,39 +123,39 @@ def compute_uniform_colorbar_limits(
     return computed_vmin, computed_vmax
 
 
-def apply_threshold_to_data(
-    data: np.ndarray,
+def get_threshold_colorbar_limits(
+    data_vmin: float,
+    data_vmax: float,
     threshold: Optional[float],
-    vmin: float,
-    vmax: float,
-) -> Tuple[np.ndarray, float, float]:
+    use_uniform: bool,
+) -> Tuple[float, float]:
     """
-    Apply threshold by clipping data values beyond ±threshold.
+    Determine colorbar limits considering threshold and uniform settings.
 
-    This function clips the data to [vmin_extended, vmax_extended] where:
-    - vmin_extended extends below -threshold to capture outliers
-    - vmax_extended extends above +threshold to capture outliers
+    Logic:
+    - If use_uniform=True: Return data_vmin/data_vmax (global limits), ignoring threshold for range
+    - If use_uniform=False and threshold is set: Return ±threshold as limits (local with threshold clipping)
+    - If use_uniform=False and no threshold: Return data_vmin/data_vmax (local limits)
+
+    The threshold affects which values are shown as black via set_over/set_under,
+    but uniform colorbar should still show the full global range.
 
     Args:
-        data: Input data array
-        threshold: Threshold value (e.g., 7.0 for ±7%)
-        vmin: Current minimum value
-        vmax: Current maximum value
+        data_vmin: Data minimum (global if uniform, local if not)
+        data_vmax: Data maximum (global if uniform, local if not)
+        threshold: Amplitude threshold for black coloring
+        use_uniform: Whether uniform colorbar is enabled
 
     Returns:
-        (clipped_data, vmin_extended, vmax_extended) tuple
+        (vmin, vmax) for the colorbar
     """
-    if threshold is None:
-        return data, vmin, vmax
-
-    # Extend the range slightly beyond ±threshold to show black regions
-    # The extension ensures values beyond threshold map to the black parts of colormap
-    extension_factor = 1.2
-
-    vmin_extended = -threshold * extension_factor
-    vmax_extended = threshold * extension_factor
-
-    # Note: We don't actually clip the data, we just extend the colorbar range
-    # The colormap will handle showing values beyond ±threshold as black
-
-    return data, vmin_extended, vmax_extended
+    if use_uniform:
+        # Uniform colorbar: always use global data range
+        return data_vmin, data_vmax
+    elif threshold is not None:
+        # Local colorbar with threshold: use ±threshold as limits
+        # Values beyond will be shown as black via set_over/set_under
+        return -threshold, threshold
+    else:
+        # Local colorbar without threshold: use data range
+        return data_vmin, data_vmax

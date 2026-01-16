@@ -72,6 +72,7 @@ def visualize_model(
                 symmetric=config.get("symmetric_colorbar", False),
                 vmin=config.get("vmin"),
                 vmax=config.get("vmax"),
+                force_equal_magnitude=config.get("force_equal_magnitude", True),
             )
             logger.info(f"    Using uniform colorbar: [{vmin:.4f}, {vmax:.4f}]")
         else:
@@ -348,10 +349,13 @@ def visualize_checkerboard_test(
 
             pattern_config = config.copy()
             pattern_config["velocity_field"] = vel_field
-            pattern_config["vmin"] = config.get("pattern_vmin", -10.0)
-            pattern_config["vmax"] = config.get("pattern_vmax", 10.0)
+            # Use pattern_vmin/vmax if provided, otherwise None to compute from data
+            pattern_config["vmin"] = config.get("pattern_vmin")
+            pattern_config["vmax"] = config.get("pattern_vmax")
             pattern_config["colormap"] = config.get("pattern_colormap", "seismic")
             pattern_config["symmetric_colorbar"] = config.get("pattern_symmetric_colorbar", True)
+            # Don't force equal magnitude for patterns - allow asymmetric range centered at zero
+            pattern_config["force_equal_magnitude"] = False
 
             visualize_model(df_pattern, output_dir, pattern_config,
                           f"checkerboard_pattern_pct_{vel_field}" if velocity_field == "both" else "checkerboard_pattern_pct")
@@ -394,10 +398,13 @@ def visualize_checkerboard_test(
 
             pattern_config = config.copy()
             pattern_config["velocity_field"] = vel_field
-            pattern_config["vmin"] = config.get("pattern_vmin", -10.0)
-            pattern_config["vmax"] = config.get("pattern_vmax", 10.0)
+            # Use pattern_vmin/vmax if provided, otherwise None to compute from data
+            pattern_config["vmin"] = config.get("pattern_vmin")
+            pattern_config["vmax"] = config.get("pattern_vmax")
             pattern_config["colormap"] = config.get("pattern_colormap", "seismic")
             pattern_config["symmetric_colorbar"] = config.get("pattern_symmetric_colorbar", True)
+            # Don't force equal magnitude for patterns - allow asymmetric range centered at zero
+            pattern_config["force_equal_magnitude"] = False
 
             # Prepare checkerboard pattern for recovery analysis
             checkerboard_pattern_3d = None
