@@ -212,16 +212,6 @@ visualization:
   # If not specified, defaults to ${general.output_dir}/visualizations
   output_dir: null  # e.g., "/path/to/custom/visualization/directory"
 
-  # Which models to visualize
-  visualize_input: true          # Original velocity model
-  visualize_checkerboard: true   # Checkerboard perturbed model
-  visualize_inverted: true       # Inverted model from LATTE
-  visualize_difference: true     # Difference (inverted - checkerboard)
-
-  # Visualize only checkerboard pattern (subtract initial model)
-  visualize_checkerboard_pattern: true   # Pattern only (checkerboard - input)
-  visualize_inverted_pattern: true       # Pattern recovered (inverted - input)
-
   # Slice planes to plot
   planes:
     - "xy"  # Depth slices
@@ -253,30 +243,7 @@ visualization:
     xz: 20  # Y slice spacing
     yz: 20  # X slice spacing
 
-  # Color scale settings
-  colormap: "seismic"  # Matplotlib colormap
-
-  # For input/checkerboard/inverted models
-  vmin: null  # Auto-scale if null
-  vmax: null  # Auto-scale if null
-
-  # For difference plots (inverted - checkerboard)
-  diff_vmin: -0.5  # km/s
-  diff_vmax: 0.5   # km/s
-  symmetric_colorbar: true  # Force symmetric colorbar for differences
-
-  # For pattern plots (model - input) - shown as percentage perturbation
-  pattern_vmin: -10.0  # percentage (%)
-  pattern_vmax: 10.0   # percentage (%)
-  pattern_colormap: "seismic"  # Colormap for pattern plots
-  pattern_symmetric_colorbar: true  # Force symmetric colorbar for patterns
-
-  use_uniform_colorbar: false  # Use same vmin/vmax across all slices of same model/field (from entire 3D volume)
-  amplitude_threshold_viz: null  # Mark regions with |perturbation| > threshold as black (%, e.g., 7.0), null to disable
-  show_recovery_contours: false  # Show boundaries of fairly recovered regions (inverted_pattern only)
-  recovery_threshold_pct: 3.0  # Fair recovery: same sign AND |inverted| >= threshold (%)
-
-  # Figure settings
+  # Figure settings (shared across all visualizations)
   figure:
     dpi: 150
     figsize: [10, 8]
@@ -285,7 +252,7 @@ visualization:
     recovery_contour_linestyle: "-"  # Line style: "-", "--", "-.", ":"
     recovery_contour_linewidth: 2  # Line width in points
 
-  # Annotation settings
+  # Annotation settings (shared)
   show_colorbar: true
   show_grid: true
   show_title: true
@@ -294,9 +261,67 @@ visualization:
     labels: 12
     colorbar: 10
 
+  # ============================================
+  # Per-visualization configuration
+  # ============================================
+  # Each visualization type has its own settings.
+  # Colorbar behavior:
+  #   - Model plots (input/checkerboard/inverted): Always autoscale, no centering
+  #   - Difference plots: centered_at_zero centers cbar at 0 (asymmetric range OK)
+  #   - Pattern plots: centered_at_zero + optional threshold with black regions
+  #
+  # uniform_cbar: true = global min/max across all slices, false = local per slice
+  # threshold: Scale cmap to +/-threshold, values beyond shown as black
+
+  # Original velocity model visualization
+  visualize_input:
+    enabled: false
+    colormap: "seismic"
+    # No centering, no threshold - simple autoscale
+
+  # Checkerboard perturbed model visualization
+  visualize_checkerboard:
+    enabled: false
+    colormap: "seismic"
+    # No centering, no threshold - simple autoscale
+
+  # Inverted model from LATTE visualization
+  visualize_inverted:
+    enabled: false
+    colormap: "seismic"
+    # No centering, no threshold - simple autoscale
+
+  # Difference plot (inverted - checkerboard)
+  visualize_difference:
+    enabled: false
+    colormap: "seismic"
+    centered_at_zero: true    # Center colorbar at 0 (asymmetric range OK)
+    uniform_cbar: false       # true: global min/max, false: local per slice
+    # NO threshold support for difference plots
+
+  # Checkerboard pattern only (checkerboard - input) as percentage perturbation
+  visualize_checkerboard_pattern:
+    enabled: false
+    colormap: "seismic"
+    centered_at_zero: true    # Center colorbar at 0
+    uniform_cbar: false       # true: global, false: local
+    threshold: null           # e.g., 7.0 for +/-7% threshold with black regions
+    show_recovery_contours: false  # Not applicable for checkerboard pattern
+    recovery_threshold_pct: 3.0
+
+  # Inverted pattern (inverted - input) as percentage perturbation
+  visualize_inverted_pattern:
+    enabled: false
+    colormap: "seismic"
+    centered_at_zero: true    # Center colorbar at 0
+    uniform_cbar: false       # true: global, false: local
+    threshold: null           # e.g., 7.0 for +/-7% threshold with black regions
+    show_recovery_contours: false  # Show boundaries of fairly recovered regions
+    recovery_threshold_pct: 3.0    # Fair recovery: same sign AND |inverted| >= threshold (%)
+
 # Workflow control - which steps to execute
 workflow:
-  step1_create_checkerboard: true
-  step2_add_noise: true
-  step3_convert_inverted: true
-  step4_visualize: true
+  step1_create_checkerboard: false
+  step2_add_noise: false
+  step3_convert_inverted: false
+  step4_visualize: false

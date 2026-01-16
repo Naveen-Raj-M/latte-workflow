@@ -9,6 +9,9 @@ Components:
 - add_traveltime_noise: Add noise to synthetic traveltimes
 - convert_inverted_model: Convert inverted binary models to CSV
 - visualize_slices: Visualize velocity model slices
+- visualize_model: Visualize input/checkerboard/inverted models
+- visualize_difference: Visualize difference plots
+- visualize_pattern: Visualize pattern plots with threshold support
 - main: Main workflow orchestrator
 
 Usage:
@@ -43,12 +46,27 @@ from .convert_inverted_model import (
     expand_to_fine_grid,
 )
 
-from .visualize_slices import (
-    visualize_checkerboard_test,
-    visualize_model,
-    plot_xy_slice,
-    plot_xz_slice,
-    plot_yz_slice,
+from .visualize_slices import visualize_checkerboard_test
+
+from .visualize_model import (
+    visualize_velocity_model,
+    plot_model_xy_slice,
+    plot_model_xz_slice,
+    plot_model_yz_slice,
+)
+
+from .visualize_difference import (
+    visualize_difference,
+    plot_difference_xy_slice,
+    plot_difference_xz_slice,
+    plot_difference_yz_slice,
+)
+
+from .visualize_pattern import (
+    visualize_pattern,
+    plot_pattern_xy_slice,
+    plot_pattern_xz_slice,
+    plot_pattern_yz_slice,
 )
 
 __all__ = [
@@ -69,9 +87,19 @@ __all__ = [
     "load_velocity_binary",
     "sample_at_coarse_points",
     "expand_to_fine_grid",
-    # Visualization utilities
-    "visualize_model",
-    "plot_xy_slice",
-    "plot_xz_slice",
-    "plot_yz_slice",
+    # Model visualization
+    "visualize_velocity_model",
+    "plot_model_xy_slice",
+    "plot_model_xz_slice",
+    "plot_model_yz_slice",
+    # Difference visualization
+    "visualize_difference",
+    "plot_difference_xy_slice",
+    "plot_difference_xz_slice",
+    "plot_difference_yz_slice",
+    # Pattern visualization
+    "visualize_pattern",
+    "plot_pattern_xy_slice",
+    "plot_pattern_xz_slice",
+    "plot_pattern_yz_slice",
 ]
