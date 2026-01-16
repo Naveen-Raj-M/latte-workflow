@@ -74,7 +74,6 @@ def plot_model_xy_slice(
     if config.get("show_grid", True):
         ax.grid(True, alpha=0.3)
 
-    ax.set_aspect('equal', adjustable='box')
     plt.tight_layout()
     plt.savefig(output_path, format=config["figure"]["format"], dpi=config["figure"]["dpi"])
     plt.close()
@@ -135,7 +134,6 @@ def plot_model_xz_slice(
     if config.get("show_grid", True):
         ax.grid(True, alpha=0.3)
 
-    ax.set_aspect('equal', adjustable='box')
     plt.tight_layout()
     plt.savefig(output_path, format=config["figure"]["format"], dpi=config["figure"]["dpi"])
     plt.close()
@@ -196,7 +194,6 @@ def plot_model_yz_slice(
     if config.get("show_grid", True):
         ax.grid(True, alpha=0.3)
 
-    ax.set_aspect('equal', adjustable='box')
     plt.tight_layout()
     plt.savefig(output_path, format=config["figure"]["format"], dpi=config["figure"]["dpi"])
     plt.close()
