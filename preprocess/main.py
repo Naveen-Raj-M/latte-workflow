@@ -508,7 +508,7 @@ def validate_preprocessing_config(cfg: DictConfig) -> None:
                 "mutually exclusive. Set only one to true."
             )
 
-        # Validate azimuthal bin size if azimuthal weighting is enabled
+        # Validate azimuthal weighting settings if enabled
         if apply_azimuthal_weighting:
             bin_size = cfg.geometry_traveltime.get('azimuthal_bin_size_deg', 30)
             if bin_size <= 0 or bin_size > 360:
@@ -524,6 +524,21 @@ def validate_preprocessing_config(cfg: DictConfig) -> None:
                 logger.warning(
                     f"azimuthal_bin_size_deg ({bin_size}) does not evenly "
                     f"divide 360. This may result in uneven bin coverage."
+                )
+
+            # Validate weight formula
+            weight_formula = cfg.geometry_traveltime.get(
+                'azimuthal_weight_formula', 'inverse_sqrt'
+            )
+            valid_formulas = ['inverse_sqrt', 'inverse']
+            if weight_formula not in valid_formulas:
+                logger.error(
+                    f"Invalid azimuthal_weight_formula: '{weight_formula}'. "
+                    f"Must be one of: {valid_formulas}"
+                )
+                raise ValueError(
+                    f"Invalid azimuthal_weight_formula: '{weight_formula}'. "
+                    f"Must be one of: {valid_formulas}"
                 )
 
     # Validate phase_type in velocity model

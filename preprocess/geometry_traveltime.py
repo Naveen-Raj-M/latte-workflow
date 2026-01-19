@@ -57,17 +57,22 @@ def compute_back_azimuth(station_x: float, station_y: float,
 
 def compute_azimuthal_weights(picks_with_coords: list,
                                event_coords: tuple,
-                               bin_size_deg: float = 30.0) -> dict:
+                               bin_size_deg: float = 30.0,
+                               weight_formula: str = 'inverse_sqrt') -> dict:
     """Compute azimuthal weights for picks based on back-azimuth distribution.
 
-    For each azimuthal bin, weight = 1/sqrt(N) where N is the number of picks
-    in that bin. This down-weights picks in densely sampled azimuths while
-    up-weighting picks in sparsely sampled directions.
+    For each azimuthal bin, computes weight based on the number of picks N:
+    - 'inverse_sqrt': weight = 1/sqrt(N)
+    - 'inverse': weight = 1/N
+
+    This down-weights picks in densely sampled azimuths while up-weighting
+    picks in sparsely sampled directions.
 
     Args:
         picks_with_coords: List of tuples (station_id, station_x, station_y, ...).
         event_coords: Tuple of (event_x, event_y, event_z) in meters.
         bin_size_deg: Size of azimuthal bins in degrees.
+        weight_formula: Formula for computing weights ('inverse_sqrt' or 'inverse').
 
     Returns:
         Dictionary mapping station_id to computed azimuthal weight.
@@ -95,17 +100,23 @@ def compute_azimuthal_weights(picks_with_coords: list,
         bin_counts[bin_idx] += 1
         station_bins[station_id] = bin_idx
 
-    # Compute weights: 1/sqrt(N) for each bin
+    # Compute weights based on selected formula
     station_weights = {}
     for station_id, bin_idx in station_bins.items():
         n = bin_counts[bin_idx]
-        weight = 1.0 / np.sqrt(n) if n > 0 else 1.0
+        if n > 0:
+            if weight_formula == 'inverse':
+                weight = 1.0 / n
+            else:  # 'inverse_sqrt' (default)
+                weight = 1.0 / np.sqrt(n)
+        else:
+            weight = 1.0
         station_weights[station_id] = weight
 
     logger.debug(
         f"Azimuthal weighting: {len(picks_with_coords)} picks in "
         f"{len([c for c in bin_counts.values() if c > 0])} bins "
-        f"(bin_size={bin_size_deg}°)"
+        f"(bin_size={bin_size_deg}°, formula={weight_formula})"
     )
 
     return station_weights
@@ -290,6 +301,7 @@ def _process_single_event(event_id, event_picks, event_lookup, station_lookup,
     # This is done after collecting all picks to compute bin-based weights
     if geom_config.get('apply_azimuthal_weighting', False):
         bin_size = geom_config.get('azimuthal_bin_size_deg', 30.0)
+        weight_formula = geom_config.get('azimuthal_weight_formula', 'inverse_sqrt')
         event_coords = event_data['coords']
 
         if event_coords is not None:
@@ -307,7 +319,7 @@ def _process_single_event(event_id, event_picks, event_lookup, station_lookup,
             if all_picks_coords:
                 # Compute azimuthal weights
                 azimuthal_weights = compute_azimuthal_weights(
-                    all_picks_coords, event_coords, bin_size
+                    all_picks_coords, event_coords, bin_size, weight_formula
                 )
 
                 # Apply weights to P picks
@@ -877,7 +889,9 @@ def create_geometry_and_traveltime_files(config: DictConfig,
         logger.info(f"Weighting method: default weights (weight={default_weight})")
     elif apply_azimuthal_weighting:
         bin_size = geom_config.get('azimuthal_bin_size_deg', 30)
-        logger.info(f"Weighting method: azimuthal weighting (bin_size={bin_size}°, weight=1/sqrt(N))")
+        weight_formula = geom_config.get('azimuthal_weight_formula', 'inverse_sqrt')
+        formula_display = "1/sqrt(N)" if weight_formula == 'inverse_sqrt' else "1/N"
+        logger.info(f"Weighting method: azimuthal weighting (bin_size={bin_size}°, weight={formula_display})")
     else:
         logger.info("Weighting method: original pick weights")
 
