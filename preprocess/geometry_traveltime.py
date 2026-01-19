@@ -16,11 +16,99 @@ from omegaconf import DictConfig
 from joblib import Parallel, delayed
 from tqdm import tqdm
 
+from collections import defaultdict
+
 from utils.io_utils import ensure_directory_exists
 from utils.origin_time_utils import (
     get_origin_time_for_event,
     save_origin_time_metadata
 )
+
+
+def compute_back_azimuth(station_x: float, station_y: float,
+                          event_x: float, event_y: float) -> float:
+    """Compute back azimuth from station to event (source).
+
+    Back azimuth is the direction from the station looking towards the event,
+    measured clockwise from North (positive Y direction in Cartesian coords).
+
+    Args:
+        station_x: Station X coordinate (meters).
+        station_y: Station Y coordinate (meters).
+        event_x: Event X coordinate (meters).
+        event_y: Event Y coordinate (meters).
+
+    Returns:
+        Back azimuth in degrees (0-360), where 0=North, 90=East, etc.
+    """
+    dx = event_x - station_x
+    dy = event_y - station_y
+
+    # atan2(dx, dy) gives angle from positive Y axis (North), clockwise
+    azimuth_rad = np.arctan2(dx, dy)
+    azimuth_deg = np.degrees(azimuth_rad)
+
+    # Normalize to 0-360 range
+    if azimuth_deg < 0:
+        azimuth_deg += 360.0
+
+    return azimuth_deg
+
+
+def compute_azimuthal_weights(picks_with_coords: list,
+                               event_coords: tuple,
+                               bin_size_deg: float = 30.0) -> dict:
+    """Compute azimuthal weights for picks based on back-azimuth distribution.
+
+    For each azimuthal bin, weight = 1/sqrt(N) where N is the number of picks
+    in that bin. This down-weights picks in densely sampled azimuths while
+    up-weighting picks in sparsely sampled directions.
+
+    Args:
+        picks_with_coords: List of tuples (station_id, station_x, station_y, ...).
+        event_coords: Tuple of (event_x, event_y, event_z) in meters.
+        bin_size_deg: Size of azimuthal bins in degrees.
+
+    Returns:
+        Dictionary mapping station_id to computed azimuthal weight.
+    """
+    logger = logging.getLogger(__name__)
+
+    event_x, event_y, _ = event_coords
+
+    # Compute back azimuth for each pick
+    station_azimuths = {}
+    for item in picks_with_coords:
+        station_id = item[0]
+        station_x = item[1]
+        station_y = item[2]
+        azimuth = compute_back_azimuth(station_x, station_y, event_x, event_y)
+        station_azimuths[station_id] = azimuth
+
+    # Bin the azimuths
+    num_bins = int(np.ceil(360.0 / bin_size_deg))
+    bin_counts = defaultdict(int)
+    station_bins = {}
+
+    for station_id, azimuth in station_azimuths.items():
+        bin_idx = int(azimuth / bin_size_deg) % num_bins
+        bin_counts[bin_idx] += 1
+        station_bins[station_id] = bin_idx
+
+    # Compute weights: 1/sqrt(N) for each bin
+    station_weights = {}
+    for station_id, bin_idx in station_bins.items():
+        n = bin_counts[bin_idx]
+        weight = 1.0 / np.sqrt(n) if n > 0 else 1.0
+        station_weights[station_id] = weight
+
+    logger.debug(
+        f"Azimuthal weighting: {len(picks_with_coords)} picks in "
+        f"{len([c for c in bin_counts.values() if c > 0])} bins "
+        f"(bin_size={bin_size_deg}°)"
+    )
+
+    return station_weights
 
 
 def call_get_origin_time_from_datetime(
@@ -171,7 +259,8 @@ def _process_single_event(event_id, event_picks, event_lookup, station_lookup,
             # Calculate observed travel time (physical + configured origin time)
             observed_travel_time = physical_travel_time + configured_origin_time
 
-            # Get weight (use default if configured)
+            # Get initial weight (use default if configured, otherwise pick weight)
+            # Azimuthal weighting is applied as a post-processing step
             if geom_config.get('apply_default_weights', False):
                 weight = geom_config.get('default_weight', 1.0)
             else:
@@ -196,6 +285,42 @@ def _process_single_event(event_id, event_picks, event_lookup, station_lookup,
         except Exception as e:
             logger.warning(f"Could not parse pick time: {e}")
             continue
+
+    # Apply azimuthal weighting if enabled
+    # This is done after collecting all picks to compute bin-based weights
+    if geom_config.get('apply_azimuthal_weighting', False):
+        bin_size = geom_config.get('azimuthal_bin_size_deg', 30.0)
+        event_coords = event_data['coords']
+
+        if event_coords is not None:
+            # Collect all station coordinates for P and S picks
+            all_picks_coords = []
+            for station_id, pick_info in event_data['p_picks'].items():
+                sx, sy, sz = pick_info['coords']
+                all_picks_coords.append((station_id, sx, sy, sz))
+            for station_id, pick_info in event_data['s_picks'].items():
+                # Avoid duplicates if same station has both P and S
+                if station_id not in [p[0] for p in all_picks_coords]:
+                    sx, sy, sz = pick_info['coords']
+                    all_picks_coords.append((station_id, sx, sy, sz))
+
+            if all_picks_coords:
+                # Compute azimuthal weights
+                azimuthal_weights = compute_azimuthal_weights(
+                    all_picks_coords, event_coords, bin_size
+                )
+
+                # Apply weights to P picks
+                for station_id in event_data['p_picks']:
+                    if station_id in azimuthal_weights:
+                        event_data['p_picks'][station_id]['weight'] = \
+                            azimuthal_weights[station_id]
+
+                # Apply weights to S picks
+                for station_id in event_data['s_picks']:
+                    if station_id in azimuthal_weights:
+                        event_data['s_picks'][station_id]['weight'] = \
+                            azimuthal_weights[station_id]
 
     return (event_id, event_data, unrealistic_velocity_count)
 
@@ -743,6 +868,18 @@ def create_geometry_and_traveltime_files(config: DictConfig,
     logger.info("=" * 60)
     logger.info(f"Phase type: {phase_type}")
     logger.info(f"Number of sources (filtered events): {num_sources}")
+
+    # Log weighting method
+    apply_default_weights = geom_config.get('apply_default_weights', False)
+    apply_azimuthal_weighting = geom_config.get('apply_azimuthal_weighting', False)
+    if apply_default_weights:
+        default_weight = geom_config.get('default_weight', 1.0)
+        logger.info(f"Weighting method: default weights (weight={default_weight})")
+    elif apply_azimuthal_weighting:
+        bin_size = geom_config.get('azimuthal_bin_size_deg', 30)
+        logger.info(f"Weighting method: azimuthal weighting (bin_size={bin_size}°, weight=1/sqrt(N))")
+    else:
+        logger.info("Weighting method: original pick weights")
 
     if phase_type == 'both':
         total_pairs = sum(len(data['p_picks']) for data in event_data.values())

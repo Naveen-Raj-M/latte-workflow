@@ -490,6 +490,42 @@ def validate_preprocessing_config(cfg: DictConfig) -> None:
                         f"{phase_type}. Must be 'both', 'p', or 's'")
             raise ValueError(f"Invalid phase_type: {phase_type}")
 
+        # Validate mutual exclusivity of weight settings
+        apply_default_weights = cfg.geometry_traveltime.get(
+            'apply_default_weights', False
+        )
+        apply_azimuthal_weighting = cfg.geometry_traveltime.get(
+            'apply_azimuthal_weighting', False
+        )
+        if apply_default_weights and apply_azimuthal_weighting:
+            logger.error(
+                "Configuration error: 'apply_default_weights' and "
+                "'apply_azimuthal_weighting' cannot both be set to true. "
+                "Please enable only one weighting method."
+            )
+            raise ValueError(
+                "apply_default_weights and apply_azimuthal_weighting are "
+                "mutually exclusive. Set only one to true."
+            )
+
+        # Validate azimuthal bin size if azimuthal weighting is enabled
+        if apply_azimuthal_weighting:
+            bin_size = cfg.geometry_traveltime.get('azimuthal_bin_size_deg', 30)
+            if bin_size <= 0 or bin_size > 360:
+                logger.error(
+                    f"Invalid azimuthal_bin_size_deg: {bin_size}. "
+                    f"Must be > 0 and <= 360."
+                )
+                raise ValueError(
+                    f"Invalid azimuthal_bin_size_deg: {bin_size}. "
+                    f"Must be > 0 and <= 360."
+                )
+            if 360 % bin_size != 0:
+                logger.warning(
+                    f"azimuthal_bin_size_deg ({bin_size}) does not evenly "
+                    f"divide 360. This may result in uneven bin coverage."
+                )
+
     # Validate phase_type in velocity model
     if cfg.initial_velocity_model.enabled:
         phase_type = cfg.initial_velocity_model.get('phase_type', 'both')

@@ -97,6 +97,11 @@ geometry_traveltime:
   # Phase and weight settings
   apply_default_weights: false
   default_weight: 1.0
+  # Azimuthal weighting: compute weights based on back-azimuth distribution
+  # Weight = 1/sqrt(N) where N is the number of picks in each azimuthal bin
+  # NOTE: apply_default_weights and apply_azimuthal_weighting are mutually exclusive
+  apply_azimuthal_weighting: false
+  azimuthal_bin_size_deg: 30  # Bin size in degrees (e.g., 30 creates 12 bins)
   phase_type: "both"  # Options: both, p, s
   # Velocity range filters (m/s)
   p_velocity_range_m_s: [500, 10000]
