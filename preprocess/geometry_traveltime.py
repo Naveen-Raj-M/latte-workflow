@@ -986,10 +986,82 @@ def write_travel_time_csv(events: Dict, config: DictConfig) -> None:
         logger.warning("No travel time data to write to CSV")
 
 
+def convert_final_events_to_dataframes(final_events: Dict,
+                                        events_df: pd.DataFrame,
+                                        stations_df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Convert final_events dictionary to filtered DataFrames.
+
+    This function extracts the filtered events, stations, and picks from the
+    final_events dictionary (after all geometry filtering) and returns them
+    as DataFrames suitable for visualization.
+
+    Args:
+        final_events: Dictionary of filtered events from parse_picks_with_cartesian.
+        events_df: Original events DataFrame (for metadata lookup).
+        stations_df: Original stations DataFrame (for metadata lookup).
+
+    Returns:
+        Tuple of (filtered_events_df, filtered_stations_df, filtered_picks_df)
+    """
+    logger = logging.getLogger(__name__)
+
+    if not final_events:
+        logger.warning("No final events to convert")
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+
+    # Collect all unique event IDs and station IDs from final_events
+    final_event_ids = set(final_events.keys())
+    final_station_ids = set()
+
+    # Build picks data
+    picks_data = []
+
+    for event_id, event_data in final_events.items():
+        # Collect station IDs from P picks
+        for pick in event_data.get('p_picks', []):
+            station_id = pick['station']
+            final_station_ids.add(station_id)
+            picks_data.append({
+                'event_id': event_id,
+                'station_id': station_id,
+                'phase_hint': 'P',
+                'physical_travel_time': pick['physical_travel_time'],
+                'weight': pick['weight']
+            })
+
+        # Collect station IDs from S picks
+        for pick in event_data.get('s_picks', []):
+            station_id = pick['station']
+            final_station_ids.add(station_id)
+            picks_data.append({
+                'event_id': event_id,
+                'station_id': station_id,
+                'phase_hint': 'S',
+                'physical_travel_time': pick['physical_travel_time'],
+                'weight': pick['weight']
+            })
+
+    # Filter events DataFrame to only include events in final_events
+    filtered_events_df = events_df[events_df['event_id'].isin(final_event_ids)].copy()
+
+    # Filter stations DataFrame to only include stations used in final picks
+    filtered_stations_df = stations_df[stations_df['station_id'].isin(final_station_ids)].copy()
+
+    # Create picks DataFrame
+    filtered_picks_df = pd.DataFrame(picks_data)
+
+    logger.info(f"Converted final_events to DataFrames:")
+    logger.info(f"  Filtered events: {len(filtered_events_df)}")
+    logger.info(f"  Filtered stations: {len(filtered_stations_df)}")
+    logger.info(f"  Filtered picks: {len(filtered_picks_df)}")
+
+    return filtered_events_df, filtered_stations_df, filtered_picks_df
+
+
 def create_geometry_and_traveltime_files(config: DictConfig,
                                         events_df: pd.DataFrame,
                                         stations_df: pd.DataFrame,
-                                        picks_df: pd.DataFrame) -> None:
+                                        picks_df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Create geometry and travel time files from Cartesian coordinates.
 
     Args:
@@ -997,6 +1069,10 @@ def create_geometry_and_traveltime_files(config: DictConfig,
         events_df: DataFrame with event Cartesian coordinates.
         stations_df: DataFrame with station Cartesian coordinates.
         picks_df: DataFrame with pick data.
+
+    Returns:
+        Tuple of (filtered_events_df, filtered_stations_df, filtered_picks_df)
+        containing only the data that passed all filtering and was written to output files.
     """
     logger = logging.getLogger(__name__)
     geom_config = config.geometry_traveltime
@@ -1004,7 +1080,7 @@ def create_geometry_and_traveltime_files(config: DictConfig,
 
     if not geom_config.enabled:
         logger.info("Geometry/traveltime generation disabled")
-        return
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
     logger.info("--- Starting Geometry and Travel Time File Generation ---")
 
@@ -1023,7 +1099,7 @@ def create_geometry_and_traveltime_files(config: DictConfig,
 
     if len(event_data) == 0:
         logger.warning("No valid events found after filtering. No files were written.")
-        return
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
     # Write source binary files
     write_source_binary_files(event_data, config, origin_time_config)
@@ -1085,3 +1161,10 @@ def create_geometry_and_traveltime_files(config: DictConfig,
     logger.info("=" * 60)
     logger.info("Geometry and traveltime generation completed successfully")
     logger.info("=" * 60)
+
+    # Convert final_events to DataFrames for visualization
+    filtered_events_df, filtered_stations_df, filtered_picks_df = convert_final_events_to_dataframes(
+        event_data, events_df, stations_df
+    )
+
+    return filtered_events_df, filtered_stations_df, filtered_picks_df

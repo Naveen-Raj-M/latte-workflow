@@ -100,7 +100,9 @@ def run_coordinate_transform(cfg: DictConfig, events_df, stations_df, picks_df):
 
 
 def run_geometry_traveltime(cfg: DictConfig, events_cart, stations_cart,
-                            picks_df) -> None:
+                            picks_df) -> Tuple[Optional[pd.DataFrame],
+                                               Optional[pd.DataFrame],
+                                               Optional[pd.DataFrame]]:
     """Create geometry and travel time files.
 
     Args:
@@ -108,16 +110,21 @@ def run_geometry_traveltime(cfg: DictConfig, events_cart, stations_cart,
         events_cart: DataFrame with events in Cartesian coordinates.
         stations_cart: DataFrame with stations in Cartesian coordinates.
         picks_df: DataFrame with picks.
+
+    Returns:
+        Tuple of (filtered_events_df, filtered_stations_df, filtered_picks_df)
+        containing only the data that passed all filtering. Returns (None, None, None)
+        if geometry_traveltime is disabled.
     """
     if not cfg.geometry_traveltime.enabled:
-        return
+        return None, None, None
 
     print("\n" + "="*60)
     print("CREATING GEOMETRY AND TRAVEL TIME FILES")
     print("="*60)
 
     with ProcessTimer("Geometry and Travel Time Processing"):
-        create_geometry_and_traveltime_files(
+        filtered_events, filtered_stations, filtered_picks = create_geometry_and_traveltime_files(
             cfg, events_cart, stations_cart, picks_df
         )
 
@@ -128,6 +135,8 @@ def run_geometry_traveltime(cfg: DictConfig, events_cart, stations_cart,
         if cfg.geometry_traveltime.generate_source_binaries:
             print(f"Source binary files created in: "
                   f"{cfg.geometry_traveltime.source_dir}")
+
+    return filtered_events, filtered_stations, filtered_picks
 
 
 def run_velocity_model(cfg: DictConfig, events_cart, stations_cart) -> None:
@@ -167,6 +176,11 @@ def load_existing_data_for_visualization(cfg: DictConfig) -> Tuple[Optional[pd.D
     This function attempts to load previously saved data files to enable
     visualization without running the entire preprocessing pipeline.
 
+    IMPORTANT: This function prefers FILTERED data files if they exist.
+    Filtered data only includes picks that passed all geometry processing
+    filters (velocity validation, P&S pair requirements, etc.) and were
+    written to the output geometry/traveltime files.
+
     Args:
         cfg: Configuration settings.
 
@@ -176,11 +190,19 @@ def load_existing_data_for_visualization(cfg: DictConfig) -> Tuple[Optional[pd.D
     """
     logger = logging.getLogger(__name__)
 
-    # Try to load geodetic coordinates (for station/event vis)
+    # Define paths - prefer filtered data if available
+    # Filtered geodetic coordinates
+    events_geo_filtered_path = Path(cfg.data.output_base_dir) / "events_geodetic_filtered.csv"
+    stations_geo_filtered_path = Path(cfg.data.output_base_dir) / "stations_geodetic_filtered.csv"
+    # Original geodetic coordinates (fallback)
     events_geo_path = Path(cfg.data.output_base_dir) / "events_geodetic.csv"
     stations_geo_path = Path(cfg.data.output_base_dir) / "stations_geodetic.csv"
 
-    # Try to load Cartesian coordinates (for ray density)
+    # Filtered Cartesian coordinates
+    events_cart_filtered_path = Path(cfg.coordinate_transform.output_dir) / "events_cartesian_filtered.csv"
+    stations_cart_filtered_path = Path(cfg.coordinate_transform.output_dir) / "stations_cartesian_filtered.csv"
+    picks_filtered_path = Path(cfg.coordinate_transform.output_dir) / "picks_filtered.csv"
+    # Original Cartesian coordinates (fallback)
     events_cart_path = Path(cfg.coordinate_transform.output_dir) / "events_cartesian.csv"
     stations_cart_path = Path(cfg.coordinate_transform.output_dir) / "stations_cartesian.csv"
     picks_path = Path(cfg.coordinate_transform.output_dir) / "picks_cartesian.csv"
@@ -191,32 +213,67 @@ def load_existing_data_for_visualization(cfg: DictConfig) -> Tuple[Optional[pd.D
     stations_cart = None
     picks_df = None
 
-    # Load geodetic if available
-    if events_geo_path.exists() and stations_geo_path.exists():
+    # Load geodetic - prefer filtered data
+    if events_geo_filtered_path.exists() and stations_geo_filtered_path.exists():
+        try:
+            events_df = pd.read_csv(events_geo_filtered_path)
+            stations_df = pd.read_csv(stations_geo_filtered_path)
+            logger.info(f"Loaded FILTERED geodetic data: {len(events_df)} events, {len(stations_df)} stations")
+        except Exception as e:
+            logger.warning(f"Failed to load filtered geodetic CSVs: {e}")
+            events_df = None
+            stations_df = None
+
+    # Fallback to original geodetic if filtered not available
+    if events_df is None and events_geo_path.exists() and stations_geo_path.exists():
         try:
             events_df = pd.read_csv(events_geo_path)
             stations_df = pd.read_csv(stations_geo_path)
-            logger.info(f"Loaded {len(events_df)} events and {len(stations_df)} stations from geodetic CSVs")
+            logger.info(f"Loaded original geodetic data: {len(events_df)} events, {len(stations_df)} stations")
+            logger.warning("Using UNFILTERED geodetic data - visualization may show more data than output files")
         except Exception as e:
             logger.warning(f"Failed to load geodetic CSVs: {e}")
             events_df = None
             stations_df = None
 
-    # Load Cartesian if available
-    if events_cart_path.exists() and stations_cart_path.exists():
+    # Load Cartesian - prefer filtered data
+    if events_cart_filtered_path.exists() and stations_cart_filtered_path.exists():
+        try:
+            events_cart = pd.read_csv(events_cart_filtered_path)
+            stations_cart = pd.read_csv(stations_cart_filtered_path)
+            logger.info(f"Loaded FILTERED Cartesian data: {len(events_cart)} events, {len(stations_cart)} stations")
+        except Exception as e:
+            logger.warning(f"Failed to load filtered Cartesian CSVs: {e}")
+            events_cart = None
+            stations_cart = None
+
+    # Fallback to original Cartesian if filtered not available
+    if events_cart is None and events_cart_path.exists() and stations_cart_path.exists():
         try:
             events_cart = pd.read_csv(events_cart_path)
             stations_cart = pd.read_csv(stations_cart_path)
-            logger.info(f"Loaded {len(events_cart)} events and {len(stations_cart)} stations from Cartesian CSVs")
+            logger.info(f"Loaded original Cartesian data: {len(events_cart)} events, {len(stations_cart)} stations")
+            logger.warning("Using UNFILTERED Cartesian data - visualization may show more data than output files")
         except Exception as e:
             logger.warning(f"Failed to load Cartesian CSVs: {e}")
             events_cart = None
             stations_cart = None
 
-    if picks_path.exists():
+    # Load picks - prefer filtered data
+    if picks_filtered_path.exists():
+        try:
+            picks_df = pd.read_csv(picks_filtered_path)
+            logger.info(f"Loaded FILTERED picks: {len(picks_df)} picks")
+        except Exception as e:
+            logger.warning(f"Failed to load filtered picks CSV: {e}")
+            picks_df = None
+
+    # Fallback to original picks if filtered not available
+    if picks_df is None and picks_path.exists():
         try:
             picks_df = pd.read_csv(picks_path)
-            logger.info(f"Loaded {len(picks_df)} picks from CSV")
+            logger.info(f"Loaded original picks: {len(picks_df)} picks")
+            logger.warning("Using UNFILTERED picks - visualization may show more data than output files")
         except Exception as e:
             logger.warning(f"Failed to load picks CSV: {e}")
             picks_df = None
@@ -435,14 +492,68 @@ def run_preprocessing_pipeline(config: DictConfig) -> None:
         )
 
         # Step 3: Geometry and travel time files
-        run_geometry_traveltime(config, events_cart, stations_cart, picks_df)
+        filtered_events_cart, filtered_stations_cart, filtered_picks = run_geometry_traveltime(
+            config, events_cart, stations_cart, picks_df
+        )
 
         # Step 4: Velocity model and binaries
         run_velocity_model(config, events_cart, stations_cart)
 
+        # Save filtered data to CSV for standalone visualization runs
+        if filtered_events_cart is not None and len(filtered_events_cart) > 0:
+            output_dir = Path(config.coordinate_transform.output_dir)
+            ensure_directory_exists(output_dir)
+
+            # Save filtered Cartesian data
+            filtered_events_cart.to_csv(output_dir / 'events_cartesian_filtered.csv', index=False)
+            filtered_stations_cart.to_csv(output_dir / 'stations_cartesian_filtered.csv', index=False)
+            filtered_picks.to_csv(output_dir / 'picks_filtered.csv', index=False)
+
+            # Also save filtered geodetic data
+            filtered_event_ids = set(filtered_events_cart['event_id'].unique())
+            filtered_station_ids = set(filtered_stations_cart['station_id'].unique())
+            events_df_filtered = events_df[events_df['event_id'].isin(filtered_event_ids)]
+            stations_df_filtered = stations_df[stations_df['station_id'].isin(filtered_station_ids)]
+
+            geo_output_dir = Path(config.data.output_base_dir)
+            ensure_directory_exists(geo_output_dir)
+            events_df_filtered.to_csv(geo_output_dir / 'events_geodetic_filtered.csv', index=False)
+            stations_df_filtered.to_csv(geo_output_dir / 'stations_geodetic_filtered.csv', index=False)
+
+            print(f"\nFiltered data saved:")
+            print(f"  {output_dir / 'events_cartesian_filtered.csv'}")
+            print(f"  {output_dir / 'stations_cartesian_filtered.csv'}")
+            print(f"  {output_dir / 'picks_filtered.csv'}")
+            print(f"  {geo_output_dir / 'events_geodetic_filtered.csv'}")
+            print(f"  {geo_output_dir / 'stations_geodetic_filtered.csv'}")
+
         # Step 5: Visualizations
-        run_visualization(config, events_df, stations_df, picks_df,
-                         events_cart, stations_cart)
+        # Use filtered data if available (from geometry processing), otherwise use original data
+        # This ensures visualizations show only the data that was written to output files
+        if filtered_events_cart is not None and len(filtered_events_cart) > 0:
+            # Filter geodetic events/stations to match filtered Cartesian data
+            filtered_event_ids = set(filtered_events_cart['event_id'].unique())
+            filtered_station_ids = set(filtered_stations_cart['station_id'].unique())
+            events_df_for_vis = events_df[events_df['event_id'].isin(filtered_event_ids)]
+            stations_df_for_vis = stations_df[stations_df['station_id'].isin(filtered_station_ids)]
+            picks_df_for_vis = filtered_picks
+            events_cart_for_vis = filtered_events_cart
+            stations_cart_for_vis = filtered_stations_cart
+
+            print(f"\nVisualization will use FILTERED data:")
+            print(f"  Events: {len(events_df_for_vis)} (filtered from {len(events_df)})")
+            print(f"  Stations: {len(stations_df_for_vis)} (filtered from {len(stations_df)})")
+            print(f"  Picks: {len(picks_df_for_vis)} (filtered from {len(picks_df)})")
+        else:
+            # Fallback to original data if geometry processing was disabled
+            events_df_for_vis = events_df
+            stations_df_for_vis = stations_df
+            picks_df_for_vis = picks_df
+            events_cart_for_vis = events_cart
+            stations_cart_for_vis = stations_cart
+
+        run_visualization(config, events_df_for_vis, stations_df_for_vis, picks_df_for_vis,
+                         events_cart_for_vis, stations_cart_for_vis)
 
         print("\n" + "="*60)
         print("PREPROCESSING PIPELINE COMPLETED SUCCESSFULLY")
