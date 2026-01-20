@@ -102,6 +102,10 @@ geometry_traveltime:
   apply_azimuthal_weighting: false
   azimuthal_bin_size_deg: 30  # Bin size in degrees (e.g., 30 creates 12 bins)
   azimuthal_weight_formula: "inverse_sqrt"  # Options: "inverse_sqrt" (1/sqrt(N)), "inverse" (1/N)
+  # Scale of azimuthal weighting:
+  # - "global": Weight based on pick counts per (station, bin) across ALL events (recommended)
+  # - "per_event": Weight based on station distribution within each event separately
+  azimuthal_weighting_scale: "global"
   phase_type: "both"  # Options: both, p, s
   # Velocity range filters (m/s)
   p_velocity_range_m_s: [500, 10000]

@@ -541,6 +541,21 @@ def validate_preprocessing_config(cfg: DictConfig) -> None:
                     f"Must be one of: {valid_formulas}"
                 )
 
+            # Validate weighting scale
+            weighting_scale = cfg.geometry_traveltime.get(
+                'azimuthal_weighting_scale', 'global'
+            )
+            valid_scales = ['global', 'per_event']
+            if weighting_scale not in valid_scales:
+                logger.error(
+                    f"Invalid azimuthal_weighting_scale: '{weighting_scale}'. "
+                    f"Must be one of: {valid_scales}"
+                )
+                raise ValueError(
+                    f"Invalid azimuthal_weighting_scale: '{weighting_scale}'. "
+                    f"Must be one of: {valid_scales}"
+                )
+
     # Validate phase_type in velocity model
     if cfg.initial_velocity_model.enabled:
         phase_type = cfg.initial_velocity_model.get('phase_type', 'both')

@@ -122,6 +122,153 @@ def compute_azimuthal_weights(picks_with_coords: list,
     return station_weights
 
 
+def compute_global_azimuthal_bin_counts(temp_events: dict,
+                                         event_lookup: dict,
+                                         bin_size_deg: float = 30.0) -> dict:
+    """Count picks per station per azimuthal bin across ALL events (global scale).
+
+    This function iterates through all events and counts how many picks each
+    station contributes to each back-azimuthal bin globally.
+
+    Args:
+        temp_events: Dictionary of processed events {event_id: event_data}.
+        event_lookup: Dictionary of event coordinates {event_id: {x, y, z, ...}}.
+        bin_size_deg: Size of azimuthal bins in degrees.
+
+    Returns:
+        Dictionary mapping (station_id, bin_idx) -> count of picks in that bin.
+    """
+    logger = logging.getLogger(__name__)
+    num_bins = int(np.ceil(360.0 / bin_size_deg))
+
+    # Count picks per (station, bin) across all events
+    # Key: (station_id, bin_idx), Value: count
+    global_bin_counts = defaultdict(int)
+
+    for event_id, event_data in temp_events.items():
+        if event_id not in event_lookup:
+            continue
+
+        event_coords = event_data.get('coords')
+        if event_coords is None:
+            continue
+
+        event_x, event_y, _ = event_coords
+
+        # Process P picks
+        for station_id, pick_info in event_data['p_picks'].items():
+            sx, sy, _ = pick_info['coords']
+            azimuth = compute_back_azimuth(sx, sy, event_x, event_y)
+            bin_idx = int(azimuth / bin_size_deg) % num_bins
+            global_bin_counts[(station_id, bin_idx)] += 1
+
+        # Process S picks
+        for station_id, pick_info in event_data['s_picks'].items():
+            sx, sy, _ = pick_info['coords']
+            azimuth = compute_back_azimuth(sx, sy, event_x, event_y)
+            bin_idx = int(azimuth / bin_size_deg) % num_bins
+            global_bin_counts[(station_id, bin_idx)] += 1
+
+    # Log statistics
+    unique_stations = set(k[0] for k in global_bin_counts.keys())
+    total_picks = sum(global_bin_counts.values())
+    logger.info(
+        f"Global azimuthal binning: {total_picks} picks from "
+        f"{len(unique_stations)} stations across {num_bins} bins "
+        f"(bin_size={bin_size_deg}°)"
+    )
+
+    return global_bin_counts
+
+
+def apply_global_azimuthal_weights(temp_events: dict,
+                                    event_lookup: dict,
+                                    bin_size_deg: float = 30.0,
+                                    weight_formula: str = 'inverse_sqrt') -> dict:
+    """Apply global-scale azimuthal weights to all picks.
+
+    This computes weights based on the global distribution of picks per station
+    per azimuthal bin across ALL events, then applies weights to each pick.
+
+    For each pick, the weight is computed as:
+    - 1/sqrt(N) or 1/N where N is the GLOBAL count of picks for that
+      (station, azimuthal_bin) combination across all events.
+
+    Args:
+        temp_events: Dictionary of processed events {event_id: event_data}.
+        event_lookup: Dictionary of event coordinates {event_id: {x, y, z, ...}}.
+        bin_size_deg: Size of azimuthal bins in degrees.
+        weight_formula: Formula for computing weights ('inverse_sqrt' or 'inverse').
+
+    Returns:
+        Updated temp_events dictionary with global azimuthal weights applied.
+    """
+    logger = logging.getLogger(__name__)
+    num_bins = int(np.ceil(360.0 / bin_size_deg))
+
+    # First pass: compute global bin counts
+    global_bin_counts = compute_global_azimuthal_bin_counts(
+        temp_events, event_lookup, bin_size_deg
+    )
+
+    # Second pass: apply weights to each pick based on global counts
+    total_weighted = 0
+
+    for event_id, event_data in temp_events.items():
+        if event_id not in event_lookup:
+            continue
+
+        event_coords = event_data.get('coords')
+        if event_coords is None:
+            continue
+
+        event_x, event_y, _ = event_coords
+
+        # Apply weights to P picks
+        for station_id, pick_info in event_data['p_picks'].items():
+            sx, sy, _ = pick_info['coords']
+            azimuth = compute_back_azimuth(sx, sy, event_x, event_y)
+            bin_idx = int(azimuth / bin_size_deg) % num_bins
+
+            n = global_bin_counts.get((station_id, bin_idx), 1)
+            if n > 0:
+                if weight_formula == 'inverse':
+                    weight = 1.0 / n
+                else:  # 'inverse_sqrt' (default)
+                    weight = 1.0 / np.sqrt(n)
+            else:
+                weight = 1.0
+
+            pick_info['weight'] = weight
+            total_weighted += 1
+
+        # Apply weights to S picks
+        for station_id, pick_info in event_data['s_picks'].items():
+            sx, sy, _ = pick_info['coords']
+            azimuth = compute_back_azimuth(sx, sy, event_x, event_y)
+            bin_idx = int(azimuth / bin_size_deg) % num_bins
+
+            n = global_bin_counts.get((station_id, bin_idx), 1)
+            if n > 0:
+                if weight_formula == 'inverse':
+                    weight = 1.0 / n
+                else:  # 'inverse_sqrt' (default)
+                    weight = 1.0 / np.sqrt(n)
+            else:
+                weight = 1.0
+
+            pick_info['weight'] = weight
+            total_weighted += 1
+
+    formula_display = "1/sqrt(N)" if weight_formula == 'inverse_sqrt' else "1/N"
+    logger.info(
+        f"Applied global azimuthal weights to {total_weighted} picks "
+        f"(formula={formula_display}, bin_size={bin_size_deg}°)"
+    )
+
+    return temp_events
+
+
 def call_get_origin_time_from_datetime(
     dt: datetime,
     mode: str,
@@ -297,42 +444,45 @@ def _process_single_event(event_id, event_picks, event_lookup, station_lookup,
             logger.warning(f"Could not parse pick time: {e}")
             continue
 
-    # Apply azimuthal weighting if enabled
-    # This is done after collecting all picks to compute bin-based weights
+    # Apply per-event azimuthal weighting if enabled AND scale is per_event
+    # Global scale weighting is applied after all events are processed
     if geom_config.get('apply_azimuthal_weighting', False):
-        bin_size = geom_config.get('azimuthal_bin_size_deg', 30.0)
-        weight_formula = geom_config.get('azimuthal_weight_formula', 'inverse_sqrt')
-        event_coords = event_data['coords']
+        weighting_scale = geom_config.get('azimuthal_weighting_scale', 'global')
 
-        if event_coords is not None:
-            # Collect all station coordinates for P and S picks
-            all_picks_coords = []
-            for station_id, pick_info in event_data['p_picks'].items():
-                sx, sy, sz = pick_info['coords']
-                all_picks_coords.append((station_id, sx, sy, sz))
-            for station_id, pick_info in event_data['s_picks'].items():
-                # Avoid duplicates if same station has both P and S
-                if station_id not in [p[0] for p in all_picks_coords]:
+        if weighting_scale == 'per_event':
+            bin_size = geom_config.get('azimuthal_bin_size_deg', 30.0)
+            weight_formula = geom_config.get('azimuthal_weight_formula', 'inverse_sqrt')
+            event_coords = event_data['coords']
+
+            if event_coords is not None:
+                # Collect all station coordinates for P and S picks
+                all_picks_coords = []
+                for station_id, pick_info in event_data['p_picks'].items():
                     sx, sy, sz = pick_info['coords']
                     all_picks_coords.append((station_id, sx, sy, sz))
+                for station_id, pick_info in event_data['s_picks'].items():
+                    # Avoid duplicates if same station has both P and S
+                    if station_id not in [p[0] for p in all_picks_coords]:
+                        sx, sy, sz = pick_info['coords']
+                        all_picks_coords.append((station_id, sx, sy, sz))
 
-            if all_picks_coords:
-                # Compute azimuthal weights
-                azimuthal_weights = compute_azimuthal_weights(
-                    all_picks_coords, event_coords, bin_size, weight_formula
-                )
+                if all_picks_coords:
+                    # Compute azimuthal weights
+                    azimuthal_weights = compute_azimuthal_weights(
+                        all_picks_coords, event_coords, bin_size, weight_formula
+                    )
 
-                # Apply weights to P picks
-                for station_id in event_data['p_picks']:
-                    if station_id in azimuthal_weights:
-                        event_data['p_picks'][station_id]['weight'] = \
-                            azimuthal_weights[station_id]
+                    # Apply weights to P picks
+                    for station_id in event_data['p_picks']:
+                        if station_id in azimuthal_weights:
+                            event_data['p_picks'][station_id]['weight'] = \
+                                azimuthal_weights[station_id]
 
-                # Apply weights to S picks
-                for station_id in event_data['s_picks']:
-                    if station_id in azimuthal_weights:
-                        event_data['s_picks'][station_id]['weight'] = \
-                            azimuthal_weights[station_id]
+                    # Apply weights to S picks
+                    for station_id in event_data['s_picks']:
+                        if station_id in azimuthal_weights:
+                            event_data['s_picks'][station_id]['weight'] = \
+                                azimuthal_weights[station_id]
 
     return (event_id, event_data, unrealistic_velocity_count)
 
@@ -415,6 +565,20 @@ def parse_picks_with_cartesian(events_df: pd.DataFrame,
             # Count total picks from this event
             total_picks += len(event_data['p_picks']) + len(event_data['s_picks'])
             unrealistic_velocity_count += unrealistic_count
+
+    # Apply global azimuthal weighting if enabled and scale is 'global'
+    # This must be done BEFORE phase_type filtering (which converts dicts to lists)
+    if geom_config.get('apply_azimuthal_weighting', False):
+        weighting_scale = geom_config.get('azimuthal_weighting_scale', 'global')
+
+        if weighting_scale == 'global':
+            bin_size = geom_config.get('azimuthal_bin_size_deg', 30.0)
+            weight_formula = geom_config.get('azimuthal_weight_formula', 'inverse_sqrt')
+
+            logger.info("Applying global-scale azimuthal weighting...")
+            temp_events = apply_global_azimuthal_weights(
+                temp_events, event_lookup, bin_size, weight_formula
+            )
 
     # Filter based on phase_type configuration
     final_events = {}
@@ -890,8 +1054,12 @@ def create_geometry_and_traveltime_files(config: DictConfig,
     elif apply_azimuthal_weighting:
         bin_size = geom_config.get('azimuthal_bin_size_deg', 30)
         weight_formula = geom_config.get('azimuthal_weight_formula', 'inverse_sqrt')
+        weighting_scale = geom_config.get('azimuthal_weighting_scale', 'global')
         formula_display = "1/sqrt(N)" if weight_formula == 'inverse_sqrt' else "1/N"
-        logger.info(f"Weighting method: azimuthal weighting (bin_size={bin_size}°, weight={formula_display})")
+        logger.info(f"Weighting method: azimuthal weighting")
+        logger.info(f"  - Scale: {weighting_scale} (N = picks per station-bin {'across all events' if weighting_scale == 'global' else 'within each event'})")
+        logger.info(f"  - Bin size: {bin_size}°")
+        logger.info(f"  - Weight formula: {formula_display}")
     else:
         logger.info("Weighting method: original pick weights")
 
