@@ -173,6 +173,27 @@ def apply_filters_to_dataframes(events_df: pd.DataFrame, stations_df: pd.DataFra
             picks_df['station_id'].isin(valid_station_ids)
         ].copy()
 
+    # 5. Apply manual_picks_only filter if enabled
+    manual_picks_only = getattr(filters, 'manual_picks_only', False)
+    if not picks_df.empty:
+        has_eval_mode = 'evaluation_mode' in picks_df.columns
+        if manual_picks_only:
+            if not has_eval_mode:
+                raise ValueError(
+                    "manual_picks_only=True but 'evaluation_mode' column not found in picks. "
+                    "Please regenerate the HDF5 file with evaluation_mode column enabled."
+                )
+            original_count = len(picks_df)
+            picks_df = picks_df[picks_df['evaluation_mode'] == 'manual'].copy()
+            print(f"  Manual picks filter: {original_count} -> {len(picks_df)} picks")
+
+            # Filter arrivals to only include those referencing manual picks
+            if not arrivals_df.empty:
+                valid_pick_ids = set(picks_df['pick_id'])
+                original_arrivals = len(arrivals_df)
+                arrivals_df = arrivals_df[arrivals_df['pick_id'].isin(valid_pick_ids)].copy()
+                print(f"  Manual picks filter: {original_arrivals} -> {len(arrivals_df)} arrivals")
+
     return events_df, stations_df, arrivals_df, picks_df
 
 

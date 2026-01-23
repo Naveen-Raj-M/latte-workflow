@@ -36,6 +36,8 @@ parallel:
 
 # Filtering options
 filters:
+  manual_picks_only: false  # If true, only use picks with evaluation_mode='manual'
+
   # Magnitude filters (null = no filter)
   magnitude_min: null
   magnitude_max: null
