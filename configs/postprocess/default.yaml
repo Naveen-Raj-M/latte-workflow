@@ -150,10 +150,12 @@ ray_path_diagnosis:
   # What to compute/output
   compute_dws: true  # Compute Derivative Weight Sum
 
+  # Event filtering/subsampling (only when compute_dws=false for faster computation)
+  event_id_list_file: null  # Path to text file with event IDs (one per line), or null
+  subsample_fraction: 1.0  # Fraction of rays to compute (0.0-1.0), only when event_id_list_file=null
+
   # DWS-specific parameters (only used if compute_dws=true)
   dws:
-    # Weight column name in ground truth CSV
-    # If column doesn't exist, uniform weights (1.0) will be used
-    weight_column: 'weight'
+    weight_column: 'weight'  # Weight column in CSV (uses 1.0 if not found)
 
 strict_mode: true

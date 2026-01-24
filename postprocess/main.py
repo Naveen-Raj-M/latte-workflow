@@ -196,13 +196,37 @@ def postprocess_latte_outputs(config: DictConfig) -> None:
             print(f"\n  NOTE: Visualizations have been moved to the analysis module")
             print(f"        Run analysis/main.py with raypath_analysis and dws_analysis enabled")
 
-            # Compute ray paths (with caching - saves each batch and clears memory)
-            # Always compute all ray paths (no subsampling optimization)
-            print(f"  Computing ALL ray paths for complete cache...")
+            # Event filtering/subsampling (optimization when DWS is disabled)
+            event_id_list_file = getattr(diag_config, 'event_id_list_file', None)
+            subsample_fraction = getattr(diag_config, 'subsample_fraction', 1.0)
+            filter_shot_ids = None
+            subsample_during_computation = False
+
+            # Only apply filtering/subsampling if DWS is disabled (optimization)
+            if not compute_dws:
+                # Priority: event_id_list_file > subsample_fraction
+                if event_id_list_file and event_id_list_file != "null":
+                    shot_map_file = getattr(diag_config, 'shot_map_file', None)
+                    if shot_map_file:
+                        filter_shot_ids = load_event_id_list_and_convert_to_shot_ids(
+                            event_id_list_file, shot_map_file
+                        )
+                        if filter_shot_ids:
+                            subsample_during_computation = True
+                            print(f"\n  OPTIMIZATION: Computing rays for {len(filter_shot_ids)} selected events only")
+                    else:
+                        print(f"  WARNING: event_id_list_file provided but shot_map_file not found")
+                elif subsample_fraction < 1.0:
+                    subsample_during_computation = True
+                    print(f"\n  OPTIMIZATION: Computing {subsample_fraction*100:.1f}% of ray paths")
+
+            if compute_dws or (not subsample_during_computation):
+                print(f"\n  Computing ALL ray paths for complete cache...")
+
             precomputed_rays = compute_all_ray_paths(
                 diag_config,
-                subsample_during_computation=False,
-                filter_shot_ids=None
+                subsample_during_computation,
+                filter_shot_ids
             )
 
             # Compute DWS if requested
