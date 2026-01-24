@@ -111,8 +111,7 @@ source_processing:
   srch_sz_file: "${data.base_dir}/model/srch_sz.bin"
   srch_st0_file: "${data.base_dir}/model/srch_st0.bin"
 
-# Ray path diagnosis configuration (combines visualization and DWS computation)
-# Uses global performance and tracing settings for ray path computation
+# Ray path diagnosis configuration (generates ray path cache and DWS files)
 ray_path_diagnosis:
   enabled: false
 
@@ -121,13 +120,12 @@ ray_path_diagnosis:
   gradient_dir: "${data.base_dir}/gradient"
   shot_map_file: "${travel_time_processing.shot_map_file}"
 
-  # Output file for ray paths (caching is always enabled)
+  # Output files (HDF5 format)
   ray_path_output_file: "${data.analysis_output_dir}/ray_paths/ray_paths.h5"
   dws_output_file: "${data.analysis_output_dir}/dws_values.h5"
 
   # Cache behavior settings
   force_recompute: false           # Force recompute even if cache exists (deletes existing cache)
-  visualize_only: false            # If true, only visualize from existing cache (no computation)
   compression: "gzip"              # Compression: gzip, lzf, or none
   compression_level: 4             # Compression level (1-9 for gzip)
 
@@ -148,58 +146,9 @@ ray_path_diagnosis:
   precision: "single"  # Options: single, double (must match gradient file precision)
   max_shots: 0  # Maximum number of shots to process (0 = all)
   parallel_mode: "by_pairs"  # Options: by_shots, by_pairs (affects ray path computation)
-  
-  # What to compute/output (both use same ray paths computed once)
-  save_visualizations: true  # Generate and save ray path plots
+
+  # What to compute/output
   compute_dws: true  # Compute Derivative Weight Sum
-
-  # Event filtering (takes precedence over subsample_fraction)
-  # Path to text file with event IDs (one per line) to visualize/compute
-  # If provided:
-  #   - If ONLY visualization is enabled (compute_dws=false): computes ray paths ONLY for these events
-  #   - If DWS is enabled (compute_dws=true): computes ALL ray paths, but plots ONLY these events
-  # Set to null to disable event filtering and use subsample_fraction instead
-  event_id_list_file: null  # Path to event ID list file, or null
-
-  # Ray path subsampling (only used when event_id_list_file is null)
-  # If subsample_fraction < 1.0:
-  #   - If ONLY visualization is enabled (compute_dws=false): computes ray paths for only this fraction
-  #   - If DWS is enabled (compute_dws=true): computes ALL ray paths, but plots only this fraction
-  subsample_fraction: 1.0  # Fraction of ray paths (0.0-1.0). Use <1.0 for faster computation/plotting
-
-  # Visualization-specific parameters (only used if save_visualizations=true)
-  visualization:
-    verbose: true
-
-    # Plotting parameters
-    plot:
-      planes: ["xy", "xz", "yz"]  # Projection planes to plot
-      format: "png"  # Options: png, pdf, svg
-      dpi: 300
-      figure_width: 12
-      figure_height: 10
-
-      # Ray path styling
-      ray_color: "blue"
-      ray_alpha: 0.3  # Transparency (0-1)
-      ray_linewidth: 0.5
-
-      # Source styling
-      source_color: "red"
-      source_marker: "*"  # Options: *, o, ^, v, s, D
-      source_size: 100
-
-      # Receiver styling
-      receiver_color: "green"
-      receiver_marker: "^"  # Options: *, o, ^, v, s, D
-      receiver_size: 50
-
-      # Plot formatting
-      grid: true
-      equal_aspect: true  # Equal scaling on both axes
-      label_fontsize: 12
-      title_fontsize: 14
-      legend_fontsize: 10
 
   # DWS-specific parameters (only used if compute_dws=true)
   dws:
