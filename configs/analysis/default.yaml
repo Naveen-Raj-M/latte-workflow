@@ -265,7 +265,9 @@ raypath_analysis:
   # Phase type to visualize
   phase_type: "both"  # Options: both, p, s
 
-  # Subsampling for large datasets
+  # Event filtering/subsampling (priority: event_id_list_file > max_rays > subsample_fraction)
+  event_id_list_file: null  # Path to text file with event IDs (one per line), or null
+  shot_map_file: null  # Path to shot map TSV (required if using event_id_list_file), or null to use paths.shot_map_file
   max_rays: null  # Maximum rays to load (null for all)
   subsample_fraction: 1.0  # Fraction of rays to plot (0.0-1.0)
 
@@ -332,8 +334,13 @@ ray_density_analysis:
 
   # Ray density computation settings
   threshold: 0  # Ray count threshold for visualization (cells below are masked)
-  max_rays: null  # Maximum rays to load from cache (null for all)
   num_samples_per_ray: 1000  # Number of sample points per ray for grid intersection
+
+  # Event filtering/subsampling (priority: event_id_list_file > max_rays > subsample_fraction)
+  event_id_list_file: null  # Path to text file with event IDs (one per line), or null
+  shot_map_file: null  # Path to shot map TSV (required if using event_id_list_file), or null to use paths.shot_map_file
+  max_rays: null  # Maximum rays to load from cache (null for all)
+  subsample_fraction: 1.0  # Fraction of rays to use (0.0-1.0)
 
   # Visualization options
   planes: ["xy", "xz", "yz"]  # Projection planes to plot

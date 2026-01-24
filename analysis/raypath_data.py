@@ -11,8 +11,65 @@ from typing import Dict, Any, List, Optional, Set, Tuple
 
 import h5py
 import numpy as np
+import pandas as pd
 
 logger = logging.getLogger(__name__)
+
+
+def load_event_ids_from_file(event_id_file: str) -> List[str]:
+    """
+    Load event IDs from a text file.
+
+    Args:
+        event_id_file: Path to file with event IDs (one per line)
+
+    Returns:
+        List of event IDs as strings
+    """
+    if not os.path.exists(event_id_file):
+        raise FileNotFoundError(f"Event ID file not found: {event_id_file}")
+
+    event_ids = []
+    with open(event_id_file, 'r') as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith('#'):  # Skip empty lines and comments
+                event_ids.append(line)
+
+    logger.info(f"Loaded {len(event_ids)} event IDs from {event_id_file}")
+    return event_ids
+
+
+def convert_event_ids_to_shot_ids(event_ids: List[str], shot_map_file: str) -> List[int]:
+    """
+    Convert event IDs to shot IDs using shot map file.
+
+    Args:
+        event_ids: List of event IDs
+        shot_map_file: Path to shot map TSV file
+
+    Returns:
+        List of shot IDs as integers
+    """
+    if not os.path.exists(shot_map_file):
+        raise FileNotFoundError(f"Shot map file not found: {shot_map_file}")
+
+    # Load shot map
+    df = pd.read_csv(shot_map_file, sep='\t')
+    event_to_shot = {}
+    for _, row in df.iterrows():
+        event_to_shot[str(row['Original_Event_ID'])] = int(row['Shot_ID'])
+
+    # Convert event IDs to shot IDs
+    shot_ids = []
+    for event_id in event_ids:
+        if event_id in event_to_shot:
+            shot_ids.append(event_to_shot[event_id])
+        else:
+            logger.warning(f"Event ID {event_id} not found in shot map")
+
+    logger.info(f"Converted {len(shot_ids)} event IDs to shot IDs")
+    return shot_ids
 
 
 def load_ray_paths_from_cache(

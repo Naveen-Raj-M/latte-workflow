@@ -22,6 +22,10 @@ from .ray_density_plots import (
     plot_ray_density_xy_threshold_count,
     plot_ray_density_depth_slices
 )
+from .raypath_data import (
+    load_event_ids_from_file,
+    convert_event_ids_to_shot_ids
+)
 from utils.io_utils import ensure_directory_exists
 
 logger = logging.getLogger(__name__)
@@ -96,19 +100,44 @@ def analyze_ray_density(config_dict: Dict[str, Any]) -> Dict[str, Any]:
     # Get processing settings
     phase_type = config.get('phase_type', 'both')
     threshold = config.get('threshold', 0)
-    max_rays = config.get('max_rays', None)
     num_samples_per_ray = config.get('num_samples_per_ray', 1000)
     planes = config.get('planes', ['xy', 'xz', 'yz'])
     enable_xy_threshold_count = config.get('enable_xy_threshold_count', True)
     enable_depth_slices = config.get('enable_depth_slices', True)
     depth_slices = config.get('depth_slices', [])
 
+    # Event filtering/subsampling (priority: event_id_list_file > max_rays > subsample_fraction)
+    event_id_list_file = config.get('event_id_list_file', None)
+    max_rays = config.get('max_rays', None)
+    subsample_fraction = config.get('subsample_fraction', 1.0)
+    filter_shot_ids = None
+
+    if event_id_list_file and event_id_list_file != "null":
+        # Load event IDs and convert to shot IDs
+        try:
+            event_ids = load_event_ids_from_file(event_id_list_file)
+            shot_map_file = config_dict.get('paths', {}).get('shot_map_file', None)
+            if not shot_map_file:
+                shot_map_file = config.get('shot_map_file', None)
+
+            if shot_map_file:
+                filter_shot_ids = convert_event_ids_to_shot_ids(event_ids, shot_map_file)
+                logger.info(f"Filtering to {len(filter_shot_ids)} specific events")
+            else:
+                logger.warning("event_id_list_file provided but shot_map_file not found, ignoring filter")
+        except Exception as e:
+            logger.warning(f"Failed to load event ID list: {e}, ignoring filter")
+
     logger.info(f"Processing settings:")
     logger.info(f"  Phase type: {phase_type}")
     logger.info(f"  Threshold: {threshold} rays")
     logger.info(f"  Samples per ray: {num_samples_per_ray}")
-    if max_rays:
+    if filter_shot_ids:
+        logger.info(f"  Filtering to {len(filter_shot_ids)} events")
+    elif max_rays:
         logger.info(f"  Max rays to load: {max_rays:,}")
+    elif subsample_fraction < 1.0:
+        logger.info(f"  Subsampling: {subsample_fraction*100:.1f}%")
 
     # Determine phases to process
     phases = []
@@ -138,6 +167,7 @@ def analyze_ray_density(config_dict: Dict[str, Any]) -> Dict[str, Any]:
             grid_dims,
             phase=phase,
             max_rays=max_rays,
+            shot_ids=filter_shot_ids,
             num_samples_per_ray=num_samples_per_ray,
             show_progress=True
         )

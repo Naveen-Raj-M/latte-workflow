@@ -74,6 +74,7 @@ def compute_ray_density_from_cache(
     grid_dims: Dict,
     phase: str = 'p',
     max_rays: Optional[int] = None,
+    shot_ids: Optional[list] = None,
     num_samples_per_ray: int = 1000,
     show_progress: bool = True
 ) -> np.ndarray:
@@ -87,6 +88,7 @@ def compute_ray_density_from_cache(
         grid_dims: Grid dimension dictionary with nx, ny, nz, dx, dy, dz, x_min, y_min, z_min
         phase: Phase type ('p' or 's')
         max_rays: Maximum number of rays to load (None for all)
+        shot_ids: Optional list of shot IDs to filter (None for all)
         num_samples_per_ray: Number of sample points per ray for grid intersection
         show_progress: Whether to show progress bar
 
@@ -111,12 +113,19 @@ def compute_ray_density_from_cache(
             return density
 
         shots_group = f[phase_key]['shots']
-        shot_ids = list(shots_group.keys())
+
+        # Get shot IDs to process
+        if shot_ids is not None:
+            # Filter to only requested shot IDs
+            available_shots = set(shots_group.keys())
+            shot_keys = [str(sid) for sid in shot_ids if str(sid) in available_shots]
+        else:
+            shot_keys = list(shots_group.keys())
 
         # Count total rays for progress tracking
         total_rays = sum(
             len(shots_group[sid]['ray_lengths'][:])
-            for sid in shot_ids
+            for sid in shot_keys
             if 'ray_lengths' in shots_group[sid]
         )
 
@@ -130,7 +139,7 @@ def compute_ray_density_from_cache(
         n_valid_rays = 0
         loaded_rays = 0
 
-        iterator = tqdm(shot_ids, desc=f"Computing {phase}-wave density") if show_progress else shot_ids
+        iterator = tqdm(shot_keys, desc=f"Computing {phase}-wave density") if show_progress else shot_keys
 
         for shot_key in iterator:
             shot_grp = shots_group[shot_key]

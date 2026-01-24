@@ -23,7 +23,9 @@ from .raypath_data import (
     get_ray_path_metadata,
     get_ray_path_statistics,
     get_unique_sources,
-    get_unique_receivers
+    get_unique_receivers,
+    load_event_ids_from_file,
+    convert_event_ids_to_shot_ids
 )
 from .raypath_plots import (
     plot_ray_paths_projection,
@@ -118,12 +120,35 @@ def analyze_ray_paths(config_dict: Dict[str, Any]) -> Dict[str, Any]:
     phase_type = config.get('phase_type', 'both')
     planes = config.get('plot', {}).get('planes', ['xy', 'xz', 'yz'])
     output_format = config.get('plot', {}).get('format', 'png')
+
+    # Event filtering/subsampling (priority: event_id_list_file > max_rays > subsample_fraction)
+    event_id_list_file = config.get('event_id_list_file', None)
     max_rays = config.get('max_rays', None)
     subsample_fraction = config.get('subsample_fraction', 1.0)
+    filter_shot_ids = None
+
+    if event_id_list_file and event_id_list_file != "null":
+        # Load event IDs and convert to shot IDs
+        try:
+            event_ids = load_event_ids_from_file(event_id_list_file)
+            # We need shot_map_file - look for it in paths or use common location
+            shot_map_file = config_dict.get('paths', {}).get('shot_map_file', None)
+            if not shot_map_file:
+                # Try to find it from the postprocess config location
+                shot_map_file = config.get('shot_map_file', None)
+
+            if shot_map_file:
+                filter_shot_ids = convert_event_ids_to_shot_ids(event_ids, shot_map_file)
+                logger.info(f"Filtering to {len(filter_shot_ids)} specific events")
+            else:
+                logger.warning("event_id_list_file provided but shot_map_file not found, ignoring filter")
+        except Exception as e:
+            logger.warning(f"Failed to load event ID list: {e}, ignoring filter")
 
     # Add subsampling to plot config
     plot_config['subsample_fraction'] = subsample_fraction
     plot_config['max_rays'] = max_rays
+    plot_config['filter_shot_ids'] = filter_shot_ids
 
     # Determine phases to process
     phases = []
@@ -158,7 +183,8 @@ def analyze_ray_paths(config_dict: Dict[str, Any]) -> Dict[str, Any]:
         ray_data = load_ray_paths_from_cache(
             cache_path,
             phase=phase,
-            max_rays=max_rays
+            max_rays=max_rays,
+            shot_ids=filter_shot_ids
         )
 
         if phase not in ray_data or not ray_data[phase]['ray_paths']:
