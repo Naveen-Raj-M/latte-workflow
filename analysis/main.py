@@ -24,6 +24,7 @@ from .short_distance_analysis import analyze_short_distance_residuals
 from .source_analysis import analyze_source_corrections
 from .gradient_analysis import analyze_gradients_and_search
 from .dws_analysis import analyze_dws
+from .raypath_analysis import analyze_ray_paths
 
 logger = logging.getLogger(__name__)
 
@@ -231,6 +232,36 @@ def run_dws_analysis(cfg: DictConfig) -> None:
             raise
 
 
+def run_raypath_analysis(cfg: DictConfig) -> None:
+    """Run ray path visualization analysis."""
+    if not cfg.raypath_analysis.get('enabled', False):
+        logger.info("Ray path analysis disabled, skipping")
+        return
+
+    logger.info("=" * 60)
+    logger.info("STARTING RAY PATH ANALYSIS")
+    logger.info("=" * 60)
+
+    with ProcessTimer("Ray path analysis"):
+        try:
+            ensure_directory_exists(cfg.raypath_analysis.output_dir)
+            results = analyze_ray_paths(OmegaConf.to_container(cfg, resolve=True))
+            logger.info("Ray path analysis completed successfully")
+            logger.info(f"Results saved to: {cfg.raypath_analysis.output_dir}")
+
+            # Log summary
+            if 'statistics' in results:
+                stats = results['statistics']
+                logger.info(f"Ray path summary:")
+                logger.info(f"  P-wave: {stats.get('p_wave_shots', 0)} shots, {stats.get('p_wave_rays', 0)} rays")
+                logger.info(f"  S-wave: {stats.get('s_wave_shots', 0)} shots, {stats.get('s_wave_rays', 0)} rays")
+                logger.info(f"  Cache size: {stats.get('file_size_mb', 0):.2f} MB")
+
+        except Exception as e:
+            logger.error(f"Ray path analysis failed: {e}")
+            raise
+
+
 def run_single_function(cfg: DictConfig, function_name: str) -> None:
     """
     Run a single analysis function.
@@ -247,6 +278,7 @@ def run_single_function(cfg: DictConfig, function_name: str) -> None:
         'source_analysis': run_source_analysis,
         'gradient_analysis': run_gradient_analysis,
         'dws_analysis': run_dws_analysis,
+        'raypath_analysis': run_raypath_analysis,
     }
 
     if function_name not in function_map:
@@ -355,6 +387,7 @@ def run_analysis_pipeline(cfg: DictConfig) -> None:
             ('Short Distance Analysis', run_short_distance_analysis),
             ('Source Correction Analysis', run_source_analysis),
             ('Gradient Analysis', run_gradient_analysis),
+            ('Ray Path Analysis', run_raypath_analysis),
             ('DWS Analysis', run_dws_analysis),
         ]
         
@@ -420,6 +453,8 @@ def validate_configuration(cfg: DictConfig) -> None:
         enabled_analyses.append('source_analysis')
     if cfg.gradient_analysis.get('enabled', False):
         enabled_analyses.append('gradient_analysis')
+    if cfg.raypath_analysis.get('enabled', False):
+        enabled_analyses.append('raypath_analysis')
     if cfg.dws_analysis.get('enabled', False):
         enabled_analyses.append('dws_analysis')
     

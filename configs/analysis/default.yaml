@@ -259,6 +259,59 @@ dws_analysis:
   # Report generation
   generate_report: true
 
+# Ray path visualization analysis configuration
+raypath_analysis:
+  enabled: false
+
+  # Input HDF5 cache file containing ray paths (from postprocess module)
+  input_cache: "${paths.input_dir}/ray_paths/ray_paths.h5"
+
+  # Output directory for analysis results
+  output_dir: "${paths.output_base_dir}/raypaths/"
+
+  # Phase type to visualize
+  phase_type: "both"  # Options: both, p, s
+
+  # Subsampling for large datasets
+  max_rays: null  # Maximum rays to load (null for all)
+  subsample_fraction: 1.0  # Fraction of rays to plot (0.0-1.0)
+
+  # 3D plot (disabled by default due to performance)
+  enable_3d_plot: false
+
+  # Report generation
+  generate_report: true
+
+  # Plot configuration
+  plot:
+    planes: ["xy", "xz", "yz"]  # Projection planes to plot
+    format: "png"  # Options: png, pdf, svg
+    dpi: 300
+    figure_width: 12
+    figure_height: 10
+
+    # Ray path styling
+    ray_color: "blue"
+    ray_alpha: 0.3  # Transparency (0-1)
+    ray_linewidth: 0.5
+
+    # Source styling
+    source_color: "red"
+    source_marker: "*"  # Options: *, o, ^, v, s, D
+    source_size: 100
+
+    # Receiver styling
+    receiver_color: "green"
+    receiver_marker: "^"  # Options: *, o, ^, v, s, D
+    receiver_size: 50
+
+    # Plot formatting
+    grid: true
+    equal_aspect: true
+    label_fontsize: 12
+    title_fontsize: 14
+    legend_fontsize: 10
+
 paths:
   input_dir: "data/processed"
   output_base_dir: "results/analysis"

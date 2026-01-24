@@ -47,6 +47,13 @@ __all__ = [
     'analyze_gradients_and_search',
     'analyze_velocity_gradients',
     'analyze_source_gradients',
+
+    # Ray path analysis
+    'analyze_ray_paths',
+    'load_ray_paths_from_cache',
+    'get_ray_path_metadata',
+    'get_ray_path_statistics',
+    'plot_ray_paths_projection',
 ]
 
 # Import main analysis functions
@@ -149,6 +156,19 @@ try:
 except ImportError as e:
     import logging
     logging.debug(f"Gradient analysis module import warning: {e}")
+
+# Ray path analysis imports
+try:
+    from .raypath_analysis import analyze_ray_paths
+    from .raypath_data import (
+        load_ray_paths_from_cache,
+        get_ray_path_metadata,
+        get_ray_path_statistics
+    )
+    from .raypath_plots import plot_ray_paths_projection
+except ImportError as e:
+    import logging
+    logging.debug(f"Ray path analysis module import warning: {e}")
 
 # Import common filtering utilities
 # Moved to separate module to avoid circular imports
