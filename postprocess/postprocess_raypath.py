@@ -1096,3 +1096,138 @@ def create_visualizations_from_precomputed_rays(config: DictConfig, precomputed_
     print("\n" + "="*80)
     print("RAY PATH VISUALIZATION COMPLETE")
     print("="*80)
+
+
+def create_visualizations_from_cache(config: DictConfig) -> None:
+    """
+    Create ray path visualizations by loading from HDF5 cache.
+
+    This function loads ray paths from the cache file in a streaming manner
+    to minimize memory usage, then creates visualizations.
+
+    Args:
+        config: Ray path diagnosis configuration object
+    """
+    import gc
+    import h5py
+
+    print("\n" + "="*80)
+    print("RAY PATH VISUALIZATION (FROM CACHE)")
+    print("="*80)
+
+    # Get cache path
+    if hasattr(config, 'cache') and hasattr(config.cache, 'file'):
+        cache_path = config.cache.file
+    else:
+        cache_path = os.path.join(config.output_dir, 'ray_paths_cache.h5')
+
+    if not os.path.exists(cache_path):
+        raise FileNotFoundError(f"Cache file not found: {cache_path}")
+
+    print(f"  Loading from cache: {cache_path}")
+
+    # Create output directory
+    ensure_directory_exists(config.output_dir)
+
+    # Normalize config structure for plotting
+    if hasattr(config, 'visualization') and hasattr(config.visualization, 'plot'):
+        from omegaconf import OmegaConf
+        plot_config = config.visualization.plot
+        config_dict = {'plot': OmegaConf.to_container(plot_config)}
+        if hasattr(config, 'subsample_fraction'):
+            config_dict['subsample_fraction'] = config.subsample_fraction
+        config_for_plotting = OmegaConf.create(config_dict)
+    else:
+        config_for_plotting = config
+
+    plot_cfg = config.visualization.plot if hasattr(config, 'visualization') else config.plot
+
+    # Determine phase types to process
+    phase_type = getattr(config, 'phase_type', 'both')
+    phase_types = []
+    if phase_type in ['both', 'p']:
+        phase_types.append('p')
+    if phase_type in ['both', 's']:
+        phase_types.append('s')
+
+    # Get subsample fraction for plotting
+    subsample_fraction = getattr(config, 'subsample_fraction', 1.0)
+
+    with h5py.File(cache_path, 'r') as f:
+        for phase in phase_types:
+            print(f"\n{'='*80}")
+            print(f"Creating {phase.upper()}-wave visualization")
+            print(f"{'='*80}")
+
+            phase_group = f'{phase}_wave'
+            if phase_group not in f or 'shots' not in f[phase_group]:
+                print(f"  No {phase.upper()}-wave data in cache, skipping")
+                continue
+
+            shots_group = f[phase_group]['shots']
+            shot_ids = list(shots_group.keys())
+
+            # Count total rays for subsampling calculation
+            total_rays = sum(
+                len(shots_group[sid]['ray_lengths'][:])
+                for sid in shot_ids
+                if 'ray_lengths' in shots_group[sid]
+            )
+
+            max_rays = None
+            if subsample_fraction < 1.0:
+                max_rays = max(1, int(total_rays * subsample_fraction))
+                print(f"  Subsampling: loading {max_rays}/{total_rays} rays ({subsample_fraction*100:.1f}%)")
+
+            # Load rays from cache
+            ray_paths = []
+            sources = []
+            receivers = []
+            loaded = 0
+
+            for shot_key in tqdm(shot_ids, desc="Loading rays"):
+                shot_grp = shots_group[shot_key]
+
+                source = tuple(shot_grp['source'][:])
+                recv_array = shot_grp['receivers'][:]
+                lengths = shot_grp['ray_lengths'][:]
+                data = shot_grp['ray_data'][:]
+
+                offset = 0
+                for i, length in enumerate(lengths):
+                    if max_rays is not None and loaded >= max_rays:
+                        break
+
+                    if length > 0:
+                        ray_path = data[offset:offset + length]
+                        ray_paths.append(ray_path)
+                        sources.append(source)
+                        receivers.append(tuple(recv_array[i]))
+                        loaded += 1
+
+                    offset += length
+
+                if max_rays is not None and loaded >= max_rays:
+                    break
+
+            print(f"  Loaded {len(ray_paths)} rays for plotting")
+
+            # Create plots for each projection plane
+            for plane in plot_cfg.planes:
+                output_file = f"{config.output_dir}/ray_paths_{phase}_wave_{plane}.{plot_cfg.format}"
+                plot_ray_paths_projection(
+                    ray_paths,
+                    sources,
+                    receivers,
+                    plane,
+                    output_file,
+                    config_for_plotting
+                )
+
+            # Clear memory after each phase
+            del ray_paths, sources, receivers
+            gc.collect()
+
+    print("\n" + "="*80)
+    print("RAY PATH VISUALIZATION COMPLETE")
+    print("="*80)

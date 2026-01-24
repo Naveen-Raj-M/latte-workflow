@@ -18,6 +18,13 @@ performance:
   pre_dispatch: "2*n_jobs"  # Number of tasks to pre-dispatch
   show_progress: true  # Show progress bars during processing
 
+  # I/O optimization settings for gradient loading
+  # These settings can significantly speed up gradient file loading on parallel filesystems
+  io:
+    max_threads: 8           # Max threads for parallel file I/O (48 is good for Lustre/GPFS)
+    use_async: true           # Use async I/O (concurrent.futures) - faster for pure I/O
+    cache_metadata: true      # Cache grid metadata (all shots typically share same grid)
+
 # Global ray tracing settings (used by ray_path_visualization and dws_computation)
 tracing:
   max_steps: 10000  # Maximum integration steps per ray
@@ -117,6 +124,15 @@ ray_path_diagnosis:
   # Output directories
   output_dir: "${data.analysis_output_dir}/ray_paths"
   dws_output_file: "${data.analysis_output_dir}/dws_values.h5"
+
+  # Cache settings for ray path storage
+  cache:
+    enabled: true                    # Enable caching (set to false to disable)
+    file: "${data.analysis_output_dir}/ray_paths/ray_paths.h5"  # Cache file path
+    force_recompute: false           # Force recompute even if cache exists (deletes existing cache)
+    visualize_only: false            # If true, only visualize from existing cache (no computation)
+    compression: "gzip"              # Compression: gzip, lzf, or none
+    compression_level: 4             # Compression level (1-9 for gzip)
 
   # Common grid dimensions (must match the model grid used for eikonal solver)
   grid:

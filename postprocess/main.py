@@ -25,10 +25,18 @@ from .postprocess_source import process_source_updates
 from .postprocess_raypath import (
     create_ray_path_visualizations,
     create_ray_path_visualizations_by_pairs,
-    create_visualizations_from_precomputed_rays
+    create_visualizations_from_precomputed_rays,
+    create_visualizations_from_cache
 )
 from .postprocess_dws import create_dws_from_ray_paths, compute_dws_from_precomputed_rays
-from .compute_ray_paths import compute_all_ray_paths, load_event_id_list_and_convert_to_shot_ids
+from .compute_ray_paths import (
+    compute_all_ray_paths,
+    load_event_id_list_and_convert_to_shot_ids,
+    get_cache_path,
+    get_cache_stats,
+    is_cache_valid,
+    load_ray_paths_from_cache
+)
 
 
 def postprocess_latte_outputs(config: DictConfig) -> None:
@@ -168,6 +176,31 @@ def postprocess_latte_outputs(config: DictConfig) -> None:
             save_viz = getattr(diag_config, 'save_visualizations', False)
             compute_dws = getattr(diag_config, 'compute_dws', False)
 
+            # Check cache settings
+            cache_enabled = True
+            force_recompute = False
+            visualize_only_from_cache = False
+
+            if hasattr(diag_config, 'cache'):
+                cache_enabled = getattr(diag_config.cache, 'enabled', True)
+                force_recompute = getattr(diag_config.cache, 'force_recompute', False)
+                visualize_only_from_cache = getattr(diag_config.cache, 'visualize_only', False)
+
+            # Print cache status
+            if cache_enabled:
+                cache_path = get_cache_path(diag_config)
+                print(f"\n  Cache settings:")
+                print(f"    Cache file: {cache_path}")
+                print(f"    Force recompute: {force_recompute}")
+
+                if is_cache_valid(cache_path, diag_config):
+                    cache_stats = get_cache_stats(cache_path)
+                    print(f"    Cache status: VALID")
+                    print(f"    Cached rays: P={cache_stats['p_wave_rays']}, S={cache_stats['s_wave_rays']}")
+                    print(f"    Cache size: {cache_stats['file_size_mb']:.2f} MB")
+                else:
+                    print(f"    Cache status: INVALID or NOT FOUND")
+
             if not save_viz and not compute_dws:
                 print(f"  WARNING: Both save_visualizations and compute_dws are disabled.")
                 print(f"           Enable at least one to produce output.")
@@ -178,7 +211,17 @@ def postprocess_latte_outputs(config: DictConfig) -> None:
             elif compute_dws:
                 print(f"  Outputs: DWS only")
 
-            if save_viz or compute_dws:
+            # Visualization-only from cache mode
+            # If cache is valid and only visualization is requested, load from cache directly
+            if visualize_only_from_cache and save_viz and not compute_dws:
+                print(f"\n  VISUALIZE-ONLY MODE: Loading rays from cache (no computation)")
+                try:
+                    create_visualizations_from_cache(diag_config)
+                except FileNotFoundError:
+                    print(f"  Cache not found, falling back to computation mode")
+                    visualize_only_from_cache = False
+
+            if not visualize_only_from_cache and (save_viz or compute_dws):
                 # Load event ID list if provided (takes precedence over subsample_fraction)
                 event_id_list_file = getattr(diag_config, 'event_id_list_file', None)
                 filter_shot_ids = None
@@ -221,7 +264,7 @@ def postprocess_latte_outputs(config: DictConfig) -> None:
                         print(f"  Computing ALL ray paths (DWS enabled)")
                         print(f"  Will plot {subsample_fraction*100:.1f}% for visualization")
 
-                # Compute ray paths once (shared computation)
+                # Compute ray paths (with caching - saves each batch and clears memory)
                 precomputed_rays = compute_all_ray_paths(
                     diag_config,
                     subsample_during_computation,
@@ -229,12 +272,18 @@ def postprocess_latte_outputs(config: DictConfig) -> None:
                 )
 
                 # Generate visualizations if requested
+                # Note: precomputed_rays is loaded from cache at the end of compute_all_ray_paths
                 if save_viz:
                     create_visualizations_from_precomputed_rays(diag_config, precomputed_rays)
 
                 # Compute DWS if requested
                 if compute_dws:
                     compute_dws_from_precomputed_rays(diag_config, precomputed_rays)
+
+                # Clear precomputed rays from memory
+                del precomputed_rays
+                import gc
+                gc.collect()
 
         except Exception as e:
             print(f"Error in ray path diagnosis: {e}")
