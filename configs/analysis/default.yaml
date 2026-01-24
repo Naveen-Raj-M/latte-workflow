@@ -227,14 +227,7 @@ dws_analysis:
   coverage_threshold: 0.0
 
   # Horizontal slice depths (km) - specify depths where you want to visualize DWS
-  horizontal_slice_depths:
-    - 5.0
-    - 10.0
-    - 15.0
-    - 20.0
-    - 30.0
-    - 40.0
-    - 50.0
+  horizontal_slice_depths: [5.0, 10.0, 15.0, 20.0, 30.0, 40.0, 50.0]  
 
   # Vertical slice positions (km)
   vertical_slices:
@@ -311,6 +304,49 @@ raypath_analysis:
     label_fontsize: 12
     title_fontsize: 14
     legend_fontsize: 10
+
+# Ray density analysis configuration
+ray_density_analysis:
+  enabled: false
+
+  # Input HDF5 cache file containing ray paths (from postprocess module)
+  input_cache: "${paths.input_dir}/ray_paths/ray_paths.h5"
+
+  # Output directory for analysis results
+  output_dir: "${paths.output_base_dir}/ray_density/"
+
+  # Grid dimensions (should match the model grid)
+  grid:
+    nx: 401
+    ny: 361
+    nz: 43
+    dx: 0.5  # km
+    dy: 0.5  # km
+    dz: 0.5  # km
+    x_min: 0.0  # km
+    y_min: 0.0  # km
+    z_min: 0.0  # km
+
+  # Phase type to analyze
+  phase_type: "both"  # Options: both, p, s
+
+  # Ray density computation settings
+  threshold: 0  # Ray count threshold for visualization (cells below are masked)
+  max_rays: null  # Maximum rays to load from cache (null for all)
+  num_samples_per_ray: 1000  # Number of sample points per ray for grid intersection
+
+  # Visualization options
+  planes: ["xy", "xz", "yz"]  # Projection planes to plot
+  enable_xy_threshold_count: true  # Create map showing depth layers >= threshold
+  enable_depth_slices: true  # Create horizontal slices at specified depths
+
+  # Depth slices to create (in km)
+  depth_slices: [5.0, 10.0, 15.0, 20.0, 30.0, 40.0, 50.0]
+
+  # Plot configuration
+  figure_width: 12
+  figure_height: 10
+  colormap: "hot"  # Colormap for density plots
 
 paths:
   input_dir: "data/processed"

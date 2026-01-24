@@ -54,6 +54,9 @@ __all__ = [
     'get_ray_path_metadata',
     'get_ray_path_statistics',
     'plot_ray_paths_projection',
+
+    # Ray density analysis
+    'analyze_ray_density',
 ]
 
 # Import main analysis functions
@@ -169,6 +172,13 @@ try:
 except ImportError as e:
     import logging
     logging.debug(f"Ray path analysis module import warning: {e}")
+
+# Ray density analysis imports
+try:
+    from .ray_density_analysis import analyze_ray_density
+except ImportError as e:
+    import logging
+    logging.debug(f"Ray density analysis module import warning: {e}")
 
 # Import common filtering utilities
 # Moved to separate module to avoid circular imports

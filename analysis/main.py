@@ -25,6 +25,7 @@ from .source_analysis import analyze_source_corrections
 from .gradient_analysis import analyze_gradients_and_search
 from .dws_analysis import analyze_dws
 from .raypath_analysis import analyze_ray_paths
+from .ray_density_analysis import analyze_ray_density
 
 logger = logging.getLogger(__name__)
 
@@ -262,6 +263,36 @@ def run_raypath_analysis(cfg: DictConfig) -> None:
             raise
 
 
+def run_ray_density_analysis(cfg: DictConfig) -> None:
+    """Run ray density analysis using actual traced ray paths."""
+    if not cfg.ray_density_analysis.get('enabled', False):
+        logger.info("Ray density analysis disabled, skipping")
+        return
+
+    logger.info("=" * 60)
+    logger.info("STARTING RAY DENSITY ANALYSIS")
+    logger.info("=" * 60)
+
+    with ProcessTimer("Ray density analysis"):
+        try:
+            ensure_directory_exists(cfg.ray_density_analysis.output_dir)
+            results = analyze_ray_density(OmegaConf.to_container(cfg, resolve=True))
+            logger.info("Ray density analysis completed successfully")
+            logger.info(f"Results saved to: {cfg.ray_density_analysis.output_dir}")
+
+            # Log summary
+            if 'statistics' in results:
+                for phase, stats in results['statistics'].items():
+                    logger.info(f"{phase.upper()}-wave density summary:")
+                    logger.info(f"  Coverage: {stats['coverage_percentage']:.1f}%")
+                    logger.info(f"  Density range: [{stats['min_density']}, {stats['max_density']}]")
+                    logger.info(f"  Mean density: {stats['mean_density']:.2f}")
+
+        except Exception as e:
+            logger.error(f"Ray density analysis failed: {e}")
+            raise
+
+
 def run_single_function(cfg: DictConfig, function_name: str) -> None:
     """
     Run a single analysis function.
@@ -279,6 +310,7 @@ def run_single_function(cfg: DictConfig, function_name: str) -> None:
         'gradient_analysis': run_gradient_analysis,
         'dws_analysis': run_dws_analysis,
         'raypath_analysis': run_raypath_analysis,
+        'ray_density_analysis': run_ray_density_analysis,
     }
 
     if function_name not in function_map:
@@ -389,6 +421,7 @@ def run_analysis_pipeline(cfg: DictConfig) -> None:
             ('Gradient Analysis', run_gradient_analysis),
             ('Ray Path Analysis', run_raypath_analysis),
             ('DWS Analysis', run_dws_analysis),
+            ('Ray Density Analysis', run_ray_density_analysis),
         ]
         
         completed_analyses = []
@@ -457,6 +490,8 @@ def validate_configuration(cfg: DictConfig) -> None:
         enabled_analyses.append('raypath_analysis')
     if cfg.dws_analysis.get('enabled', False):
         enabled_analyses.append('dws_analysis')
+    if cfg.ray_density_analysis.get('enabled', False):
+        enabled_analyses.append('ray_density_analysis')
     
     if not enabled_analyses:
         logger.error("No analysis modules are enabled!")
