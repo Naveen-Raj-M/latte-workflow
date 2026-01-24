@@ -176,30 +176,23 @@ def postprocess_latte_outputs(config: DictConfig) -> None:
             save_viz = getattr(diag_config, 'save_visualizations', False)
             compute_dws = getattr(diag_config, 'compute_dws', False)
 
-            # Check cache settings
-            cache_enabled = True
-            force_recompute = False
-            visualize_only_from_cache = False
-
-            if hasattr(diag_config, 'cache'):
-                cache_enabled = getattr(diag_config.cache, 'enabled', True)
-                force_recompute = getattr(diag_config.cache, 'force_recompute', False)
-                visualize_only_from_cache = getattr(diag_config.cache, 'visualize_only', False)
+            # Get cache settings (caching is always enabled)
+            force_recompute = getattr(diag_config, 'force_recompute', False)
+            visualize_only_from_cache = getattr(diag_config, 'visualize_only', False)
 
             # Print cache status
-            if cache_enabled:
-                cache_path = get_cache_path(diag_config)
-                print(f"\n  Cache settings:")
-                print(f"    Cache file: {cache_path}")
-                print(f"    Force recompute: {force_recompute}")
+            cache_path = get_cache_path(diag_config)
+            print(f"\n  Cache settings:")
+            print(f"    Cache file: {cache_path}")
+            print(f"    Force recompute: {force_recompute}")
 
-                if is_cache_valid(cache_path, diag_config):
-                    cache_stats = get_cache_stats(cache_path)
-                    print(f"    Cache status: VALID")
-                    print(f"    Cached rays: P={cache_stats['p_wave_rays']}, S={cache_stats['s_wave_rays']}")
-                    print(f"    Cache size: {cache_stats['file_size_mb']:.2f} MB")
-                else:
-                    print(f"    Cache status: INVALID or NOT FOUND")
+            if is_cache_valid(cache_path, diag_config):
+                cache_stats = get_cache_stats(cache_path)
+                print(f"    Cache status: VALID")
+                print(f"    Cached rays: P={cache_stats['p_wave_rays']}, S={cache_stats['s_wave_rays']}")
+                print(f"    Cache size: {cache_stats['file_size_mb']:.2f} MB")
+            else:
+                print(f"    Cache status: INVALID or NOT FOUND")
 
             if not save_viz and not compute_dws:
                 print(f"  WARNING: Both save_visualizations and compute_dws are disabled.")

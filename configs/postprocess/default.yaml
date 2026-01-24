@@ -121,18 +121,15 @@ ray_path_diagnosis:
   gradient_dir: "${data.base_dir}/gradient"
   shot_map_file: "${travel_time_processing.shot_map_file}"
 
-  # Output directories
-  output_dir: "${data.analysis_output_dir}/ray_paths"
+  # Output file for ray paths (caching is always enabled)
+  ray_path_output_file: "${data.analysis_output_dir}/ray_paths/ray_paths.h5"
   dws_output_file: "${data.analysis_output_dir}/dws_values.h5"
 
-  # Cache settings for ray path storage
-  cache:
-    enabled: true                    # Enable caching (set to false to disable)
-    file: "${data.analysis_output_dir}/ray_paths/ray_paths.h5"  # Cache file path
-    force_recompute: false           # Force recompute even if cache exists (deletes existing cache)
-    visualize_only: false            # If true, only visualize from existing cache (no computation)
-    compression: "gzip"              # Compression: gzip, lzf, or none
-    compression_level: 4             # Compression level (1-9 for gzip)
+  # Cache behavior settings
+  force_recompute: false           # Force recompute even if cache exists (deletes existing cache)
+  visualize_only: false            # If true, only visualize from existing cache (no computation)
+  compression: "gzip"              # Compression: gzip, lzf, or none
+  compression_level: 4             # Compression level (1-9 for gzip)
 
   # Common grid dimensions (must match the model grid used for eikonal solver)
   grid:

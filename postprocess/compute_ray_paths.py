@@ -91,12 +91,7 @@ def get_cache_path(config: DictConfig) -> str:
     Returns:
         Path to the cache HDF5 file
     """
-    if hasattr(config, 'cache') and hasattr(config.cache, 'file'):
-        return config.cache.file
-
-    # Default path
-    output_dir = config.output_dir
-    return os.path.join(output_dir, 'ray_paths_cache.h5')
+    return config.ray_path_output_file
 
 
 def is_cache_valid(cache_path: str, config: DictConfig) -> bool:
@@ -861,28 +856,21 @@ def compute_all_ray_paths(
     print("COMPUTING RAY PATHS (WITH CACHE)")
     print("="*80)
 
-    # Get cache settings
-    cache_enabled = True
-    force_recompute = False
-
-    if hasattr(config, 'cache'):
-        cache_enabled = getattr(config.cache, 'enabled', True)
-        force_recompute = getattr(config.cache, 'force_recompute', False)
-
+    # Get cache settings (caching is always enabled)
+    force_recompute = getattr(config, 'force_recompute', False)
     cache_path = get_cache_path(config)
 
     print(f"\nCache settings:")
     print(f"  Cache file: {cache_path}")
-    print(f"  Cache enabled: {cache_enabled}")
     print(f"  Force recompute: {force_recompute}")
 
     # Check cache validity
-    if cache_enabled and not force_recompute and is_cache_valid(cache_path, config):
+    if not force_recompute and is_cache_valid(cache_path, config):
         print(f"  Cache is VALID (config hash matches)")
         cache_stats = get_cache_stats(cache_path)
         print(f"  Existing cache: {cache_stats['p_wave_rays']} P-wave rays, "
               f"{cache_stats['s_wave_rays']} S-wave rays ({cache_stats['file_size_mb']:.1f} MB)")
-    elif cache_enabled:
+    else:
         if force_recompute:
             print(f"  Force recompute requested - will create new cache")
         else:
@@ -956,7 +944,7 @@ def compute_all_ray_paths(
         print(f"{'='*80}")
 
         # Get already computed shots from cache
-        computed_shots = get_computed_shots(cache_path, phase) if cache_enabled and not force_recompute else set()
+        computed_shots = get_computed_shots(cache_path, phase) if not force_recompute else set()
         if computed_shots:
             print(f"  Found {len(computed_shots)} shots already in cache")
 
@@ -1192,7 +1180,7 @@ def compute_all_ray_paths(
                 gc.collect()
 
                 # Save batch to cache
-                if cache_enabled and batch_results_for_cache:
+                if batch_results_for_cache:
                     saved = save_batch_to_cache(cache_path, phase, batch_results_for_cache)
                     print(f"    Saved {saved} rays to cache")
 
@@ -1211,19 +1199,7 @@ def compute_all_ray_paths(
         # Load all results from cache for return value
         print(f"\n  Loading all {phase.upper()}-wave rays from cache for downstream use...")
 
-        if cache_enabled:
-            phase_result = load_rays_from_cache(cache_path, phase)
-        else:
-            # If cache disabled, we can't return anything meaningful
-            # This shouldn't happen in normal use
-            phase_result = {
-                'ray_paths': [],
-                'sources': [],
-                'receivers': [],
-                'shot_ids': [],
-                'weights': []
-            }
-
+        phase_result = load_rays_from_cache(cache_path, phase)
         print(f"    Loaded {len(phase_result['ray_paths'])} rays")
 
         # Handle event filtering for DWS mode
@@ -1240,15 +1216,14 @@ def compute_all_ray_paths(
         result[phase] = phase_result
 
     # Print cache stats
-    if cache_enabled:
-        print(f"\n" + "="*80)
-        print("CACHE SUMMARY")
-        print("="*80)
-        cache_stats = get_cache_stats(cache_path)
-        print(f"  Cache file: {cache_path}")
-        print(f"  File size: {cache_stats['file_size_mb']:.2f} MB")
-        print(f"  P-wave: {cache_stats['p_wave_shots']} shots, {cache_stats['p_wave_rays']} rays")
-        print(f"  S-wave: {cache_stats['s_wave_shots']} shots, {cache_stats['s_wave_rays']} rays")
+    print(f"\n" + "="*80)
+    print("CACHE SUMMARY")
+    print("="*80)
+    cache_stats = get_cache_stats(cache_path)
+    print(f"  Cache file: {cache_path}")
+    print(f"  File size: {cache_stats['file_size_mb']:.2f} MB")
+    print(f"  P-wave: {cache_stats['p_wave_shots']} shots, {cache_stats['p_wave_rays']} rays")
+    print(f"  S-wave: {cache_stats['s_wave_shots']} shots, {cache_stats['s_wave_rays']} rays")
 
     print("\n" + "="*80)
     print("RAY PATH COMPUTATION COMPLETE")

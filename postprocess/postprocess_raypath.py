@@ -1047,8 +1047,11 @@ def create_visualizations_from_precomputed_rays(config: DictConfig, precomputed_
     print("RAY PATH VISUALIZATION (FROM PRE-COMPUTED RAYS)")
     print("="*80)
 
+    # Derive output directory from ray path output file
+    output_dir = os.path.dirname(config.ray_path_output_file)
+
     # Create output directory
-    ensure_directory_exists(config.output_dir)
+    ensure_directory_exists(output_dir)
 
     # Normalize config structure for compatibility with plot_ray_paths_projection
     # The plotting function expects config.plot, but we have config.visualization.plot
@@ -1083,7 +1086,7 @@ def create_visualizations_from_precomputed_rays(config: DictConfig, precomputed_
 
         # Create plots for each projection plane
         for plane in plot_cfg.planes:
-            output_file = f"{config.output_dir}/ray_paths_{phase}_wave_{plane}.{plot_cfg.format}"
+            output_file = f"{output_dir}/ray_paths_{phase}_wave_{plane}.{plot_cfg.format}"
             plot_ray_paths_projection(
                 ray_paths,
                 sources,
@@ -1116,18 +1119,18 @@ def create_visualizations_from_cache(config: DictConfig) -> None:
     print("="*80)
 
     # Get cache path
-    if hasattr(config, 'cache') and hasattr(config.cache, 'file'):
-        cache_path = config.cache.file
-    else:
-        cache_path = os.path.join(config.output_dir, 'ray_paths_cache.h5')
+    cache_path = config.ray_path_output_file
 
     if not os.path.exists(cache_path):
         raise FileNotFoundError(f"Cache file not found: {cache_path}")
 
     print(f"  Loading from cache: {cache_path}")
 
+    # Derive output directory from cache file path
+    output_dir = os.path.dirname(cache_path)
+
     # Create output directory
-    ensure_directory_exists(config.output_dir)
+    ensure_directory_exists(output_dir)
 
     # Normalize config structure for plotting
     if hasattr(config, 'visualization') and hasattr(config.visualization, 'plot'):
@@ -1214,7 +1217,7 @@ def create_visualizations_from_cache(config: DictConfig) -> None:
 
             # Create plots for each projection plane
             for plane in plot_cfg.planes:
-                output_file = f"{config.output_dir}/ray_paths_{phase}_wave_{plane}.{plot_cfg.format}"
+                output_file = f"{output_dir}/ray_paths_{phase}_wave_{plane}.{plot_cfg.format}"
                 plot_ray_paths_projection(
                     ray_paths,
                     sources,
