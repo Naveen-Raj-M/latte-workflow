@@ -129,19 +129,34 @@ def load_ray_paths_from_cache(
                 load_shot_ids = list(shots_group.keys())
 
             total_loaded = 0
+            corrupted_shots = []
 
             for shot_key in load_shot_ids:
                 if shot_key not in shots_group:
                     continue
 
-                shot_grp = shots_group[shot_key]
+                try:
+                    shot_grp = shots_group[shot_key]
 
-                # Load data
-                source = tuple(shot_grp['source'][:])
-                recv_array = shot_grp['receivers'][:]
-                wts_array = shot_grp['weights'][:]
-                lengths = shot_grp['ray_lengths'][:]
-                data = shot_grp['ray_data'][:]
+                    # Load data (may fail if compressed data is corrupted)
+                    source = tuple(shot_grp['source'][:])
+                    recv_array = shot_grp['receivers'][:]
+                    wts_array = shot_grp['weights'][:]
+                    lengths = shot_grp['ray_lengths'][:]
+                    data = shot_grp['ray_data'][:]
+                except (OSError, RuntimeError) as e:
+                    # Skip corrupted shots (gzip decompression failure or other HDF5 errors)
+                    error_msg = str(e).lower()
+                    if "filter" in error_msg or "read" in error_msg or "decompress" in error_msg:
+                        corrupted_shots.append(int(shot_key))
+                        logger.debug(f"Skipping corrupted shot {shot_key}: {e}")
+                        continue
+                    else:
+                        logger.error(f"Unexpected error reading shot {shot_key}: {e}")
+                        raise
+                except Exception as e:
+                    logger.error(f"Unexpected exception for shot {shot_key}: {type(e).__name__}: {e}")
+                    raise
 
                 # Reconstruct individual ray paths
                 offset = 0
@@ -162,6 +177,13 @@ def load_ray_paths_from_cache(
 
                 if max_rays is not None and total_loaded >= max_rays:
                     break
+
+            # Warn if corrupted shots were found
+            if corrupted_shots:
+                logger.warning(
+                    f"Skipped {len(corrupted_shots)} corrupted shots in {ph.upper()}-wave cache: {corrupted_shots}. "
+                    f"Run postprocess with fix_corrupted_shots=true to repair cache."
+                )
 
             result[ph] = {
                 'ray_paths': ray_paths,
@@ -248,6 +270,8 @@ def get_ray_path_statistics(cache_path: str) -> Dict[str, Any]:
             - 's_wave_rays': Number of S-wave rays
             - 'created': Creation timestamp
             - 'last_updated': Last update timestamp
+            - 'p_wave_corrupted': Number of corrupted P-wave shots
+            - 's_wave_corrupted': Number of corrupted S-wave shots
     """
     stats = {
         'exists': os.path.exists(cache_path),
@@ -255,6 +279,8 @@ def get_ray_path_statistics(cache_path: str) -> Dict[str, Any]:
         's_wave_shots': 0,
         'p_wave_rays': 0,
         's_wave_rays': 0,
+        'p_wave_corrupted': 0,
+        's_wave_corrupted': 0,
         'file_size_mb': 0,
         'created': None,
         'last_updated': None
@@ -277,12 +303,31 @@ def get_ray_path_statistics(cache_path: str) -> Dict[str, Any]:
                     shots = f[phase_group]['shots']
                     stats[f'{phase}_wave_shots'] = len(shots)
 
-                    # Count total rays
+                    # Count total rays and check for corruption
                     total_rays = 0
+                    corrupted_count = 0
                     for shot_key in shots.keys():
                         if 'ray_lengths' in shots[shot_key]:
-                            total_rays += len(shots[shot_key]['ray_lengths'][:])
+                            try:
+                                # Try to read ray_data to check for corruption
+                                _ = shots[shot_key]['ray_data'][:]
+                                total_rays += len(shots[shot_key]['ray_lengths'][:])
+                            except (OSError, RuntimeError) as e:
+                                error_msg = str(e).lower()
+                                if "filter" in error_msg or "read" in error_msg or "decompress" in error_msg:
+                                    corrupted_count += 1
+                                    logger.debug(f"Found corrupted shot {shot_key} in statistics")
+                                else:
+                                    raise
+
                     stats[f'{phase}_wave_rays'] = total_rays
+                    stats[f'{phase}_wave_corrupted'] = corrupted_count
+
+                    if corrupted_count > 0:
+                        logger.warning(
+                            f"Found {corrupted_count} corrupted shots in {phase.upper()}-wave cache. "
+                            f"Run postprocess with fix_corrupted_shots=true to repair."
+                        )
     except Exception as e:
         logger.error(f"Error reading cache stats: {e}")
 
@@ -333,6 +378,7 @@ def get_unique_receivers(cache_path: str, phase: str = 'p') -> List[Tuple[float,
         return []
 
     receivers = set()
+    corrupted_count = 0
 
     with h5py.File(cache_path, 'r') as f:
         phase_group = f'{phase}_wave'
@@ -341,8 +387,23 @@ def get_unique_receivers(cache_path: str, phase: str = 'p') -> List[Tuple[float,
 
         shots_group = f[phase_group]['shots']
         for shot_key in shots_group.keys():
-            recv_array = shots_group[shot_key]['receivers'][:]
-            for recv in recv_array:
-                receivers.add(tuple(recv))
+            try:
+                recv_array = shots_group[shot_key]['receivers'][:]
+                for recv in recv_array:
+                    receivers.add(tuple(recv))
+            except (OSError, RuntimeError) as e:
+                error_msg = str(e).lower()
+                if "filter" in error_msg or "read" in error_msg or "decompress" in error_msg:
+                    corrupted_count += 1
+                    logger.debug(f"Skipping corrupted shot {shot_key} in get_unique_receivers")
+                    continue
+                else:
+                    raise
+
+    if corrupted_count > 0:
+        logger.warning(
+            f"Skipped {corrupted_count} corrupted shots while reading receivers. "
+            f"Run postprocess with fix_corrupted_shots=true to repair cache."
+        )
 
     return list(receivers)

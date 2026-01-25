@@ -122,12 +122,18 @@ def compute_ray_density_from_cache(
         else:
             shot_keys = list(shots_group.keys())
 
-        # Count total rays for progress tracking
-        total_rays = sum(
-            len(shots_group[sid]['ray_lengths'][:])
-            for sid in shot_keys
-            if 'ray_lengths' in shots_group[sid]
-        )
+        # Count total rays for progress tracking (skip corrupted shots)
+        total_rays = 0
+        for sid in shot_keys:
+            if 'ray_lengths' in shots_group[sid]:
+                try:
+                    total_rays += len(shots_group[sid]['ray_lengths'][:])
+                except (OSError, RuntimeError) as e:
+                    # Skip corrupted shots during counting
+                    error_msg = str(e).lower()
+                    if "filter" not in error_msg and "read" not in error_msg and "decompress" not in error_msg:
+                        raise
+                    # else: silently skip corrupted shot
 
         logger.info(f"  Total rays in cache: {total_rays:,}")
 
@@ -138,14 +144,30 @@ def compute_ray_density_from_cache(
         # Process rays from cache
         n_valid_rays = 0
         loaded_rays = 0
+        corrupted_shots = []
 
         iterator = tqdm(shot_keys, desc=f"Computing {phase}-wave density") if show_progress else shot_keys
 
         for shot_key in iterator:
-            shot_grp = shots_group[shot_key]
+            try:
+                shot_grp = shots_group[shot_key]
 
-            lengths = shot_grp['ray_lengths'][:]
-            data = shot_grp['ray_data'][:]
+                # Load data (may fail if compressed data is corrupted)
+                lengths = shot_grp['ray_lengths'][:]
+                data = shot_grp['ray_data'][:]
+            except (OSError, RuntimeError) as e:
+                # Skip corrupted shots (gzip decompression failure or other HDF5 errors)
+                error_msg = str(e).lower()
+                if "filter" in error_msg or "read" in error_msg or "decompress" in error_msg:
+                    corrupted_shots.append(int(shot_key))
+                    logger.debug(f"Skipping corrupted shot {shot_key}: {e}")
+                    continue
+                else:
+                    logger.error(f"Unexpected error reading shot {shot_key}: {e}")
+                    raise
+            except Exception as e:
+                logger.error(f"Unexpected exception for shot {shot_key}: {type(e).__name__}: {e}")
+                raise
 
             offset = 0
             for length in lengths:
@@ -172,6 +194,13 @@ def compute_ray_density_from_cache(
 
             if max_rays is not None and loaded_rays >= max_rays:
                 break
+
+        # Warn if corrupted shots were found
+        if corrupted_shots:
+            logger.warning(
+                f"Skipped {len(corrupted_shots)} corrupted shots in {phase.upper()}-wave cache: {corrupted_shots}. "
+                f"Run postprocess with fix_corrupted_shots=true to repair cache."
+            )
 
     logger.info(f"  Processed {n_valid_rays:,} valid rays")
     logger.info(f"  Max ray density: {density.max()} rays per cell")
