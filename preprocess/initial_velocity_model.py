@@ -940,15 +940,9 @@ def _generate_binary_files(config: DictConfig, grid_df: pd.DataFrame,
 
         vel_col = 'vp' if phase == 'p' else 'vs'
 
-        # Hybrid vectorization: Choose approach based on grid size
-        if len(grid_df) < vectorize_threshold:
-            # FAST PATH: Full vectorization
-            grid_3d = _fill_grid_vectorized(grid_df, vel_col, nx, ny, nz, logger)
-        else:
-            # SAFE PATH: Chunked vectorization
-            grid_3d = _fill_grid_chunked_vectorized(
-                grid_df, vel_col, nx, ny, nz, grid_chunk_size, n_jobs, logger
-            )
+        # Always use full vectorization - numpy fancy indexing is fast and memory-efficient
+        # The chunked parallel version causes memory issues due to process forking
+        grid_3d = _fill_grid_vectorized(grid_df, vel_col, nx, ny, nz, logger)
 
         # Interpolate if requested
         if vel_config.get('interpolate', False):
