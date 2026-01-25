@@ -126,6 +126,8 @@ ray_path_diagnosis:
 
   # Cache behavior settings
   force_recompute: false           # Force recompute even if cache exists (deletes existing cache)
+  fix_corrupted_shots: true        # Detect and recompute only corrupted shots in cache
+  load_cache_for_downstream: false # Load all rays into memory after computation (only needed for immediate use)
   compression: "gzip"              # Compression: gzip, lzf, or none
   compression_level: 4             # Compression level (1-9 for gzip)
 

@@ -345,6 +345,7 @@ def load_rays_from_cache(
             shot_ids = [int(sid) for sid in shots_group.keys()]
 
         total_loaded = 0
+        corrupted_shots = []
         for shot_id in shot_ids:
             shot_key = str(shot_id)
             if shot_key not in shots_group:
@@ -352,12 +353,20 @@ def load_rays_from_cache(
 
             shot_grp = shots_group[shot_key]
 
-            # Load data
-            source = tuple(shot_grp['source'][:])
-            recv_array = shot_grp['receivers'][:]
-            wts_array = shot_grp['weights'][:]
-            lengths = shot_grp['ray_lengths'][:]
-            data = shot_grp['ray_data'][:]
+            try:
+                # Load data (may fail if compressed data is corrupted)
+                source = tuple(shot_grp['source'][:])
+                recv_array = shot_grp['receivers'][:]
+                wts_array = shot_grp['weights'][:]
+                lengths = shot_grp['ray_lengths'][:]
+                data = shot_grp['ray_data'][:]
+            except OSError as e:
+                # Skip corrupted shots (gzip decompression failure)
+                if "filter returned failure during read" in str(e):
+                    corrupted_shots.append(shot_id)
+                    continue
+                else:
+                    raise
 
             # Reconstruct individual ray paths
             offset = 0
@@ -379,6 +388,15 @@ def load_rays_from_cache(
             if max_rays is not None and total_loaded >= max_rays:
                 break
 
+        # Warn if corrupted shots were found
+        if corrupted_shots:
+            import warnings
+            warnings.warn(
+                f"Skipped {len(corrupted_shots)} corrupted shots in cache: {corrupted_shots}. "
+                f"Enable fix_corrupted_shots=true to automatically recompute them, or use force_recompute=true to regenerate entire cache.",
+                UserWarning
+            )
+
     return {
         'ray_paths': ray_paths,
         'sources': sources,
@@ -386,6 +404,47 @@ def load_rays_from_cache(
         'shot_ids': shot_ids_list,
         'weights': weights
     }
+
+
+def find_corrupted_shots(cache_path: str, phase: str) -> List[int]:
+    """
+    Scan cache to find corrupted shots that cannot be read.
+
+    Args:
+        cache_path: Path to the cache file
+        phase: 'p' or 's'
+
+    Returns:
+        List of corrupted shot IDs
+    """
+    corrupted_shots = []
+
+    if not os.path.exists(cache_path):
+        return corrupted_shots
+
+    try:
+        with h5py.File(cache_path, 'r') as f:
+            phase_group = f'{phase}_wave'
+
+            if phase_group not in f or 'shots' not in f[phase_group]:
+                return corrupted_shots
+
+            shots_group = f[phase_group]['shots']
+            shot_ids = [int(sid) for sid in shots_group.keys()]
+
+            for shot_id in shot_ids:
+                shot_key = str(shot_id)
+                try:
+                    # Try to read the compressed ray_data
+                    _ = shots_group[shot_key]['ray_data'][:]
+                except OSError as e:
+                    if "filter returned failure during read" in str(e):
+                        corrupted_shots.append(shot_id)
+
+    except Exception as e:
+        print(f"  Warning: Error while scanning for corrupted shots: {e}")
+
+    return corrupted_shots
 
 
 def get_cache_stats(cache_path: str) -> Dict:
@@ -948,6 +1007,18 @@ def compute_all_ray_paths(
         if computed_shots:
             print(f"  Found {len(computed_shots)} shots already in cache")
 
+        # Check for corrupted shots if requested
+        corrupted_shots = set()
+        fix_corrupted = getattr(config, 'fix_corrupted_shots', False)
+        if fix_corrupted and not force_recompute and computed_shots:
+            print(f"  Scanning for corrupted shots...")
+            corrupted_shots = set(find_corrupted_shots(cache_path, phase))
+            if corrupted_shots:
+                print(f"  Found {len(corrupted_shots)} corrupted shots: {sorted(list(corrupted_shots))}")
+                print(f"  These will be recomputed")
+            else:
+                print(f"  No corrupted shots found")
+
         # Filter by phase if column exists
         if 'phase' in df_gt.columns:
             df_phase = df_gt[df_gt['phase'].str.upper() == phase.upper()].copy()
@@ -968,12 +1039,16 @@ def compute_all_ray_paths(
             unique_shots = unique_shots[:max_shots]
             print(f"  Limited to {max_shots} shots")
 
-        # Filter out already computed shots
-        shots_to_compute = [s for s in unique_shots if s not in computed_shots]
+        # Filter out already computed shots (but include corrupted ones)
+        shots_to_compute = [s for s in unique_shots if (s not in computed_shots) or (s in corrupted_shots)]
 
         if len(shots_to_compute) < len(unique_shots):
-            print(f"  Skipping {len(unique_shots) - len(shots_to_compute)} already computed shots")
-            print(f"  Will compute {len(shots_to_compute)} new shots")
+            n_skipped = len(unique_shots) - len(shots_to_compute)
+            n_corrupted = len([s for s in shots_to_compute if s in corrupted_shots])
+            print(f"  Skipping {n_skipped} already computed shots")
+            if n_corrupted > 0:
+                print(f"  Will recompute {n_corrupted} corrupted shots")
+            print(f"  Will compute {len(shots_to_compute)} total shots ({len(shots_to_compute) - n_corrupted} new + {n_corrupted} recomputed)")
 
         # Get weight column if it exists
         has_weights = weight_column is not None and weight_column in df_phase.columns
@@ -1196,24 +1271,37 @@ def compute_all_ray_paths(
 
             print(f"\n  Computation complete: {total_rays_computed} rays traced, {total_failed} failed")
 
-        # Load all results from cache for return value
-        print(f"\n  Loading all {phase.upper()}-wave rays from cache for downstream use...")
+        # Only load results from cache if needed for downstream use
+        load_for_downstream = getattr(config, 'load_cache_for_downstream', False)
 
-        phase_result = load_rays_from_cache(cache_path, phase)
-        print(f"    Loaded {len(phase_result['ray_paths'])} rays")
+        if load_for_downstream:
+            print(f"\n  Loading all {phase.upper()}-wave rays from cache for downstream use...")
+            phase_result = load_rays_from_cache(cache_path, phase)
+            print(f"    Loaded {len(phase_result['ray_paths'])} rays")
 
-        # Handle event filtering for DWS mode
-        if filter_shot_ids is not None and not subsample_during_computation:
-            # Filter rays for visualization
-            viz_indices = [i for i, sid in enumerate(phase_result['shot_ids']) if sid in filter_shot_ids]
-            print(f"  EVENT FILTER: Will plot {len(viz_indices)}/{len(phase_result['ray_paths'])} rays")
+            # Handle event filtering for DWS mode
+            if filter_shot_ids is not None and not subsample_during_computation:
+                # Filter rays for visualization
+                viz_indices = [i for i, sid in enumerate(phase_result['shot_ids']) if sid in filter_shot_ids]
+                print(f"  EVENT FILTER: Will plot {len(viz_indices)}/{len(phase_result['ray_paths'])} rays")
 
-            phase_result['viz_ray_paths'] = [phase_result['ray_paths'][i] for i in viz_indices]
-            phase_result['viz_sources'] = [phase_result['sources'][i] for i in viz_indices]
-            phase_result['viz_receivers'] = [phase_result['receivers'][i] for i in viz_indices]
-            phase_result['viz_shot_ids'] = [phase_result['shot_ids'][i] for i in viz_indices]
+                phase_result['viz_ray_paths'] = [phase_result['ray_paths'][i] for i in viz_indices]
+                phase_result['viz_sources'] = [phase_result['sources'][i] for i in viz_indices]
+                phase_result['viz_receivers'] = [phase_result['receivers'][i] for i in viz_indices]
+                phase_result['viz_shot_ids'] = [phase_result['shot_ids'][i] for i in viz_indices]
 
-        result[phase] = phase_result
+            result[phase] = phase_result
+        else:
+            print(f"\n  Skipping cache load (load_cache_for_downstream=false)")
+            print(f"  Ray paths are saved in cache: {cache_path}")
+            # Return empty result for this phase
+            result[phase] = {
+                'ray_paths': [],
+                'sources': [],
+                'receivers': [],
+                'shot_ids': [],
+                'weights': []
+            }
 
     # Print cache stats
     print(f"\n" + "="*80)
