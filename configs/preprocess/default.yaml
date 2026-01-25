@@ -79,6 +79,19 @@ coordinate_transform:
   # Output directory for transformed coordinates
   output_dir: "${data.output_base_dir}/coordinate_transform"
 
+  # Basin boundaries transformation (optional)
+  basin_boundaries:
+    enabled: false  # Set to true to enable basin boundary transformation
+    data_dir: "/path/to/basin_boundaries"  # Directory containing basin boundary CSV files
+    # Basin files to transform (same format as visualization.basin_boundaries.basins)
+    basins:
+      - file: "CentralBasin_Verticies_WGS84.csv"
+        label: "Central Basin"
+      - file: "DelawareBasin_Verticies_WGS84.csv"
+        label: "Delaware Basin"
+      - file: "MidlandBasin_Verticies_WGS84.csv"
+        label: "Midland Basin"
+
 # Geometry and travel time file generation
 geometry_traveltime:
   enabled: true

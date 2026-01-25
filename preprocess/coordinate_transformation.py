@@ -174,6 +174,71 @@ def compute_domain_bounds(events_df: pd.DataFrame, stations_df: pd.DataFrame,
     return (min_x, min_y, min_z), (max_x, max_y, max_z)
 
 
+def _load_and_transform_basin_boundaries(config: DictConfig, origin_lon: float,
+                                          origin_lat: float, origin_depth: float,
+                                          invert_y_axis: bool, output_dir: Path) -> None:
+    """Load basin boundaries and transform their coordinates.
+
+    Args:
+        config: Basin boundaries configuration.
+        origin_lon: Origin longitude in degrees.
+        origin_lat: Origin latitude in degrees.
+        origin_depth: Origin depth in km.
+        invert_y_axis: If True, positive y when latitude decreases (going south).
+        output_dir: Directory to save transformed basin boundary files.
+    """
+    logger = logging.getLogger(__name__)
+
+    if not config.get('enabled', False):
+        logger.info("Basin boundary transformation disabled")
+        return
+
+    data_dir = Path(config.data_dir)
+    basin_output_dir = output_dir / 'basin_boundaries'
+    ensure_directory_exists(basin_output_dir)
+
+    transformed_count = 0
+    for basin in config.basins:
+        csv_file = data_dir / basin['file']
+
+        if not csv_file.exists():
+            logger.warning(f"Basin boundary file not found: {csv_file}")
+            continue
+
+        # Read space-delimited file (despite .csv extension)
+        df = pd.read_csv(csv_file, delim_whitespace=True)
+
+        # Create a DataFrame with standard column names for transformation
+        basin_df = pd.DataFrame({
+            'longitude': df['POINT_X'].values,
+            'latitude': df['POINT_Y'].values,
+            'depth': np.zeros(len(df))  # Basins are surface features
+        })
+
+        # Transform to Cartesian coordinates
+        basin_cart = flattening_transformation(basin_df, origin_lon, origin_lat,
+                                               origin_depth, invert_y_axis)
+
+        # Create output DataFrame in same format as input (POINT_X, POINT_Y)
+        # but with Cartesian coordinates
+        output_df = pd.DataFrame({
+            'POINT_X': basin_cart['x'].values,
+            'POINT_Y': basin_cart['y'].values
+        })
+
+        # Save transformed basin boundary
+        output_file = basin_output_dir / basin['file']
+        # Save with space delimiter to match input format
+        output_df.to_csv(output_file, sep=' ', index=False)
+
+        basin_name = basin.get('label', basin['file'])
+        logger.info(f"Transformed basin boundary '{basin_name}': {output_file}")
+        transformed_count += 1
+
+    if transformed_count > 0:
+        logger.info(f"Saved {transformed_count} transformed basin boundaries to {basin_output_dir}")
+
+
 def transform_coordinates(config: DictConfig, events_df: pd.DataFrame,
                           stations_df: pd.DataFrame) -> Tuple[pd.DataFrame,
                                                               pd.DataFrame]:
@@ -238,5 +303,13 @@ def transform_coordinates(config: DictConfig, events_df: pd.DataFrame,
 
     logger.info(f"Saved transformed events: {events_csv}")
     logger.info(f"Saved transformed stations: {stations_csv}")
+
+    # Transform basin boundaries if configured
+    if hasattr(coord_config, 'basin_boundaries'):
+        _load_and_transform_basin_boundaries(
+            coord_config.basin_boundaries,
+            origin_lon, origin_lat, origin_depth, invert_y_axis,
+            output_dir
+        )
 
     return events_cart, stations_cart
