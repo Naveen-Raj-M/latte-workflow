@@ -31,6 +31,42 @@ tracing:
   step_size: 0.1  # Integration step size in km (smaller = more accurate but slower)
   tolerance: 0.5  # Distance tolerance to source in km (stop when within this distance)
   interpolation_method: "trilinear"  # Options: nearest, trilinear
+
+  # Advanced ray tracing improvements (from RAY_PATH_ISSUES.md)
+  # These settings address numerical precision issues and convergence failures
+
+  # Adaptive step sizing (Priority 1)
+  adaptive_step_size: true  # Enable adaptive step sizing based on gradient magnitude
+  min_step_size: 0.01  # Minimum step size in km (for large gradients)
+  max_step_size: 1.0  # Maximum step size in km (for small gradients/flat regions)
+  step_size_scaling: "inverse"  # Options: inverse, sqrt_inverse, fixed
+
+  # Gradient magnitude thresholding (Priority 1)
+  min_gradient_magnitude: 1.0e-6  # Minimum reliable gradient magnitude (s/km)
+  use_direct_fallback: true  # Fall back to direct source direction if gradient too small
+
+  # Convergence monitoring (Priority 1)
+  enable_convergence_check: true  # Monitor distance to source and detect oscillations
+  max_oscillations: 100  # Maximum consecutive non-improving steps before termination
+  oscillation_tolerance: 1.0e-3  # Distance change threshold for oscillation detection (km)
+
+  # Hybrid ray tracing (Priority 2)
+  hybrid_mode: false  # Blend gradient direction with direct source direction
+  hybrid_alpha: 0.7  # Weight for gradient direction (0=direct, 1=pure gradient)
+  hybrid_adaptive_alpha: true  # Reduce alpha when far from source or gradient is weak
+  hybrid_distance_threshold: 100.0  # Distance (km) above which alpha is reduced
+
+  # Momentum-based tracing (Priority 2)
+  momentum_mode: false  # Use momentum to smooth out oscillations
+  momentum_beta: 0.9  # Momentum coefficient (0=no momentum, 1=full momentum)
+  momentum_learning_rate: 0.1  # Learning rate for momentum updates
+
+  # Diagnostic output (Priority 2)
+  diagnostic_mode: false  # Enable detailed diagnostic logging for failed rays
+  diagnostic_output_dir: "${data.analysis_output_dir}/ray_diagnostics"  # Output directory
+  diagnostic_max_rays: 100  # Maximum number of failed rays to log in detail
+  log_gradient_magnitudes: false  # Log gradient magnitude along ray path
+  log_distance_to_source: false  # Log distance to source at each step
   
 data:
   base_dir: "/path/to/latte/output"

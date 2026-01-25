@@ -302,6 +302,138 @@ def interpolate_gradient_trilinear(grad_x: np.ndarray, grad_y: Optional[np.ndarr
         return np.array([gx, 0.0, gz])
 
 
+def compute_adaptive_step_size(gradient_mag: float, base_step: float, min_step: float, max_step: float, scaling: str = 'inverse') -> float:
+    """
+    Compute adaptive step size based on gradient magnitude.
+
+    Small gradients -> larger steps to traverse flat regions faster
+    Large gradients -> smaller steps for precision
+
+    Args:
+        gradient_mag: Magnitude of the gradient
+        base_step: Base step size
+        min_step: Minimum allowed step size
+        max_step: Maximum allowed step size
+        scaling: Scaling method ('inverse', 'sqrt_inverse', or 'fixed')
+
+    Returns:
+        Adaptive step size in km
+    """
+    if scaling == 'fixed':
+        return base_step
+    elif scaling == 'sqrt_inverse':
+        # Square root inverse scaling (gentler adaptation)
+        if gradient_mag > 1e-6:
+            step = base_step / np.sqrt(gradient_mag)
+        else:
+            step = max_step
+    else:  # 'inverse'
+        # Inverse scaling (stronger adaptation)
+        if gradient_mag > 1e-6:
+            step = base_step / gradient_mag
+        else:
+            step = max_step
+
+    return np.clip(step, min_step, max_step)
+
+
+def check_convergence(current_pos: np.ndarray, source_pos: np.ndarray,
+                      prev_distance: float, oscillation_count: int,
+                      max_oscillations: int, tolerance: float, oscillation_tol: float) -> Tuple[Optional[bool], int, str]:
+    """
+    Monitor ray progress and detect failure modes.
+
+    Args:
+        current_pos: Current position
+        source_pos: Target source position
+        prev_distance: Distance at previous step
+        oscillation_count: Current oscillation counter
+        max_oscillations: Maximum allowed oscillations
+        tolerance: Distance tolerance for success
+        oscillation_tol: Distance change threshold for oscillation
+
+    Returns:
+        Tuple of (converged/failed/None, updated oscillation_count, status_message)
+    """
+    current_distance = np.linalg.norm(current_pos - source_pos)
+
+    # Check if distance is decreasing (with small tolerance for numerical noise)
+    distance_change = prev_distance - current_distance
+
+    if distance_change < oscillation_tol:
+        # Not making progress
+        oscillation_count += 1
+    else:
+        # Making progress, reset counter
+        oscillation_count = 0
+
+    # Terminate if stuck oscillating
+    if oscillation_count > max_oscillations:
+        return False, oscillation_count, "STUCK_OSCILLATING"
+
+    # Success if within tolerance
+    if current_distance < tolerance:
+        return True, oscillation_count, "SUCCESS"
+
+    return None, oscillation_count, "IN_PROGRESS"
+
+
+def compute_hybrid_direction(gradient: np.ndarray, current_pos: np.ndarray,
+                            source_pos: np.ndarray, alpha: float,
+                            adaptive: bool, distance_threshold: float,
+                            gradient_mag: float, min_gradient: float) -> np.ndarray:
+    """
+    Blend gradient direction with direct source direction.
+
+    Args:
+        gradient: Gradient vector (not normalized)
+        current_pos: Current position
+        source_pos: Target source position
+        alpha: Weight for gradient direction (0=direct, 1=pure gradient)
+        adaptive: Whether to adaptively adjust alpha
+        distance_threshold: Distance threshold for adaptive alpha
+        gradient_mag: Magnitude of gradient
+        min_gradient: Minimum gradient threshold
+
+    Returns:
+        Combined direction vector (normalized)
+    """
+    # Gradient-based direction (negative gradient points toward source)
+    grad_mag = np.linalg.norm(gradient)
+    if grad_mag > 1e-10:
+        grad_dir = -gradient / grad_mag
+    else:
+        grad_dir = np.zeros_like(gradient)
+
+    # Direct source direction
+    source_vec = source_pos - current_pos
+    source_dist = np.linalg.norm(source_vec)
+    if source_dist > 1e-10:
+        source_dir = source_vec / source_dist
+    else:
+        return grad_dir
+
+    # Adaptive alpha adjustment
+    effective_alpha = alpha
+    if adaptive:
+        # Reduce alpha (use more direct direction) when:
+        # 1. Far from source
+        # 2. Gradient is weak
+        if source_dist > distance_threshold:
+            effective_alpha *= 0.5
+        if gradient_mag < min_gradient * 10:
+            effective_alpha *= 0.3
+
+    # Blend directions
+    combined_dir = effective_alpha * grad_dir + (1 - effective_alpha) * source_dir
+    combined_mag = np.linalg.norm(combined_dir)
+
+    if combined_mag > 1e-10:
+        return combined_dir / combined_mag
+    else:
+        return source_dir
+
+
 def trace_ray_path(source_pos: Tuple[float, float, float],
                    receiver_pos: Tuple[float, float, float],
                    grad_x: np.ndarray, grad_y: Optional[np.ndarray], grad_z: np.ndarray,
@@ -309,9 +441,31 @@ def trace_ray_path(source_pos: Tuple[float, float, float],
                    max_steps: int = 10000,
                    step_size: float = 0.1,
                    tolerance: float = 0.5,
-                   interpolation_method: str = 'nearest') -> np.ndarray:
+                   interpolation_method: str = 'nearest',
+                   # Advanced options (from RAY_PATH_ISSUES.md improvements)
+                   adaptive_step_size: bool = False,
+                   min_step_size: float = 0.01,
+                   max_step_size: float = 1.0,
+                   step_size_scaling: str = 'inverse',
+                   min_gradient_magnitude: float = 1e-6,
+                   use_direct_fallback: bool = False,
+                   enable_convergence_check: bool = False,
+                   max_oscillations: int = 100,
+                   oscillation_tolerance: float = 1e-3,
+                   hybrid_mode: bool = False,
+                   hybrid_alpha: float = 0.7,
+                   hybrid_adaptive_alpha: bool = False,
+                   hybrid_distance_threshold: float = 100.0,
+                   momentum_mode: bool = False,
+                   momentum_beta: float = 0.9,
+                   momentum_learning_rate: float = 0.1,
+                   diagnostic_mode: bool = False) -> np.ndarray:
     """
-    Trace ray path from receiver to source using gradient descent.
+    Trace ray path from receiver to source using improved gradient descent.
+
+    This function implements the improvements outlined in RAY_PATH_ISSUES.md:
+    - Priority 1: Adaptive step sizing, gradient magnitude thresholding, convergence monitoring
+    - Priority 2: Hybrid ray tracing, momentum-based tracing, diagnostic output
 
     The ray follows the negative gradient of the traveltime field:
     dx/ds = -∇T / |∇T|
@@ -322,14 +476,34 @@ def trace_ray_path(source_pos: Tuple[float, float, float],
         grad_x, grad_y, grad_z: Gradient fields (∂T/∂x, ∂T/∂y, ∂T/∂z)
         grid_dims: Grid dimensions and spacing
         max_steps: Maximum number of integration steps
-        step_size: Integration step size in km
+        step_size: Integration step size in km (base step for adaptive mode)
         tolerance: Distance tolerance to source in km
-        interpolation_method: 'nearest' or 'trilinear' (default: 'nearest')
-                            - 'nearest': Floor-based nearest neighbor sampling (faster, less accurate)
-                            - 'trilinear': Trilinear interpolation (slower, more accurate, smoother rays)
+        interpolation_method: 'nearest' or 'trilinear'
+
+        # Priority 1 improvements
+        adaptive_step_size: Enable adaptive step sizing based on gradient magnitude
+        min_step_size: Minimum step size in km
+        max_step_size: Maximum step size in km
+        step_size_scaling: Scaling method ('inverse', 'sqrt_inverse', 'fixed')
+        min_gradient_magnitude: Minimum reliable gradient magnitude (s/km)
+        use_direct_fallback: Fall back to direct source direction if gradient too small
+        enable_convergence_check: Monitor convergence and detect oscillations
+        max_oscillations: Maximum consecutive non-improving steps
+        oscillation_tolerance: Distance change threshold for oscillation detection (km)
+
+        # Priority 2 improvements
+        hybrid_mode: Blend gradient and direct source directions
+        hybrid_alpha: Weight for gradient direction (0=direct, 1=pure gradient)
+        hybrid_adaptive_alpha: Adaptively adjust alpha based on distance/gradient
+        hybrid_distance_threshold: Distance (km) for adaptive alpha adjustment
+        momentum_mode: Use momentum to smooth oscillations
+        momentum_beta: Momentum coefficient (0=no momentum, 1=full momentum)
+        momentum_learning_rate: Learning rate for momentum updates
+        diagnostic_mode: Enable detailed diagnostic logging
 
     Returns:
         Array of ray path coordinates (n_points, 3)
+        If diagnostic_mode is True, also stores diagnostic info in ray_path.diagnostics
     """
     is_3d = grad_y is not None
 
@@ -338,88 +512,215 @@ def trace_ray_path(source_pos: Tuple[float, float, float],
     dx, dy, dz = grid_dims['dx'], grid_dims['dy'], grid_dims['dz']
     ox, oy, oz = grid_dims['origin_x'], grid_dims['origin_y'], grid_dims['origin_z']
 
-    # Initialize ray path
+    # Initialize ray path and tracking variables
     ray_path = [receiver_pos]
-    current_pos = np.array(receiver_pos)
+    current_pos = np.array(receiver_pos, dtype=np.float64)
+    source_pos_arr = np.array(source_pos, dtype=np.float64)
+
+    # Convergence monitoring
+    prev_distance = np.linalg.norm(current_pos - source_pos_arr)
+    oscillation_count = 0
+    termination_reason = "MAX_STEPS"
+
+    # Momentum tracking
+    velocity = np.zeros(3, dtype=np.float64) if momentum_mode else None
+
+    # Diagnostic tracking
+    diagnostics = {
+        'gradient_magnitudes': [],
+        'distances_to_source': [],
+        'step_sizes': [],
+        'termination_reason': '',
+        'final_distance': 0.0,
+        'oscillation_count': 0,
+        'gradient_fallback_count': 0
+    } if diagnostic_mode else None
 
     for step in range(max_steps):
         # Check if we've reached the source
-        dist_to_source = np.linalg.norm(current_pos - np.array(source_pos))
+        dist_to_source = np.linalg.norm(current_pos - source_pos_arr)
+
+        if diagnostic_mode:
+            diagnostics['distances_to_source'].append(dist_to_source)
+
         if dist_to_source < tolerance:
             ray_path.append(source_pos)
+            termination_reason = "SUCCESS"
+            if diagnostic_mode:
+                diagnostics['termination_reason'] = termination_reason
+                diagnostics['final_distance'] = dist_to_source
             break
 
-        # Get gradient at current position using selected interpolation method
+        # Convergence check (Priority 1)
+        if enable_convergence_check:
+            converged, oscillation_count, status = check_convergence(
+                current_pos, source_pos_arr, prev_distance,
+                oscillation_count, max_oscillations, tolerance, oscillation_tolerance
+            )
+
+            if converged is True:
+                ray_path.append(source_pos)
+                termination_reason = "SUCCESS"
+                if diagnostic_mode:
+                    diagnostics['termination_reason'] = termination_reason
+                    diagnostics['final_distance'] = dist_to_source
+                    diagnostics['oscillation_count'] = oscillation_count
+                break
+            elif converged is False:
+                termination_reason = status
+                if diagnostic_mode:
+                    diagnostics['termination_reason'] = termination_reason
+                    diagnostics['final_distance'] = dist_to_source
+                    diagnostics['oscillation_count'] = oscillation_count
+                break
+
+            prev_distance = dist_to_source
+
+        # Get gradient at current position
         if interpolation_method == 'trilinear':
-            # Use trilinear/bilinear interpolation
             gradient = interpolate_gradient_trilinear(
                 grad_x, grad_y, grad_z, current_pos, grid_dims, is_3d
             )
 
-            # Check if we're still within reasonable bounds
-            # (The interpolation function handles clamping, but we should still check)
+            # Check bounds
             if is_3d:
                 x_coord = (current_pos[0] - ox) / dx
                 y_coord = (current_pos[1] - oy) / dy
                 z_coord = (current_pos[2] - oz) / dz
                 if not (-0.5 <= x_coord <= nx - 0.5 and -0.5 <= y_coord <= ny - 0.5 and -0.5 <= z_coord <= nz - 0.5):
-                    warnings.warn(f"Ray path left grid bounds at step {step}")
+                    termination_reason = "OUT_OF_BOUNDS"
+                    if diagnostic_mode:
+                        diagnostics['termination_reason'] = termination_reason
+                        diagnostics['final_distance'] = dist_to_source
                     break
             else:
                 x_coord = (current_pos[0] - ox) / dx
                 z_coord = (current_pos[2] - oz) / dz
                 if not (-0.5 <= x_coord <= nx - 0.5 and -0.5 <= z_coord <= nz - 0.5):
-                    warnings.warn(f"Ray path left grid bounds at step {step}")
+                    termination_reason = "OUT_OF_BOUNDS"
+                    if diagnostic_mode:
+                        diagnostics['termination_reason'] = termination_reason
+                        diagnostics['final_distance'] = dist_to_source
                     break
         else:
-            # Use nearest neighbor (floor-based) interpolation - original method
+            # Nearest neighbor interpolation
             if is_3d:
                 i = int((current_pos[0] - ox) / dx)
                 j = int((current_pos[1] - oy) / dy)
                 k = int((current_pos[2] - oz) / dz)
 
-                # Check bounds
                 if not (0 <= i < nx and 0 <= j < ny and 0 <= k < nz):
-                    warnings.warn(f"Ray path left grid bounds at step {step}")
+                    termination_reason = "OUT_OF_BOUNDS"
+                    if diagnostic_mode:
+                        diagnostics['termination_reason'] = termination_reason
+                        diagnostics['final_distance'] = dist_to_source
                     break
 
-                # Get gradient at current position
                 gx = grad_x[k, j, i]
                 gy = grad_y[k, j, i]
                 gz = grad_z[k, j, i]
                 gradient = np.array([gx, gy, gz])
             else:
-                # 2D case
                 i = int((current_pos[0] - ox) / dx)
                 k = int((current_pos[2] - oz) / dz)
 
-                # Check bounds
                 if not (0 <= i < nx and 0 <= k < nz):
-                    warnings.warn(f"Ray path left grid bounds at step {step}")
+                    termination_reason = "OUT_OF_BOUNDS"
+                    if diagnostic_mode:
+                        diagnostics['termination_reason'] = termination_reason
+                        diagnostics['final_distance'] = dist_to_source
                     break
 
-                # Get gradient at current position
                 gx = grad_x[k, i]
                 gz = grad_z[k, i]
-                gradient = np.array([gx, 0.0, gz])  # Y-component is zero in 2D
+                gradient = np.array([gx, 0.0, gz])
 
-        # Normalize gradient
+        # Check gradient magnitude (Priority 1)
         grad_magnitude = np.linalg.norm(gradient)
-        if grad_magnitude < 1e-10:
-            warnings.warn(f"Gradient too small at step {step}, stopping")
+
+        if diagnostic_mode:
+            diagnostics['gradient_magnitudes'].append(grad_magnitude)
+
+        # Gradient magnitude thresholding with direct fallback
+        if grad_magnitude < min_gradient_magnitude and use_direct_fallback:
+            # Fall back to direct source direction
+            source_vec = source_pos_arr - current_pos
+            source_dist = np.linalg.norm(source_vec)
+            if source_dist > 1e-10:
+                direction = source_vec / source_dist
+            else:
+                termination_reason = "GRADIENT_TOO_SMALL"
+                if diagnostic_mode:
+                    diagnostics['termination_reason'] = termination_reason
+                    diagnostics['final_distance'] = dist_to_source
+                    diagnostics['gradient_fallback_count'] = diagnostics.get('gradient_fallback_count', 0) + 1
+                break
+
+            if diagnostic_mode:
+                diagnostics['gradient_fallback_count'] = diagnostics.get('gradient_fallback_count', 0) + 1
+        elif grad_magnitude < 1e-10:
+            # Gradient too small even without threshold
+            termination_reason = "GRADIENT_TOO_SMALL"
+            if diagnostic_mode:
+                diagnostics['termination_reason'] = termination_reason
+                diagnostics['final_distance'] = dist_to_source
             break
+        else:
+            # Compute direction based on mode
+            if hybrid_mode:
+                # Hybrid mode: blend gradient and direct directions (Priority 2)
+                direction = compute_hybrid_direction(
+                    gradient, current_pos, source_pos_arr,
+                    hybrid_alpha, hybrid_adaptive_alpha,
+                    hybrid_distance_threshold, grad_magnitude,
+                    min_gradient_magnitude
+                )
+            else:
+                # Standard gradient descent
+                direction = -gradient / grad_magnitude
 
-        gradient_normalized = gradient / grad_magnitude
+        # Compute step size
+        if adaptive_step_size:
+            # Adaptive step sizing (Priority 1)
+            current_step = compute_adaptive_step_size(
+                grad_magnitude, step_size, min_step_size,
+                max_step_size, step_size_scaling
+            )
+        else:
+            current_step = step_size
 
-        # Move in negative gradient direction (toward source)
-        new_pos = current_pos - step_size * gradient_normalized
+        if diagnostic_mode:
+            diagnostics['step_sizes'].append(current_step)
+
+        # Update position
+        if momentum_mode:
+            # Momentum-based update (Priority 2)
+            velocity = momentum_beta * velocity + momentum_learning_rate * direction
+            new_pos = current_pos + velocity
+        else:
+            # Standard update
+            new_pos = current_pos + current_step * direction
+
         # In 2D case, keep Y coordinate fixed
         if not is_3d:
             new_pos[1] = current_pos[1]
+
         current_pos = new_pos
         ray_path.append(tuple(current_pos))
 
-    return np.array(ray_path)
+    # Store diagnostics if enabled
+    if diagnostic_mode:
+        diagnostics['final_distance'] = np.linalg.norm(current_pos - source_pos_arr)
+        if not diagnostics['termination_reason']:
+            diagnostics['termination_reason'] = termination_reason
+
+    ray_path_array = np.array(ray_path)
+
+    # Attach diagnostics as attribute if enabled
+    if diagnostic_mode:
+        ray_path_array.diagnostics = diagnostics
+
+    return ray_path_array
 
 
 def load_shot_mapping(shot_map_file: str) -> Dict[int, str]:
@@ -431,6 +732,40 @@ def load_shot_mapping(shot_map_file: str) -> Dict[int, str]:
     return shot_map
 
 
+def get_advanced_tracing_params(config: DictConfig) -> Dict:
+    """
+    Extract advanced ray tracing parameters from configuration.
+
+    Args:
+        config: Configuration object
+
+    Returns:
+        Dictionary of advanced ray tracing parameters
+    """
+    return {
+        # Priority 1 improvements
+        'adaptive_step_size': get_tracing_setting(config, 'adaptive_step_size', False),
+        'min_step_size': get_tracing_setting(config, 'min_step_size', 0.01),
+        'max_step_size': get_tracing_setting(config, 'max_step_size', 1.0),
+        'step_size_scaling': get_tracing_setting(config, 'step_size_scaling', 'inverse'),
+        'min_gradient_magnitude': get_tracing_setting(config, 'min_gradient_magnitude', 1e-6),
+        'use_direct_fallback': get_tracing_setting(config, 'use_direct_fallback', False),
+        'enable_convergence_check': get_tracing_setting(config, 'enable_convergence_check', False),
+        'max_oscillations': get_tracing_setting(config, 'max_oscillations', 100),
+        'oscillation_tolerance': get_tracing_setting(config, 'oscillation_tolerance', 1e-3),
+
+        # Priority 2 improvements
+        'hybrid_mode': get_tracing_setting(config, 'hybrid_mode', False),
+        'hybrid_alpha': get_tracing_setting(config, 'hybrid_alpha', 0.7),
+        'hybrid_adaptive_alpha': get_tracing_setting(config, 'hybrid_adaptive_alpha', False),
+        'hybrid_distance_threshold': get_tracing_setting(config, 'hybrid_distance_threshold', 100.0),
+        'momentum_mode': get_tracing_setting(config, 'momentum_mode', False),
+        'momentum_beta': get_tracing_setting(config, 'momentum_beta', 0.9),
+        'momentum_learning_rate': get_tracing_setting(config, 'momentum_learning_rate', 0.1),
+        'diagnostic_mode': get_tracing_setting(config, 'diagnostic_mode', False)
+    }
+
+
 def process_single_ray(shot_id: int,
                        source_pos: Tuple[float, float, float],
                        receiver_pos: Tuple[float, float, float],
@@ -438,7 +773,8 @@ def process_single_ray(shot_id: int,
                        phase: str,
                        precision: str,
                        tracing_params: Dict,
-                       interpolation_method: str = 'nearest') -> Optional[np.ndarray]:
+                       interpolation_method: str = 'nearest',
+                       advanced_params: Optional[Dict] = None) -> Optional[np.ndarray]:
     """
     Process a single shot-receiver pair and trace its ray path.
 
@@ -453,10 +789,15 @@ def process_single_ray(shot_id: int,
         precision: Numerical precision ('single' or 'double')
         tracing_params: Ray tracing parameters dictionary
         interpolation_method: 'nearest' or 'trilinear' interpolation method
+        advanced_params: Optional dictionary with advanced ray tracing parameters
 
     Returns:
         Ray path array or None if failed
     """
+    # Default advanced parameters if not provided
+    if advanced_params is None:
+        advanced_params = {}
+
     try:
         # Read gradient metadata to get the local grid parameters for this shot
         metadata = read_gradient_metadata(gradient_dir, shot_id)
@@ -484,7 +825,7 @@ def process_single_ray(shot_id: int,
             grad_x, grad_y, grad_z, local_grid_dims
         )
 
-        # Trace ray path
+        # Trace ray path with advanced parameters
         ray_path = trace_ray_path(
             source_pos,
             receiver_pos,
@@ -493,7 +834,8 @@ def process_single_ray(shot_id: int,
             max_steps=tracing_params['max_steps'],
             step_size=tracing_params['step_size'],
             tolerance=tracing_params['tolerance'],
-            interpolation_method=interpolation_method
+            interpolation_method=interpolation_method,
+            **advanced_params  # Pass all advanced parameters
         )
 
         return ray_path if len(ray_path) > 1 else None
@@ -510,7 +852,8 @@ def process_single_shot(shot_id: int,
                         grid_dims: Dict,  # Not used - kept for backward compatibility
                         tracing_params: Dict,
                         verbose: bool,
-                        interpolation_method: str = 'nearest') -> Tuple[List[np.ndarray], Tuple, List[Tuple]]:
+                        interpolation_method: str = 'nearest',
+                        advanced_params: Optional[Dict] = None) -> Tuple[List[np.ndarray], Tuple, List[Tuple]]:
     """
     Process a single shot and trace all its ray paths.
 
@@ -524,12 +867,17 @@ def process_single_shot(shot_id: int,
         tracing_params: Ray tracing parameters dictionary
         verbose: Whether to print warnings
         interpolation_method: 'nearest' or 'trilinear' interpolation method
+        advanced_params: Optional dictionary with advanced ray tracing parameters
 
     Returns:
         Tuple of (ray_paths, source_position, receiver_positions)
     """
     import time
     t_start = time.time()
+
+    # Default advanced parameters if not provided
+    if advanced_params is None:
+        advanced_params = {}
 
     try:
         # Read gradient metadata to get the local grid parameters for this shot
@@ -594,7 +942,8 @@ def process_single_shot(shot_id: int,
                 max_steps=tracing_params['max_steps'],
                 step_size=tracing_params['step_size'],
                 tolerance=tracing_params['tolerance'],
-                interpolation_method=interpolation_method
+                interpolation_method=interpolation_method,
+                **advanced_params  # Pass all advanced parameters
             )
 
             if len(ray_path) > 1:

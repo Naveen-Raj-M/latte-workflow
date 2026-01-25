@@ -510,7 +510,8 @@ def process_shot_with_preloaded_gradients(
     grad_z: np.ndarray,
     local_grid_dims: Dict,
     tracing_params: Dict,
-    interpolation_method: str = 'nearest'
+    interpolation_method: str = 'nearest',
+    advanced_params: Optional[Dict] = None
 ) -> List[Tuple[Optional[np.ndarray], Tuple[float, float, float], int, float]]:
     """
     Process all receivers for a single shot using pre-loaded gradient data.
@@ -526,10 +527,15 @@ def process_shot_with_preloaded_gradients(
         local_grid_dims: Grid dimensions dictionary
         tracing_params: Ray tracing parameters dictionary
         interpolation_method: 'nearest' or 'trilinear' interpolation method
+        advanced_params: Optional dictionary with advanced ray tracing parameters
 
     Returns:
         List of (ray_path, receiver_pos, shot_id, weight) tuples for each receiver
     """
+    # Default advanced parameters if not provided
+    if advanced_params is None:
+        advanced_params = {}
+
     results = []
     for receiver_pos, weight in shot_receivers:
         try:
@@ -541,7 +547,8 @@ def process_shot_with_preloaded_gradients(
                 max_steps=tracing_params['max_steps'],
                 step_size=tracing_params['step_size'],
                 tolerance=tracing_params['tolerance'],
-                interpolation_method=interpolation_method
+                interpolation_method=interpolation_method,
+                **advanced_params  # Pass all advanced parameters
             )
 
             if len(ray_path) > 1:
@@ -978,6 +985,30 @@ def compute_all_ray_paths(
     }
     interpolation_method = get_tracing_setting(config, 'interpolation_method', 'nearest')
 
+    # Get advanced ray tracing parameters (from RAY_PATH_ISSUES.md improvements)
+    advanced_params = {
+        # Priority 1 improvements
+        'adaptive_step_size': get_tracing_setting(config, 'adaptive_step_size', False),
+        'min_step_size': get_tracing_setting(config, 'min_step_size', 0.01),
+        'max_step_size': get_tracing_setting(config, 'max_step_size', 1.0),
+        'step_size_scaling': get_tracing_setting(config, 'step_size_scaling', 'inverse'),
+        'min_gradient_magnitude': get_tracing_setting(config, 'min_gradient_magnitude', 1e-6),
+        'use_direct_fallback': get_tracing_setting(config, 'use_direct_fallback', False),
+        'enable_convergence_check': get_tracing_setting(config, 'enable_convergence_check', False),
+        'max_oscillations': get_tracing_setting(config, 'max_oscillations', 100),
+        'oscillation_tolerance': get_tracing_setting(config, 'oscillation_tolerance', 1e-3),
+
+        # Priority 2 improvements
+        'hybrid_mode': get_tracing_setting(config, 'hybrid_mode', False),
+        'hybrid_alpha': get_tracing_setting(config, 'hybrid_alpha', 0.7),
+        'hybrid_adaptive_alpha': get_tracing_setting(config, 'hybrid_adaptive_alpha', False),
+        'hybrid_distance_threshold': get_tracing_setting(config, 'hybrid_distance_threshold', 100.0),
+        'momentum_mode': get_tracing_setting(config, 'momentum_mode', False),
+        'momentum_beta': get_tracing_setting(config, 'momentum_beta', 0.9),
+        'momentum_learning_rate': get_tracing_setting(config, 'momentum_learning_rate', 0.1),
+        'diagnostic_mode': get_tracing_setting(config, 'diagnostic_mode', False)
+    }
+
     # Get common parameters
     gradient_dir = config.gradient_dir
     precision = getattr(config, 'precision', 'single')
@@ -996,6 +1027,29 @@ def compute_all_ray_paths(
     print(f"  Parallel mode: {parallel_mode}")
     print(f"  Ray tracing: max_steps={tracing_params['max_steps']}, step_size={tracing_params['step_size']}, interpolation={interpolation_method}")
     print(f"  Grid: {config.grid.nx}x{config.grid.ny}x{config.grid.nz}, spacing={config.grid.dx}x{config.grid.dy}x{config.grid.dz} km")
+
+    # Print advanced ray tracing improvements status
+    improvements_enabled = []
+    if advanced_params['adaptive_step_size']:
+        improvements_enabled.append(f"adaptive_step_size ({advanced_params['step_size_scaling']})")
+    if advanced_params['use_direct_fallback']:
+        improvements_enabled.append(f"direct_fallback (min_grad={advanced_params['min_gradient_magnitude']:.1e})")
+    if advanced_params['enable_convergence_check']:
+        improvements_enabled.append(f"convergence_check (max_osc={advanced_params['max_oscillations']})")
+    if advanced_params['hybrid_mode']:
+        alpha_str = "adaptive" if advanced_params['hybrid_adaptive_alpha'] else f"{advanced_params['hybrid_alpha']:.2f}"
+        improvements_enabled.append(f"hybrid_mode (alpha={alpha_str})")
+    if advanced_params['momentum_mode']:
+        improvements_enabled.append(f"momentum (beta={advanced_params['momentum_beta']:.2f})")
+    if advanced_params['diagnostic_mode']:
+        improvements_enabled.append("diagnostics")
+
+    if improvements_enabled:
+        print(f"\n  Advanced ray tracing improvements (from RAY_PATH_ISSUES.md):")
+        for imp in improvements_enabled:
+            print(f"    - {imp}")
+    else:
+        print(f"\n  Advanced improvements: DISABLED (using standard gradient descent)")
 
     for phase in phase_types:
         print(f"\n{'='*80}")
@@ -1212,7 +1266,8 @@ def compute_all_ray_paths(
                         gradient_cache[shot_id]['grad_z'],
                         gradient_cache[shot_id]['grid_dims'],
                         tracing_params,
-                        interpolation_method
+                        interpolation_method,
+                        advanced_params
                     )
                     for shot_id in tqdm(valid_batch_shots, desc=f"Batch {batch_idx + 1}/{n_batches}")
                 )
