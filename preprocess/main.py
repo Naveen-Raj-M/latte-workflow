@@ -334,10 +334,16 @@ def run_visualization(cfg: DictConfig, events_df=None, stations_df=None,
         cfg.initial_velocity_model.enabled):
         print("\nCreating velocity model visualization...")
         with ProcessTimer("Velocity Model Visualization"):
-            create_velocity_model_visualization(
-                cfg,
-                cfg.initial_velocity_model.output_csv
-            )
+            # Determine which velocity file to use based on output_format
+            output_format = cfg.initial_velocity_model.get('output_format', 'csv')
+            if output_format in ['hdf5', 'both']:
+                # Prefer HDF5 format (more efficient for large grids)
+                velocity_file = cfg.initial_velocity_model.output_hdf5
+            else:
+                # Use CSV format
+                velocity_file = cfg.initial_velocity_model.output_csv
+
+            create_velocity_model_visualization(cfg, velocity_file)
             print(f"  Velocity model visualizations saved to: "
                   f"{cfg.visualization.velocity_model_vis.output_dir}")
 

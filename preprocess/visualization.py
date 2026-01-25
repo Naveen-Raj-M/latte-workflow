@@ -16,6 +16,7 @@ import pandas as pd
 from omegaconf import DictConfig
 
 from utils.io_utils import ensure_directory_exists
+from utils.velocity_io import read_velocity_file
 
 
 def _load_basin_boundaries(config: DictConfig) -> Dict:
@@ -622,14 +623,14 @@ def _plot_cross_section_lon(source_lons: np.ndarray, source_depths: np.ndarray,
 
 
 def create_velocity_model_visualization(config: DictConfig,
-                                        velocity_csv: str) -> None:
+                                        velocity_file: str) -> None:
     """Create velocity model visualizations.
 
     Creates depth slices and/or profiles through the velocity model.
 
     Args:
         config: Full configuration.
-        velocity_csv: Path to velocity model CSV file.
+        velocity_file: Path to velocity model file (CSV or HDF5).
     """
     logger = logging.getLogger(__name__)
     vis_config = config.visualization.velocity_model_vis
@@ -640,8 +641,8 @@ def create_velocity_model_visualization(config: DictConfig,
 
     logger.info("Creating velocity model visualizations...")
 
-    # Load velocity model
-    vel_df = pd.read_csv(velocity_csv)
+    # Load velocity model (supports both CSV and HDF5 formats)
+    vel_df = read_velocity_file(velocity_file, show_progress=True)
 
     # Create output directory
     output_dir = Path(vis_config.output_dir)
