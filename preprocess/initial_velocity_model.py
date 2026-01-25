@@ -327,8 +327,7 @@ def _assign_velocities_vectorized(grid_df, iasp91_model, origin_lon, origin_lat,
         x_vals, y_vals, z_vals, origin_lon, origin_lat, origin_depth, invert_y_axis
     )
 
-    # Add to DataFrame
-    grid_df = grid_df.copy()
+    # Add to DataFrame (no copy needed - assigning to full DataFrame, not a slice)
     grid_df['vp'] = vp_vals
     grid_df['vs'] = vs_vals
     grid_df['lon'] = lon_vals
@@ -415,8 +414,7 @@ def _assign_velocities_chunked_vectorized(grid_df, iasp91_model, origin_lon, ori
         lat_vals[start_idx:end_idx] = lat_chunk
         depth_vals[start_idx:end_idx] = depth_chunk
 
-    # Add to DataFrame
-    grid_df = grid_df.copy()
+    # Add to DataFrame (no copy needed - assigning to full DataFrame, not a slice)
     grid_df['vp'] = vp_vals
     grid_df['vs'] = vs_vals
     grid_df['lon'] = lon_vals
