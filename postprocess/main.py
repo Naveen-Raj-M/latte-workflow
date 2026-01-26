@@ -226,7 +226,6 @@ def postprocess_latte_outputs(config: DictConfig) -> None:
             # Auto-enable cache loading if DWS computation is requested
             if compute_dws and not getattr(diag_config, 'load_cache_for_downstream', False):
                 print(f"  Note: Auto-enabling load_cache_for_downstream for DWS computation")
-                from omegaconf import OmegaConf
                 OmegaConf.set_struct(diag_config, False)
                 diag_config.load_cache_for_downstream = True
                 OmegaConf.set_struct(diag_config, True)
