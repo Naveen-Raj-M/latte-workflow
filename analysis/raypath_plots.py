@@ -18,6 +18,7 @@ from matplotlib.collections import LineCollection
 from tqdm import tqdm
 
 from utils.io_utils import ensure_directory_exists
+from .basin_boundaries import plot_basin_boundaries
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,9 @@ def plot_ray_paths_projection(
     receivers: List[Tuple[float, float, float]],
     plane: str,
     output_file: str,
-    config: Dict[str, Any]
+    config: Dict[str, Any],
+    basin_data: Optional[Dict] = None,
+    basin_config: Optional[Dict] = None
 ) -> None:
     """
     Plot ray paths in a specific 2D projection plane.
@@ -58,6 +61,9 @@ def plot_ray_paths_projection(
             - title_fontsize: Title font size
             - legend_fontsize: Legend font size
             - format: Output format (png, pdf, svg)
+        basin_data: Optional basin boundary data from load_basin_boundaries()
+                    (only used for 'xy' plane)
+        basin_config: Optional basin boundary styling configuration
     """
     import time
     t_start = time.time()
@@ -163,6 +169,12 @@ def plot_ray_paths_projection(
     ax.legend(fontsize=legend_fontsize)
     ax.grid(grid, alpha=0.3)
     ax.set_aspect('equal' if equal_aspect else 'auto')
+
+    # Plot basin boundaries for XY plane only
+    if plane == 'xy' and basin_data and basin_config:
+        xlim = ax.get_xlim()
+        ylim = ax.get_ylim()
+        plot_basin_boundaries(ax, basin_data, basin_config, xlim=xlim, ylim=ylim)
 
     # Invert z-axis to have depth increase downwards
     if plane in ['xz', 'yz']:

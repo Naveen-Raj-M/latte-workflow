@@ -32,6 +32,7 @@ from .raypath_plots import (
     plot_ray_paths_3d,
     create_ray_path_summary_plot
 )
+from .basin_boundaries import load_basin_boundaries
 from utils.io_utils import ensure_directory_exists
 
 logger = logging.getLogger(__name__)
@@ -115,6 +116,14 @@ def analyze_ray_paths(config_dict: Dict[str, Any]) -> Dict[str, Any]:
     }
     # Override with raypath-specific settings
     plot_config.update(plot_config_section)
+
+    # Load basin boundaries if configured
+    basin_data = {}
+    basin_config = config.get('basin_boundaries', {})
+    if basin_config.get('enabled', False):
+        basin_data = load_basin_boundaries(basin_config)
+        if basin_data:
+            logger.info(f"Loaded {len(basin_data)} basin boundaries for XY plane plots")
 
     # Get visualization settings
     phase_type = config.get('phase_type', 'both')
@@ -217,7 +226,9 @@ def analyze_ray_paths(config_dict: Dict[str, Any]) -> Dict[str, Any]:
                     unique_receivers,
                     plane,
                     output_file,
-                    plot_config
+                    plot_config,
+                    basin_data=basin_data,
+                    basin_config=basin_config
                 )
                 results['plots']['projections'].append({
                     'phase': phase,

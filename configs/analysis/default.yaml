@@ -277,6 +277,30 @@ raypath_analysis:
   # Report generation
   generate_report: true
 
+  # Basin boundaries (optional, shown on XY plane plots only)
+  # These should be the transformed (Cartesian) basin boundary files from preprocessing
+  basin_boundaries:
+    enabled: false  # Set to true to enable basin boundaries on XY plots
+    data_dir: "/path/to/preprocessed/coordinate_transform/basin_boundaries"  # Directory with transformed basin CSVs
+    # Basin files (same names as preprocessing output)
+    basins:
+      - file: "CentralBasin_Verticies_WGS84.csv"
+        label: "Central Basin"
+      - file: "DelawareBasin_Verticies_WGS84.csv"
+        label: "Delaware Basin"
+      - file: "MidlandBasin_Verticies_WGS84.csv"
+        label: "Midland Basin"
+    # Styling options
+    line_color: "darkgreen"
+    line_width: 2
+    line_style: "-"
+    line_alpha: 0.8
+    show_labels: true
+    label_fontsize: 12
+    label_fontweight: "bold"
+    label_offset_x: 0.0  # km offset from centroid
+    label_offset_y: 0.0  # km offset from centroid
+
   # Plot configuration
   plot:
     planes: ["xy", "xz", "yz"]  # Projection planes to plot
@@ -349,6 +373,30 @@ ray_density_analysis:
 
   # Depth slices to create (in km)
   depth_slices: [5.0, 10.0, 15.0, 20.0, 30.0, 40.0, 50.0]
+
+  # Basin boundaries (optional, shown on XY plane plots only)
+  # These should be the transformed (Cartesian) basin boundary files from preprocessing
+  basin_boundaries:
+    enabled: false  # Set to true to enable basin boundaries on XY plots
+    data_dir: "/path/to/preprocessed/coordinate_transform/basin_boundaries"  # Directory with transformed basin CSVs
+    # Basin files (same names as preprocessing output)
+    basins:
+      - file: "CentralBasin_Verticies_WGS84.csv"
+        label: "Central Basin"
+      - file: "DelawareBasin_Verticies_WGS84.csv"
+        label: "Delaware Basin"
+      - file: "MidlandBasin_Verticies_WGS84.csv"
+        label: "Midland Basin"
+    # Styling options
+    line_color: "darkgreen"
+    line_width: 2
+    line_style: "-"
+    line_alpha: 0.8
+    show_labels: true
+    label_fontsize: 12
+    label_fontweight: "bold"
+    label_offset_x: 0.0  # km offset from centroid
+    label_offset_y: 0.0  # km offset from centroid
 
   # Plot configuration
   figure_width: 12

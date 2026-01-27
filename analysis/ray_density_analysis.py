@@ -26,6 +26,7 @@ from .raypath_data import (
     load_event_ids_from_file,
     convert_event_ids_to_shot_ids
 )
+from .basin_boundaries import load_basin_boundaries
 from utils.io_utils import ensure_directory_exists
 
 logger = logging.getLogger(__name__)
@@ -96,6 +97,14 @@ def analyze_ray_density(config_dict: Dict[str, Any]) -> Dict[str, Any]:
         'figure_height': config.get('figure_height', 10),
         'colormap': config.get('colormap', 'hot'),
     }
+
+    # Load basin boundaries if configured
+    basin_data = {}
+    basin_config = config.get('basin_boundaries', {})
+    if basin_config.get('enabled', False):
+        basin_data = load_basin_boundaries(basin_config)
+        if basin_data:
+            logger.info(f"Loaded {len(basin_data)} basin boundaries for XY plane plots")
 
     # Get processing settings
     phase_type = config.get('phase_type', 'both')
@@ -203,7 +212,8 @@ def analyze_ray_density(config_dict: Dict[str, Any]) -> Dict[str, Any]:
             output_file = str(output_dir / 'plots' / f'ray_density_{phase}_wave_{plane}.png')
 
             if plane == 'xy':
-                plot_ray_density_xy(density_3d, grid_dims, output_file, threshold, plot_config)
+                plot_ray_density_xy(density_3d, grid_dims, output_file, threshold, plot_config,
+                                    basin_data=basin_data, basin_config=basin_config)
             elif plane == 'xz':
                 plot_ray_density_xz(density_3d, grid_dims, output_file, threshold, plot_config)
             elif plane == 'yz':
@@ -218,7 +228,8 @@ def analyze_ray_density(config_dict: Dict[str, Any]) -> Dict[str, Any]:
         # Create XY threshold count plot
         if enable_xy_threshold_count:
             output_file = str(output_dir / 'plots' / f'ray_density_{phase}_wave_xy_threshold_count.png')
-            plot_ray_density_xy_threshold_count(density_3d, grid_dims, output_file, threshold, plot_config)
+            plot_ray_density_xy_threshold_count(density_3d, grid_dims, output_file, threshold, plot_config,
+                                                 basin_data=basin_data, basin_config=basin_config)
             results['plots']['threshold_count'].append({
                 'phase': phase,
                 'output_file': output_file
@@ -228,7 +239,8 @@ def analyze_ray_density(config_dict: Dict[str, Any]) -> Dict[str, Any]:
         if enable_depth_slices and depth_slices:
             plot_ray_density_depth_slices(
                 density_3d, grid_dims, output_dir / 'plots',
-                depth_slices, threshold, plot_config
+                depth_slices, threshold, plot_config,
+                basin_data=basin_data, basin_config=basin_config
             )
             for depth in depth_slices:
                 results['plots']['depth_slices'].append({

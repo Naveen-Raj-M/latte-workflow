@@ -57,6 +57,10 @@ __all__ = [
 
     # Ray density analysis
     'analyze_ray_density',
+
+    # Basin boundaries (for XY plane plots)
+    'load_basin_boundaries',
+    'plot_basin_boundaries',
 ]
 
 # Import main analysis functions
@@ -179,6 +183,13 @@ try:
 except ImportError as e:
     import logging
     logging.debug(f"Ray density analysis module import warning: {e}")
+
+# Basin boundaries imports (for XY plane plots)
+try:
+    from .basin_boundaries import load_basin_boundaries, plot_basin_boundaries
+except ImportError as e:
+    import logging
+    logging.debug(f"Basin boundaries module import warning: {e}")
 
 # Import common filtering utilities
 # Moved to separate module to avoid circular imports

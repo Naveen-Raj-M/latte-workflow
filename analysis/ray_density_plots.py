@@ -10,7 +10,9 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Optional
+
+from .basin_boundaries import plot_basin_boundaries
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +22,9 @@ def plot_ray_density_xy(
     grid_dims: Dict,
     output_file: str,
     threshold: float,
-    plot_config: Dict
+    plot_config: Dict,
+    basin_data: Optional[Dict] = None,
+    basin_config: Optional[Dict] = None
 ) -> None:
     """
     Plot ray density in XY plane (summed over depth).
@@ -31,6 +35,8 @@ def plot_ray_density_xy(
         output_file: Output file path
         threshold: Ray count threshold (values below are masked)
         plot_config: Plot configuration dictionary
+        basin_data: Optional basin boundary data from load_basin_boundaries()
+        basin_config: Optional basin boundary styling configuration
     """
     logger.info(f"Creating XY plane density plot...")
 
@@ -48,8 +54,8 @@ def plot_ray_density_xy(
 
     fig, ax = plt.subplots(figsize=(fig_width, fig_height), dpi=dpi)
 
-    # Mask values below threshold
-    density_masked = np.ma.masked_where(density_xy.T < threshold, density_xy.T)
+    # Mask values below or equal to threshold (no coloring for zero)
+    density_masked = np.ma.masked_where(density_xy.T <= threshold, density_xy.T)
 
     # Plot
     cmap = plt.get_cmap(plot_config.get('colormap', 'hot'))
@@ -73,6 +79,12 @@ def plot_ray_density_xy(
     ax.tick_params(axis='both', labelsize=tick_fontsize)
     ax.grid(True, alpha=0.3)
     ax.set_aspect('equal')
+
+    # Plot basin boundaries if provided
+    if basin_data and basin_config:
+        xlim = ax.get_xlim()
+        ylim = ax.get_ylim()
+        plot_basin_boundaries(ax, basin_data, basin_config, xlim=xlim, ylim=ylim)
 
     plt.tight_layout()
     fig.savefig(output_file, dpi=dpi, bbox_inches='tight')
@@ -114,8 +126,8 @@ def plot_ray_density_xz(
 
     fig, ax = plt.subplots(figsize=(fig_width, fig_height), dpi=dpi)
 
-    # Mask values below threshold
-    density_masked = np.ma.masked_where(density_xz.T < threshold, density_xz.T)
+    # Mask values below or equal to threshold (no coloring for zero)
+    density_masked = np.ma.masked_where(density_xz.T <= threshold, density_xz.T)
 
     # Plot
     cmap = plt.get_cmap(plot_config.get('colormap', 'hot'))
@@ -180,8 +192,8 @@ def plot_ray_density_yz(
 
     fig, ax = plt.subplots(figsize=(fig_width, fig_height), dpi=dpi)
 
-    # Mask values below threshold
-    density_masked = np.ma.masked_where(density_yz.T < threshold, density_yz.T)
+    # Mask values below or equal to threshold (no coloring for zero)
+    density_masked = np.ma.masked_where(density_yz.T <= threshold, density_yz.T)
 
     # Plot
     cmap = plt.get_cmap(plot_config.get('colormap', 'hot'))
@@ -218,7 +230,9 @@ def plot_ray_density_xy_threshold_count(
     grid_dims: Dict,
     output_file: str,
     threshold: float,
-    plot_config: Dict
+    plot_config: Dict,
+    basin_data: Optional[Dict] = None,
+    basin_config: Optional[Dict] = None
 ) -> None:
     """
     Plot map view showing count of depth layers with rays >= threshold.
@@ -232,6 +246,8 @@ def plot_ray_density_xy_threshold_count(
         output_file: Output file path
         threshold: Ray count threshold
         plot_config: Plot configuration dictionary
+        basin_data: Optional basin boundary data from load_basin_boundaries()
+        basin_config: Optional basin boundary styling configuration
     """
     logger.info(f"Creating XY threshold count plot...")
 
@@ -276,6 +292,12 @@ def plot_ray_density_xy_threshold_count(
     ax.grid(True, alpha=0.3)
     ax.set_aspect('equal')
 
+    # Plot basin boundaries if provided
+    if basin_data and basin_config:
+        xlim = ax.get_xlim()
+        ylim = ax.get_ylim()
+        plot_basin_boundaries(ax, basin_data, basin_config, xlim=xlim, ylim=ylim)
+
     plt.tight_layout()
     fig.savefig(output_file, dpi=dpi, bbox_inches='tight')
     plt.close(fig)
@@ -289,7 +311,9 @@ def plot_ray_density_depth_slices(
     output_dir: Path,
     depth_values: list,
     threshold: float,
-    plot_config: Dict
+    plot_config: Dict,
+    basin_data: Optional[Dict] = None,
+    basin_config: Optional[Dict] = None
 ) -> None:
     """
     Plot horizontal slices at specified depths showing ray density.
@@ -301,6 +325,8 @@ def plot_ray_density_depth_slices(
         depth_values: List of depths (in km) to create slices for
         threshold: Ray count threshold
         plot_config: Plot configuration dictionary
+        basin_data: Optional basin boundary data from load_basin_boundaries()
+        basin_config: Optional basin boundary styling configuration
     """
     logger.info(f"Creating depth slice plots for {len(depth_values)} depths...")
 
@@ -328,8 +354,8 @@ def plot_ray_density_depth_slices(
 
         fig, ax = plt.subplots(figsize=(fig_width, fig_height), dpi=dpi)
 
-        # Mask values below threshold
-        slice_masked = np.ma.masked_where(depth_slice.T < threshold, depth_slice.T)
+        # Mask values below or equal to threshold (no coloring for zero)
+        slice_masked = np.ma.masked_where(depth_slice.T <= threshold, depth_slice.T)
 
         # Plot
         cmap = plt.get_cmap(plot_config.get('colormap', 'hot'))
@@ -353,6 +379,12 @@ def plot_ray_density_depth_slices(
         ax.tick_params(axis='both', labelsize=tick_fontsize)
         ax.grid(True, alpha=0.3)
         ax.set_aspect('equal')
+
+        # Plot basin boundaries if provided
+        if basin_data and basin_config:
+            xlim = ax.get_xlim()
+            ylim = ax.get_ylim()
+            plot_basin_boundaries(ax, basin_data, basin_config, xlim=xlim, ylim=ylim)
 
         plt.tight_layout()
 

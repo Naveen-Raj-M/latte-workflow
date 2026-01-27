@@ -80,9 +80,11 @@ coordinate_transform:
   output_dir: "${data.output_base_dir}/coordinate_transform"
 
   # Basin boundaries transformation (optional)
+  # When enabled, transforms basin boundaries from geographic (lon/lat) to Cartesian (x/y km) coordinates
+  # Output: ${coordinate_transform.output_dir}/basin_boundaries/ (use this path in analysis module)
   basin_boundaries:
     enabled: false  # Set to true to enable basin boundary transformation
-    data_dir: "/path/to/basin_boundaries"  # Directory containing basin boundary CSV files
+    data_dir: "/path/to/basin_boundaries"  # Directory containing basin boundary CSV files (geographic coords)
     # Basin files to transform (same format as visualization.basin_boundaries.basins)
     basins:
       - file: "CentralBasin_Verticies_WGS84.csv"
