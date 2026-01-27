@@ -359,6 +359,8 @@ ray_density_analysis:
   # Ray density computation settings
   threshold: 0  # Ray count threshold for visualization (cells below are masked)
   num_samples_per_ray: 1000  # Number of sample points per ray for grid intersection
+  n_jobs: -1  # Number of parallel jobs (-1 = all cores, 1 = sequential)
+  batch_size: 1000  # Number of rays per batch for parallel processing
 
   # Event filtering/subsampling (priority: event_id_list_file > max_rays > subsample_fraction)
   event_id_list_file: null  # Path to text file with event IDs (one per line), or null

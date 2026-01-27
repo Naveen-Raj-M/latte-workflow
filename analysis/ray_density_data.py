@@ -9,7 +9,8 @@ import os
 import logging
 import numpy as np
 import h5py
-from typing import Dict, Tuple, Optional
+from joblib import Parallel, delayed
+from typing import Dict, Tuple, Optional, List
 from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
@@ -69,6 +70,62 @@ def find_ray_grid_intersections(
     return unique_cells
 
 
+def _process_ray_batch_traced(
+    ray_batch: List[np.ndarray],
+    grid_dims: Dict,
+    num_samples: int
+) -> np.ndarray:
+    """
+    Process a batch of traced ray paths and return partial density grid.
+
+    This function is designed to be called in parallel for efficient processing.
+
+    Args:
+        ray_batch: List of ray path arrays (each shape N x 3)
+        grid_dims: Grid dimension dictionary
+        num_samples: Number of samples along each ray path
+
+    Returns:
+        3D array of ray counts (partial density) with shape (nx, ny, nz)
+    """
+    # Initialize partial density grid
+    partial_density = np.zeros((grid_dims['nx'], grid_dims['ny'], grid_dims['nz']), dtype=np.int32)
+
+    for ray_path in ray_batch:
+        if len(ray_path) < 2:
+            continue
+
+        # Sample points along the ray path (vectorized)
+        n_points = len(ray_path)
+        if n_points <= num_samples:
+            sampled_points = ray_path
+        else:
+            sample_indices = np.linspace(0, n_points - 1, num_samples, dtype=int)
+            sampled_points = ray_path[sample_indices]
+
+        # Convert to grid indices (vectorized)
+        i = np.floor((sampled_points[:, 0] - grid_dims['x_min']) / grid_dims['dx']).astype(np.int32)
+        j = np.floor((sampled_points[:, 1] - grid_dims['y_min']) / grid_dims['dy']).astype(np.int32)
+        k = np.floor((sampled_points[:, 2] - grid_dims['z_min']) / grid_dims['dz']).astype(np.int32)
+
+        # Filter valid points (vectorized)
+        valid = (
+            (i >= 0) & (i < grid_dims['nx']) &
+            (j >= 0) & (j < grid_dims['ny']) &
+            (k >= 0) & (k < grid_dims['nz'])
+        )
+
+        if np.any(valid):
+            # Get unique cells for this ray
+            grid_cells = np.column_stack([i[valid], j[valid], k[valid]])
+            unique_cells = np.unique(grid_cells, axis=0)
+
+            # Increment density using np.add.at for efficiency
+            np.add.at(partial_density, (unique_cells[:, 0], unique_cells[:, 1], unique_cells[:, 2]), 1)
+
+    return partial_density
+
+
 def compute_ray_density_from_cache(
     cache_path: str,
     grid_dims: Dict,
@@ -76,10 +133,12 @@ def compute_ray_density_from_cache(
     max_rays: Optional[int] = None,
     shot_ids: Optional[list] = None,
     num_samples_per_ray: int = 1000,
-    show_progress: bool = True
+    show_progress: bool = True,
+    n_jobs: int = 1,
+    batch_size: int = 1000
 ) -> np.ndarray:
     """
-    Compute 3D ray density grid from ray path cache.
+    Compute 3D ray density grid from ray path cache using parallel processing.
 
     Uses actual traced ray paths from the cache (not straight lines).
 
@@ -91,6 +150,8 @@ def compute_ray_density_from_cache(
         shot_ids: Optional list of shot IDs to filter (None for all)
         num_samples_per_ray: Number of sample points per ray for grid intersection
         show_progress: Whether to show progress bar
+        n_jobs: Number of parallel jobs (-1 = all cores, 1 = sequential)
+        batch_size: Number of rays per batch for parallel processing
 
     Returns:
         3D array of ray counts with shape (nx, ny, nz)
@@ -107,6 +168,11 @@ def compute_ray_density_from_cache(
 
     phase_key = f'{phase}_wave'
 
+    # Step 1: Load all ray paths into memory
+    logger.info(f"  Loading ray paths from HDF5 cache...")
+    ray_paths = []
+    corrupted_shots = []
+
     with h5py.File(cache_path, 'r') as f:
         if phase_key not in f or 'shots' not in f[phase_key]:
             logger.warning(f"No {phase.upper()}-wave data in cache")
@@ -122,31 +188,8 @@ def compute_ray_density_from_cache(
         else:
             shot_keys = list(shots_group.keys())
 
-        # Count total rays for progress tracking (skip corrupted shots)
-        total_rays = 0
-        for sid in shot_keys:
-            if 'ray_lengths' in shots_group[sid]:
-                try:
-                    total_rays += len(shots_group[sid]['ray_lengths'][:])
-                except (OSError, RuntimeError) as e:
-                    # Skip corrupted shots during counting
-                    error_msg = str(e).lower()
-                    if "filter" not in error_msg and "read" not in error_msg and "decompress" not in error_msg:
-                        raise
-                    # else: silently skip corrupted shot
-
-        logger.info(f"  Total rays in cache: {total_rays:,}")
-
-        if max_rays is not None and max_rays < total_rays:
-            logger.info(f"  Limiting to {max_rays:,} rays")
-            total_rays = max_rays
-
-        # Process rays from cache
-        n_valid_rays = 0
-        loaded_rays = 0
-        corrupted_shots = []
-
-        iterator = tqdm(shot_keys, desc=f"Computing {phase}-wave density") if show_progress else shot_keys
+        # Load ray paths
+        iterator = tqdm(shot_keys, desc=f"Loading {phase}-wave rays") if show_progress else shot_keys
 
         for shot_key in iterator:
             try:
@@ -169,30 +212,19 @@ def compute_ray_density_from_cache(
                 logger.error(f"Unexpected exception for shot {shot_key}: {type(e).__name__}: {e}")
                 raise
 
+            # Extract individual ray paths
             offset = 0
             for length in lengths:
-                if max_rays is not None and loaded_rays >= max_rays:
+                if max_rays is not None and len(ray_paths) >= max_rays:
                     break
 
                 if length > 0:
-                    # Extract this ray path
                     ray_path = data[offset:offset + length]
-
-                    # Find grid cells this ray passes through
-                    grid_cells = find_ray_grid_intersections(
-                        ray_path, grid_dims, num_samples_per_ray
-                    )
-
-                    # Increment density for each cell
-                    for i, j, k in grid_cells:
-                        density[i, j, k] += 1
-
-                    n_valid_rays += 1
+                    ray_paths.append(ray_path)
 
                 offset += length
-                loaded_rays += 1
 
-            if max_rays is not None and loaded_rays >= max_rays:
+            if max_rays is not None and len(ray_paths) >= max_rays:
                 break
 
         # Warn if corrupted shots were found
@@ -202,7 +234,40 @@ def compute_ray_density_from_cache(
                 f"Run postprocess with fix_corrupted_shots=true to repair cache."
             )
 
-    logger.info(f"  Processed {n_valid_rays:,} valid rays")
+    n_rays = len(ray_paths)
+    logger.info(f"  Loaded {n_rays:,} ray paths")
+
+    if n_rays == 0:
+        logger.warning("  No ray paths loaded!")
+        return density
+
+    # Step 2: Split ray paths into batches
+    n_batches = (n_rays + batch_size - 1) // batch_size
+    batches = [ray_paths[i * batch_size:min((i + 1) * batch_size, n_rays)] for i in range(n_batches)]
+
+    if show_progress:
+        logger.info(f"  Processing {n_rays:,} rays in {n_batches} batches (batch_size={batch_size}, n_jobs={n_jobs})")
+
+    # Step 3: Process batches in parallel
+    if n_jobs == 1:
+        # Sequential processing with progress bar
+        partial_densities = []
+        iterator = tqdm(batches, desc=f"Computing {phase}-wave ray density") if show_progress else batches
+        for batch in iterator:
+            partial_densities.append(_process_ray_batch_traced(batch, grid_dims, num_samples_per_ray))
+    else:
+        # Parallel processing with joblib
+        partial_densities = Parallel(n_jobs=n_jobs, verbose=10 if show_progress else 0)(
+            delayed(_process_ray_batch_traced)(batch, grid_dims, num_samples_per_ray)
+            for batch in batches
+        )
+
+    # Step 4: Merge partial densities
+    density = np.zeros((grid_dims['nx'], grid_dims['ny'], grid_dims['nz']), dtype=np.int32)
+    for partial in partial_densities:
+        density += partial
+
+    logger.info(f"  Processed {n_rays:,} valid rays")
     logger.info(f"  Max ray density: {density.max()} rays per cell")
 
     nonzero_cells = density > 0

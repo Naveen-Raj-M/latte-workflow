@@ -110,6 +110,8 @@ def analyze_ray_density(config_dict: Dict[str, Any]) -> Dict[str, Any]:
     phase_type = config.get('phase_type', 'both')
     threshold = config.get('threshold', 0)
     num_samples_per_ray = config.get('num_samples_per_ray', 1000)
+    n_jobs = config.get('n_jobs', 1)
+    batch_size = config.get('batch_size', 1000)
     planes = config.get('planes', ['xy', 'xz', 'yz'])
     enable_xy_threshold_count = config.get('enable_xy_threshold_count', True)
     enable_depth_slices = config.get('enable_depth_slices', True)
@@ -141,6 +143,8 @@ def analyze_ray_density(config_dict: Dict[str, Any]) -> Dict[str, Any]:
     logger.info(f"  Phase type: {phase_type}")
     logger.info(f"  Threshold: {threshold} rays")
     logger.info(f"  Samples per ray: {num_samples_per_ray}")
+    logger.info(f"  Parallel jobs: {n_jobs} (-1 = all cores)")
+    logger.info(f"  Batch size: {batch_size}")
     if filter_shot_ids:
         logger.info(f"  Filtering to {len(filter_shot_ids)} events")
     elif max_rays:
@@ -178,7 +182,9 @@ def analyze_ray_density(config_dict: Dict[str, Any]) -> Dict[str, Any]:
             max_rays=max_rays,
             shot_ids=filter_shot_ids,
             num_samples_per_ray=num_samples_per_ray,
-            show_progress=True
+            show_progress=True,
+            n_jobs=n_jobs,
+            batch_size=batch_size
         )
 
         # Compute statistics
