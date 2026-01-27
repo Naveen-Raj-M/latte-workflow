@@ -6,6 +6,7 @@ created by the postprocess module.
 """
 
 import os
+import gc
 import logging
 from typing import Dict, Any, List, Optional, Set, Tuple
 
@@ -130,6 +131,7 @@ def load_ray_paths_from_cache(
 
             total_loaded = 0
             corrupted_shots = []
+            memory_error_shots = []
 
             for shot_key in load_shot_ids:
                 if shot_key not in shots_group:
@@ -138,12 +140,18 @@ def load_ray_paths_from_cache(
                 try:
                     shot_grp = shots_group[shot_key]
 
-                    # Load data (may fail if compressed data is corrupted)
+                    # Load data (may fail if compressed data is corrupted or memory is insufficient)
                     source = tuple(shot_grp['source'][:])
                     recv_array = shot_grp['receivers'][:]
                     wts_array = shot_grp['weights'][:]
                     lengths = shot_grp['ray_lengths'][:]
                     data = shot_grp['ray_data'][:]
+                except MemoryError as e:
+                    # Handle memory allocation failures gracefully
+                    memory_error_shots.append(int(shot_key))
+                    logger.warning(f"Skipping shot {shot_key} due to memory error: {e}")
+                    gc.collect()  # Force garbage collection to free memory
+                    continue
                 except (OSError, RuntimeError) as e:
                     # Skip corrupted shots (gzip decompression failure or other HDF5 errors)
                     error_msg = str(e).lower()
@@ -165,7 +173,7 @@ def load_ray_paths_from_cache(
                         break
 
                     if length > 0:
-                        ray_path = data[offset:offset + length]
+                        ray_path = data[offset:offset + length].copy()
                         ray_paths.append(ray_path)
                         sources.append(source)
                         receivers.append(tuple(recv_array[i]))
@@ -175,14 +183,28 @@ def load_ray_paths_from_cache(
 
                     offset += length
 
+                # Clear temporary arrays to free memory
+                del data, recv_array, wts_array, lengths
+
                 if max_rays is not None and total_loaded >= max_rays:
                     break
+
+                # Periodic garbage collection to manage memory
+                if total_loaded > 0 and total_loaded % 100 == 0:
+                    gc.collect()
 
             # Warn if corrupted shots were found
             if corrupted_shots:
                 logger.warning(
                     f"Skipped {len(corrupted_shots)} corrupted shots in {ph.upper()}-wave cache: {corrupted_shots}. "
                     f"Run postprocess with fix_corrupted_shots=true to repair cache."
+                )
+
+            # Warn if memory error shots were found
+            if memory_error_shots:
+                logger.warning(
+                    f"Skipped {len(memory_error_shots)} shots in {ph.upper()}-wave cache due to memory errors: {memory_error_shots}. "
+                    f"Consider increasing available memory or reducing max_rays parameter."
                 )
 
             result[ph] = {
@@ -194,6 +216,9 @@ def load_ray_paths_from_cache(
             }
 
             logger.info(f"Loaded {len(ray_paths)} {ph.upper()}-wave ray paths")
+
+    # Final garbage collection to clean up
+    gc.collect()
 
     return result
 
@@ -312,6 +337,11 @@ def get_ray_path_statistics(cache_path: str) -> Dict[str, Any]:
                                 # Try to read ray_data to check for corruption
                                 _ = shots[shot_key]['ray_data'][:]
                                 total_rays += len(shots[shot_key]['ray_lengths'][:])
+                            except MemoryError:
+                                # Skip shots that cause memory errors
+                                corrupted_count += 1
+                                logger.debug(f"Found shot {shot_key} with memory allocation issue in statistics")
+                                gc.collect()
                             except (OSError, RuntimeError) as e:
                                 error_msg = str(e).lower()
                                 if "filter" in error_msg or "read" in error_msg or "decompress" in error_msg:
@@ -325,8 +355,8 @@ def get_ray_path_statistics(cache_path: str) -> Dict[str, Any]:
 
                     if corrupted_count > 0:
                         logger.warning(
-                            f"Found {corrupted_count} corrupted shots in {phase.upper()}-wave cache. "
-                            f"Run postprocess with fix_corrupted_shots=true to repair."
+                            f"Found {corrupted_count} corrupted or memory-problematic shots in {phase.upper()}-wave cache. "
+                            f"Run postprocess with fix_corrupted_shots=true to repair or increase available memory."
                         )
     except Exception as e:
         logger.error(f"Error reading cache stats: {e}")
@@ -391,6 +421,12 @@ def get_unique_receivers(cache_path: str, phase: str = 'p') -> List[Tuple[float,
                 recv_array = shots_group[shot_key]['receivers'][:]
                 for recv in recv_array:
                     receivers.add(tuple(recv))
+            except MemoryError:
+                # Skip shots that cause memory errors
+                corrupted_count += 1
+                logger.debug(f"Skipping shot {shot_key} with memory allocation issue in get_unique_receivers")
+                gc.collect()
+                continue
             except (OSError, RuntimeError) as e:
                 error_msg = str(e).lower()
                 if "filter" in error_msg or "read" in error_msg or "decompress" in error_msg:
@@ -402,8 +438,8 @@ def get_unique_receivers(cache_path: str, phase: str = 'p') -> List[Tuple[float,
 
     if corrupted_count > 0:
         logger.warning(
-            f"Skipped {corrupted_count} corrupted shots while reading receivers. "
-            f"Run postprocess with fix_corrupted_shots=true to repair cache."
+            f"Skipped {corrupted_count} corrupted or memory-problematic shots while reading receivers. "
+            f"Run postprocess with fix_corrupted_shots=true to repair cache or increase available memory."
         )
 
     return list(receivers)
