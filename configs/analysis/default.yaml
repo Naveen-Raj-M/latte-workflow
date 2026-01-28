@@ -271,6 +271,10 @@ raypath_analysis:
   max_rays: null  # Maximum rays to load (null for all)
   subsample_fraction: 1.0  # Fraction of rays to plot (0.0-1.0)
 
+  # Vectorization optimization
+  num_samples_per_ray: 500  # Resample all rays to this many points for vectorized operations (faster plotting)
+  use_vectorized_loading: true  # Use vectorized ray loading (recommended for large datasets)
+
   # 3D plot (disabled by default due to performance)
   enable_3d_plot: false
 

@@ -20,6 +20,7 @@ from tqdm import tqdm
 
 from .raypath_data import (
     load_ray_paths_from_cache,
+    load_ray_paths_from_cache_vectorized,
     get_ray_path_metadata,
     get_ray_path_statistics,
     get_unique_sources,
@@ -130,6 +131,10 @@ def analyze_ray_paths(config_dict: Dict[str, Any]) -> Dict[str, Any]:
     planes = config.get('plot', {}).get('planes', ['xy', 'xz', 'yz'])
     output_format = config.get('plot', {}).get('format', 'png')
 
+    # Vectorization settings
+    use_vectorized = config.get('use_vectorized_loading', True)
+    num_samples_per_ray = config.get('num_samples_per_ray', 500)
+
     # Event filtering/subsampling (priority: event_id_list_file > max_rays > subsample_fraction)
     event_id_list_file = config.get('event_id_list_file', None)
     max_rays = config.get('max_rays', None)
@@ -187,16 +192,26 @@ def analyze_ray_paths(config_dict: Dict[str, Any]) -> Dict[str, Any]:
         logger.info(f"Processing {phase.upper()}-wave ray paths")
         logger.info(f"{'='*60}")
 
-        # Load ray paths
-        logger.info("Loading ray paths from cache...")
-        ray_data = load_ray_paths_from_cache(
-            cache_path,
-            phase=phase,
-            max_rays=max_rays,
-            shot_ids=filter_shot_ids
-        )
+        # Load ray paths (vectorized or standard)
+        if use_vectorized:
+            logger.info(f"Loading ray paths from cache (vectorized, {num_samples_per_ray} samples/ray)...")
+            ray_data = load_ray_paths_from_cache_vectorized(
+                cache_path,
+                phase=phase,
+                max_rays=max_rays,
+                shot_ids=filter_shot_ids,
+                num_samples_per_ray=num_samples_per_ray
+            )
+        else:
+            logger.info("Loading ray paths from cache (standard)...")
+            ray_data = load_ray_paths_from_cache(
+                cache_path,
+                phase=phase,
+                max_rays=max_rays,
+                shot_ids=filter_shot_ids
+            )
 
-        if phase not in ray_data or not ray_data[phase]['ray_paths']:
+        if phase not in ray_data or len(ray_data[phase]['ray_paths']) == 0:
             logger.warning(f"No {phase.upper()}-wave ray paths loaded")
             continue
 
@@ -208,8 +223,15 @@ def analyze_ray_paths(config_dict: Dict[str, Any]) -> Dict[str, Any]:
         logger.info(f"Loaded {len(ray_paths)} ray paths")
 
         # Get unique sources and receivers for plotting
-        unique_sources = list(set(sources))
-        unique_receivers = list(set(receivers))
+        if use_vectorized:
+            # For vectorized data, sources and receivers are already numpy arrays
+            # Convert to tuples for set operations
+            unique_sources = [tuple(s) for s in np.unique(sources, axis=0)]
+            unique_receivers = [tuple(r) for r in np.unique(receivers, axis=0)]
+        else:
+            # For standard data, sources and receivers are lists of tuples
+            unique_sources = list(set(sources))
+            unique_receivers = list(set(receivers))
 
         logger.info(f"Unique sources: {len(unique_sources)}")
         logger.info(f"Unique receivers: {len(unique_receivers)}")

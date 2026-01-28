@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 def plot_ray_paths_projection(
-    ray_paths: List[np.ndarray],
+    ray_paths,  # Union[List[np.ndarray], np.ndarray]
     sources: List[Tuple[float, float, float]],
     receivers: List[Tuple[float, float, float]],
     plane: str,
@@ -37,7 +37,9 @@ def plot_ray_paths_projection(
     Plot ray paths in a specific 2D projection plane.
 
     Args:
-        ray_paths: List of ray path arrays (each shape N x 3)
+        ray_paths: Either:
+            - List of ray path arrays (each shape N x 3) [standard format]
+            - Single numpy array of shape (n_rays, num_samples, 3) [vectorized format]
         sources: List of source coordinates (x, y, z)
         receivers: List of receiver coordinates (x, y, z)
         plane: Projection plane ('xy', 'xz', or 'yz')
@@ -87,6 +89,12 @@ def plot_ray_paths_projection(
     title_fontsize = config.get('title_fontsize', 14)
     legend_fontsize = config.get('legend_fontsize', 10)
 
+    # Detect format: vectorized (numpy array) vs standard (list)
+    is_vectorized = isinstance(ray_paths, np.ndarray)
+
+    if is_vectorized:
+        logger.debug(f"Using vectorized ray paths: shape {ray_paths.shape}")
+
     # Subsampling
     subsample_fraction = config.get('subsample_fraction', 1.0)
     max_rays = config.get('max_rays', None)
@@ -94,13 +102,19 @@ def plot_ray_paths_projection(
     # Apply subsampling
     if max_rays is not None and len(ray_paths) > max_rays:
         indices = np.random.choice(len(ray_paths), max_rays, replace=False)
-        ray_paths = [ray_paths[i] for i in sorted(indices)]
+        if is_vectorized:
+            ray_paths = ray_paths[sorted(indices)]
+        else:
+            ray_paths = [ray_paths[i] for i in sorted(indices)]
         logger.info(f"Subsampled to {max_rays} ray paths for plotting")
     elif subsample_fraction < 1.0 and len(ray_paths) > 0:
         n_rays_original = len(ray_paths)
         n_rays_to_plot = max(1, int(n_rays_original * subsample_fraction))
         indices = np.random.choice(n_rays_original, n_rays_to_plot, replace=False)
-        ray_paths = [ray_paths[i] for i in sorted(indices)]
+        if is_vectorized:
+            ray_paths = ray_paths[sorted(indices)]
+        else:
+            ray_paths = [ray_paths[i] for i in sorted(indices)]
         logger.info(f"Subsampled {n_rays_to_plot}/{n_rays_original} ray paths ({subsample_fraction*100:.1f}%)")
 
     fig, ax = plt.subplots(figsize=(figure_width, figure_height))
@@ -119,12 +133,20 @@ def plot_ray_paths_projection(
         raise ValueError(f"Invalid plane: {plane}")
 
     # Plot ray paths using LineCollection for performance
-    if ray_paths:
-        segments = []
-        for ray in ray_paths:
-            if len(ray) > 1:
-                ray_2d = ray[:, [idx1, idx2]]
-                segments.append(ray_2d)
+    if len(ray_paths) > 0:
+        if is_vectorized:
+            # Vectorized format: extract 2D projections using numpy slicing (MUCH faster!)
+            # Shape: (n_rays, num_samples, 3) -> (n_rays, num_samples, 2)
+            ray_2d = ray_paths[:, :, [idx1, idx2]]
+            # Convert to list of segments for LineCollection
+            segments = [ray_2d[i] for i in range(len(ray_2d))]
+        else:
+            # Standard format: iterate through list
+            segments = []
+            for ray in ray_paths:
+                if len(ray) > 1:
+                    ray_2d = ray[:, [idx1, idx2]]
+                    segments.append(ray_2d)
 
         if segments:
             logger.debug(f"Creating LineCollection with {len(segments)} ray paths...")
@@ -192,7 +214,7 @@ def plot_ray_paths_projection(
 
 
 def plot_ray_paths_3d(
-    ray_paths: List[np.ndarray],
+    ray_paths,  # Union[List[np.ndarray], np.ndarray]
     sources: List[Tuple[float, float, float]],
     receivers: List[Tuple[float, float, float]],
     output_file: str,
@@ -202,7 +224,9 @@ def plot_ray_paths_3d(
     Plot ray paths in 3D.
 
     Args:
-        ray_paths: List of ray path arrays (each shape N x 3)
+        ray_paths: Either:
+            - List of ray path arrays (each shape N x 3) [standard format]
+            - Single numpy array of shape (n_rays, num_samples, 3) [vectorized format]
         sources: List of source coordinates (x, y, z)
         receivers: List of receiver coordinates (x, y, z)
         output_file: Output file path
@@ -210,6 +234,9 @@ def plot_ray_paths_3d(
     """
     from mpl_toolkits.mplot3d import Axes3D
     from mpl_toolkits.mplot3d.art3d import Line3DCollection
+
+    # Detect format: vectorized (numpy array) vs standard (list)
+    is_vectorized = isinstance(ray_paths, np.ndarray)
 
     # Get configuration
     figure_width = config.get('figure_width', 12)
@@ -229,17 +256,27 @@ def plot_ray_paths_3d(
     # Subsample for 3D performance
     if len(ray_paths) > max_rays:
         indices = np.random.choice(len(ray_paths), max_rays, replace=False)
-        ray_paths = [ray_paths[i] for i in sorted(indices)]
+        if is_vectorized:
+            ray_paths = ray_paths[sorted(indices)]
+        else:
+            ray_paths = [ray_paths[i] for i in sorted(indices)]
         logger.info(f"Subsampled to {max_rays} ray paths for 3D plotting")
 
     fig = plt.figure(figsize=(figure_width, figure_height))
     ax = fig.add_subplot(111, projection='3d')
 
     # Plot ray paths
-    for ray in ray_paths:
-        if len(ray) > 1:
-            ax.plot(ray[:, 0], ray[:, 1], ray[:, 2],
+    if is_vectorized:
+        # Vectorized format: iterate through array (still need loop for 3D plotting)
+        for i in range(len(ray_paths)):
+            ax.plot(ray_paths[i, :, 0], ray_paths[i, :, 1], ray_paths[i, :, 2],
                     color=ray_color, alpha=ray_alpha, linewidth=ray_linewidth)
+    else:
+        # Standard format: iterate through list
+        for ray in ray_paths:
+            if len(ray) > 1:
+                ax.plot(ray[:, 0], ray[:, 1], ray[:, 2],
+                        color=ray_color, alpha=ray_alpha, linewidth=ray_linewidth)
 
     # Plot sources
     if sources:
