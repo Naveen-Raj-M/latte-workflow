@@ -918,6 +918,21 @@ def compute_all_ray_paths(
                 'weights': List of observation weights
             }
     """
+    # Dispatcher: Check if we should read from binary files or compute from gradients
+    raypath_source = getattr(config, 'raypath_source', 'gradients')
+
+    if raypath_source == 'binary':
+        # Use binary raypath reader
+        from postprocess.read_raypath_binary import compute_all_ray_paths_from_binary
+        return compute_all_ray_paths_from_binary(
+            config, subsample_during_computation, filter_shot_ids
+        )
+    elif raypath_source != 'gradients':
+        raise ValueError(
+            f"Invalid raypath_source='{raypath_source}'. Must be 'gradients' or 'binary'"
+        )
+
+    # Default: gradient-based ray tracing (original implementation)
     print("\n" + "="*80)
     print("COMPUTING RAY PATHS (WITH CACHE)")
     print("="*80)

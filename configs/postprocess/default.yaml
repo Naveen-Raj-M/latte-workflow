@@ -151,9 +151,13 @@ source_processing:
 ray_path_diagnosis:
   enabled: false
 
+  # Ray path source: "gradients" (compute from gradient fields) or "binary" (read pre-computed from .bin files)
+  raypath_source: "gradients"  # Options: "gradients", "binary"
+  raypath_binary_dir: null  # Required when raypath_source="binary", path to directory containing shot_*_raypath_*.bin files
+
   # Common input files
   ground_truth_csv: "${travel_time_processing.synthetic_tt_output_csv}"
-  gradient_dir: "${data.base_dir}/gradient"
+  gradient_dir: "${data.base_dir}/gradient"  # Used when raypath_source="gradients"
   shot_map_file: "${travel_time_processing.shot_map_file}"
 
   # Output files (HDF5 format)
