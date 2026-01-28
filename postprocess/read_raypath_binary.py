@@ -110,66 +110,120 @@ def read_raypath_binary_file(filepath: str, is_3d: bool = True) -> Tuple[int, np
         raise ValueError(f"Error reading {filepath}: {e}")
 
 
-def validate_ray_receiver_match(ray_coords: np.ndarray, ray_npoints: np.ndarray,
-                                 receivers: List[Tuple[float, float, float]],
-                                 source_pos: Tuple[float, float, float],
-                                 tolerance_km: float = 0.5) -> bool:
+def match_rays_to_receivers(ray_coords: np.ndarray, ray_npoints: np.ndarray,
+                            receivers: List[Tuple[float, float, float]],
+                            tolerance_km: float = 2.0) -> Tuple[np.ndarray, List[int]]:
     """
-    Validate that rays match expected receivers by checking endpoints.
+    Match rays to receivers by position (ray start point → receiver location).
+
+    Since ray ordering in binary files may not match receiver ordering in CSV,
+    we match each ray's starting point to the nearest receiver.
 
     Args:
         ray_coords: Ray coordinates in km (total_points, 3)
-        ray_npoints: Points per ray
+        ray_npoints: Points per ray (nrays,)
         receivers: Expected receiver positions in km
+        tolerance_km: Maximum distance for matching (km)
+
+    Returns:
+        Tuple of:
+            - reordered_ray_npoints: Ray point counts in receiver order
+            - ray_indices: Mapping from receiver index to ray index (-1 if no match)
+    """
+    nrays = len(ray_npoints)
+
+    # Extract starting point of each ray
+    ray_starts = []
+    offset = 0
+    for i in range(nrays):
+        n_pts = ray_npoints[i]
+        if n_pts > 0:
+            ray_starts.append(ray_coords[offset])
+        else:
+            ray_starts.append(np.array([np.nan, np.nan, np.nan]))
+        offset += n_pts
+
+    ray_starts = np.array(ray_starts)  # (nrays, 3)
+    receivers_array = np.array(receivers)  # (n_receivers, 3)
+
+    # For each receiver, find closest ray start point
+    ray_indices = []
+    used_rays = set()
+
+    for i, receiver in enumerate(receivers_array):
+        # Compute distances to all unused ray starts
+        distances = np.linalg.norm(ray_starts - receiver, axis=1)
+
+        # Mask out already used rays
+        for used in used_rays:
+            distances[used] = np.inf
+
+        # Find closest ray
+        closest_ray = np.argmin(distances)
+        min_dist = distances[closest_ray]
+
+        if min_dist < tolerance_km:
+            ray_indices.append(closest_ray)
+            used_rays.add(closest_ray)
+        else:
+            # No matching ray found for this receiver
+            ray_indices.append(-1)
+            if min_dist < 10.0:  # Only warn if somewhat close
+                warnings.warn(
+                    f"Receiver {i}: No matching ray found (closest: {min_dist:.3f} km)"
+                )
+
+    return ray_indices
+
+
+def validate_ray_receiver_match(matched_ray_indices: List[int],
+                                 ray_coords: np.ndarray,
+                                 ray_npoints: np.ndarray,
+                                 receivers: List[Tuple[float, float, float]],
+                                 source_pos: Tuple[float, float, float]) -> bool:
+    """
+    Validate that matched rays reach the source.
+
+    Args:
+        matched_ray_indices: Mapping from receiver index to ray index
+        ray_coords: Ray coordinates in km (total_points, 3)
+        ray_npoints: Points per ray
+        receivers: Receiver positions in km
         source_pos: Source position in km
-        tolerance_km: Maximum distance for endpoint matching (km)
 
     Returns:
         True if validation passes
     """
-    nrays = len(ray_npoints)
+    n_matched = sum(1 for idx in matched_ray_indices if idx >= 0)
+    n_receivers = len(receivers)
 
-    if nrays != len(receivers):
-        warnings.warn(f"Ray count mismatch: {nrays} rays vs {len(receivers)} receivers")
+    if n_matched < n_receivers * 0.8:  # Warn if <80% matched
+        warnings.warn(
+            f"Only {n_matched}/{n_receivers} receivers matched to rays ({n_matched/n_receivers*100:.1f}%)"
+        )
         return False
 
-    # Check a few ray endpoints (first, last, middle)
-    check_indices = [0, nrays // 2, nrays - 1] if nrays > 2 else [0]
+    # Check a few rays reach the source
+    source = np.array(source_pos)
+    check_count = min(5, n_matched)
+
+    # Get indices of matched rays to check
+    valid_indices = [i for i, ray_idx in enumerate(matched_ray_indices) if ray_idx >= 0]
+    check_indices = valid_indices[:check_count] if len(valid_indices) >= check_count else valid_indices
 
     offset = 0
-    for i in check_indices:
-        if i >= nrays:
-            continue
+    for ray_idx in range(len(ray_npoints)):
+        n_pts = ray_npoints[ray_idx]
 
-        n_pts = ray_npoints[i]
-        if n_pts == 0:
-            offset += n_pts
-            continue
+        # Check if this ray is in our check list
+        if ray_idx in [matched_ray_indices[i] for i in check_indices]:
+            ray_end = ray_coords[offset + n_pts - 1]
+            dist_to_source = np.linalg.norm(ray_end - source)
 
-        # Get ray endpoints
-        ray_start = ray_coords[offset]  # First point (receiver)
-        ray_end = ray_coords[offset + n_pts - 1]  # Last point (should be near source)
-
-        # Check if ray starts at receiver
-        receiver = np.array(receivers[i])
-        dist_to_receiver = np.linalg.norm(ray_start - receiver)
-
-        if dist_to_receiver > tolerance_km:
-            warnings.warn(
-                f"Ray {i} endpoint mismatch: {dist_to_receiver:.3f} km from receiver "
-                f"(expected < {tolerance_km} km)"
-            )
-            return False
-
-        # Check if ray ends near source
-        source = np.array(source_pos)
-        dist_to_source = np.linalg.norm(ray_end - source)
-
-        # Source tolerance is larger (rays may not fully converge)
-        if dist_to_source > 10.0:  # 10 km tolerance for source
-            warnings.warn(
-                f"Ray {i} may not reach source: {dist_to_source:.3f} km away"
-            )
+            if dist_to_source > 10.0:  # 10 km tolerance for source
+                warnings.warn(
+                    f"Ray {ray_idx} may not reach source: {dist_to_source:.3f} km away"
+                )
 
         offset += n_pts
 
@@ -246,8 +300,6 @@ def process_single_shot_from_binary(
             else:
                 weights.append(1.0)
 
-        n_receivers = len(receivers)
-
         # Detect 2D vs 3D based on source position
         # If all y-coordinates are the same, assume 2D
         is_3d = True
@@ -257,43 +309,59 @@ def process_single_shot_from_binary(
                 is_3d = False
 
         # Read binary file
-        nrays, ray_npoints, ray_coords_m = read_raypath_binary_file(binary_file, is_3d=is_3d)
-
-        # Validate ray count
-        if nrays != n_receivers:
-            if verbose:
-                warnings.warn(
-                    f"Shot {shot_id}: Ray count mismatch ({nrays} rays vs {n_receivers} receivers)"
-                )
-            # Proceed with min(nrays, n_receivers) to salvage partial data
-            n_valid = min(nrays, n_receivers)
-            ray_npoints = ray_npoints[:n_valid]
-            receivers = receivers[:n_valid]
-            weights = weights[:n_valid]
+        _, ray_npoints, ray_coords_m = read_raypath_binary_file(binary_file, is_3d=is_3d)
 
         # Convert coordinates from meters to kilometers
         ray_coords_km = ray_coords_m / 1000.0
 
+        # Match rays to receivers by position (ray start → receiver location)
+        matched_ray_indices = match_rays_to_receivers(
+            ray_coords_km, ray_npoints, receivers, tolerance_km=2.0
+        )
+
         # Validate ray-receiver matching
         if validate_match:
             valid = validate_ray_receiver_match(
-                ray_coords_km, ray_npoints, receivers, source_pos
+                matched_ray_indices, ray_coords_km, ray_npoints, receivers, source_pos
             )
             if not valid and verbose:
                 warnings.warn(f"Shot {shot_id}: Ray-receiver validation failed")
 
-        # Split concatenated ray coordinates into individual rays
+        # Build ray paths in receiver order (not binary file order)
         ray_paths = []
-        offset = 0
-        for i, n_pts in enumerate(ray_npoints):
-            if n_pts > 0:
-                ray_path = ray_coords_km[offset:offset + n_pts]
-                ray_paths.append(ray_path)
-            else:
-                # Empty ray - use a dummy single point at receiver
-                ray_paths.append(np.array([receivers[i]]))
+        reordered_receivers = []
+        reordered_weights = []
 
-            offset += n_pts
+        # Pre-compute offsets for each ray in binary file
+        ray_offsets = np.zeros(len(ray_npoints) + 1, dtype=int)
+        ray_offsets[1:] = np.cumsum(ray_npoints)
+
+        for i, ray_idx in enumerate(matched_ray_indices):
+            if ray_idx >= 0 and ray_idx < len(ray_npoints):
+                # Found a matching ray
+                n_pts = ray_npoints[ray_idx]
+                offset = ray_offsets[ray_idx]
+
+                if n_pts > 0:
+                    ray_path = ray_coords_km[offset:offset + n_pts]
+                    ray_paths.append(ray_path)
+                else:
+                    # Empty ray - use dummy single point at receiver
+                    ray_paths.append(np.array([receivers[i]]))
+
+                reordered_receivers.append(receivers[i])
+                reordered_weights.append(weights[i])
+            else:
+                # No matching ray for this receiver - create dummy ray
+                if verbose:
+                    warnings.warn(f"Shot {shot_id}: No ray found for receiver {i}, creating dummy")
+                ray_paths.append(np.array([receivers[i]]))
+                reordered_receivers.append(receivers[i])
+                reordered_weights.append(weights[i])
+
+        # Update receivers and weights to match reordered data
+        receivers = reordered_receivers
+        weights = reordered_weights
 
         return {
             'source': source_pos,
