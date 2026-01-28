@@ -256,7 +256,8 @@ def process_single_shot_from_binary(
             - 'source': source position (x, y, z) in km
             - 'receivers': list of receiver positions in km
             - 'weights': list of weights
-            - 'ray_paths': list of ray path arrays
+            - 'ray_lengths': numpy array of ray lengths (int32)
+            - 'ray_data': concatenated ray coordinates (float32, shape: total_points x 3)
         Returns None if shot cannot be processed
     """
     try:
@@ -625,7 +626,7 @@ def compute_all_ray_paths_from_binary(
                         continue
 
                     batch_results_for_cache[shot_id] = shot_result
-                    batch_rays += len(shot_result['ray_paths'])
+                    batch_rays += len(shot_result['ray_lengths'])
 
                 # Clear raw results
                 del batch_results_raw
