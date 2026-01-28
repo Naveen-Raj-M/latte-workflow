@@ -328,7 +328,9 @@ def process_single_shot_from_binary(
                 warnings.warn(f"Shot {shot_id}: Ray-receiver validation failed")
 
         # Build ray paths in receiver order (not binary file order)
-        ray_paths = []
+        # Pre-concatenate to avoid expensive vstack later
+        ray_lengths = []
+        ray_data_chunks = []
         reordered_receivers = []
         reordered_weights = []
 
@@ -344,10 +346,12 @@ def process_single_shot_from_binary(
 
                 if n_pts > 0:
                     ray_path = ray_coords_km[offset:offset + n_pts]
-                    ray_paths.append(ray_path)
+                    ray_data_chunks.append(ray_path)
+                    ray_lengths.append(n_pts)
                 else:
                     # Empty ray - use dummy single point at receiver
-                    ray_paths.append(np.array([receivers[i]]))
+                    ray_data_chunks.append(np.array([receivers[i]]))
+                    ray_lengths.append(1)
 
                 reordered_receivers.append(receivers[i])
                 reordered_weights.append(weights[i])
@@ -355,19 +359,23 @@ def process_single_shot_from_binary(
                 # No matching ray for this receiver - create dummy ray
                 if verbose:
                     warnings.warn(f"Shot {shot_id}: No ray found for receiver {i}, creating dummy")
-                ray_paths.append(np.array([receivers[i]]))
+                ray_data_chunks.append(np.array([receivers[i]]))
+                ray_lengths.append(1)
                 reordered_receivers.append(receivers[i])
                 reordered_weights.append(weights[i])
 
-        # Update receivers and weights to match reordered data
-        receivers = reordered_receivers
-        weights = reordered_weights
+        # Concatenate all rays once (much faster than vstack in save_batch_to_cache)
+        if ray_data_chunks:
+            ray_data_concatenated = np.vstack(ray_data_chunks).astype(np.float32)
+        else:
+            ray_data_concatenated = np.array([]).reshape(0, 3).astype(np.float32)
 
         return {
             'source': source_pos,
-            'receivers': receivers,
-            'weights': weights,
-            'ray_paths': ray_paths
+            'receivers': reordered_receivers,
+            'weights': reordered_weights,
+            'ray_lengths': np.array(ray_lengths, dtype=np.int32),
+            'ray_data': ray_data_concatenated
         }
 
     except Exception as e:

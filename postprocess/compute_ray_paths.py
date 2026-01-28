@@ -277,17 +277,36 @@ def save_batch_to_cache(
             shot_grp.create_dataset('weights', data=weights)
 
             # Store ray paths: concatenate all rays and store lengths
-            ray_paths = data['ray_paths']
-            if ray_paths:
-                ray_lengths = np.array([len(rp) for rp in ray_paths], dtype=np.int32)
-                ray_data = np.vstack(ray_paths).astype(np.float32)
+            # Support two formats:
+            # 1. Legacy: data['ray_paths'] = list of arrays (requires vstack)
+            # 2. Optimized: data['ray_lengths'] + data['ray_data'] (pre-concatenated)
+
+            if 'ray_data' in data and 'ray_lengths' in data:
+                # Format 2: Pre-concatenated (binary reader optimization)
+                ray_lengths = data['ray_lengths']
+                ray_data = data['ray_data']
 
                 shot_grp.create_dataset('ray_lengths', data=ray_lengths)
                 shot_grp.create_dataset('ray_data', data=ray_data, compression='gzip', compression_opts=4)
 
-                total_rays += len(ray_paths)
+                total_rays += len(ray_lengths)
+            elif 'ray_paths' in data:
+                # Format 1: List of arrays (gradient-based, requires vstack)
+                ray_paths = data['ray_paths']
+                if ray_paths:
+                    ray_lengths = np.array([len(rp) for rp in ray_paths], dtype=np.int32)
+                    ray_data = np.vstack(ray_paths).astype(np.float32)
+
+                    shot_grp.create_dataset('ray_lengths', data=ray_lengths)
+                    shot_grp.create_dataset('ray_data', data=ray_data, compression='gzip', compression_opts=4)
+
+                    total_rays += len(ray_paths)
+                else:
+                    # No valid rays for this shot
+                    shot_grp.create_dataset('ray_lengths', data=np.array([], dtype=np.int32))
+                    shot_grp.create_dataset('ray_data', data=np.array([]).reshape(0, 3).astype(np.float32))
             else:
-                # No valid rays for this shot
+                # Empty shot
                 shot_grp.create_dataset('ray_lengths', data=np.array([], dtype=np.int32))
                 shot_grp.create_dataset('ray_data', data=np.array([]).reshape(0, 3).astype(np.float32))
 
