@@ -173,7 +173,7 @@ def compute_ray_density_from_cache(
     ray_paths = []
     corrupted_shots = []
 
-    with h5py.File(cache_path, 'r') as f:
+    with h5py.File(cache_path, 'r', locking=False) as f:
         if phase_key not in f or 'shots' not in f[phase_key]:
             logger.warning(f"No {phase.upper()}-wave data in cache")
             return density

@@ -346,7 +346,7 @@ def _read_hdf5_velocity(
 
     if show_progress:
         with tqdm(total=100, desc=desc) as pbar:
-            with h5py.File(filepath, 'r') as f:
+            with h5py.File(filepath, 'r', locking=False) as f:
                 pbar.update(10)
 
                 if dataset not in f:
@@ -384,7 +384,7 @@ def _read_hdf5_velocity(
 
         logger.info(f"Loaded {len(df):,} points from {filepath}:{dataset}")
     else:
-        with h5py.File(filepath, 'r') as f:
+        with h5py.File(filepath, 'r', locking=False) as f:
             if dataset not in f:
                 raise KeyError(
                     f"Dataset '{dataset}' not found in {filepath}. "
@@ -449,7 +449,7 @@ def _write_hdf5_velocity(
 
     if show_progress:
         with tqdm(total=100, desc=desc) as pbar:
-            with h5py.File(filepath, mode) as f:
+            with h5py.File(filepath, mode, locking=False) as f:
                 pbar.update(5)
 
                 # Remove existing dataset if present
@@ -507,7 +507,7 @@ def _write_hdf5_velocity(
             f"({file_size_mb:.1f} MB, {n_chunks} chunks)"
         )
     else:
-        with h5py.File(filepath, mode) as f:
+        with h5py.File(filepath, mode, locking=False) as f:
             if dataset in f:
                 del f[dataset]
 
@@ -766,7 +766,7 @@ def get_velocity_file_metadata(filepath: Union[str, Path]) -> Dict[str, Any]:
         metadata['num_points'] = sum(1 for _ in open(filepath)) - 1  # Subtract header
 
     elif format_type == 'hdf5':
-        with h5py.File(filepath, 'r') as f:
+        with h5py.File(filepath, 'r', locking=False) as f:
             metadata['datasets'] = list(f.keys())
             metadata['has_coarse_dataset'] = 'velocity_coarse' in f
 

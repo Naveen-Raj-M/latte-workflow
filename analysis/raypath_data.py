@@ -107,7 +107,7 @@ def load_ray_paths_from_cache(
 
     result = {}
 
-    with h5py.File(cache_path, 'r') as f:
+    with h5py.File(cache_path, 'r', locking=False) as f:
         for ph in phases:
             phase_group = f'{ph}_wave'
 
@@ -243,7 +243,7 @@ def get_ray_path_metadata(cache_path: str) -> Dict[str, Any]:
 
     metadata = {}
 
-    with h5py.File(cache_path, 'r') as f:
+    with h5py.File(cache_path, 'r', locking=False) as f:
         if 'metadata' not in f:
             return metadata
 
@@ -317,7 +317,7 @@ def get_ray_path_statistics(cache_path: str) -> Dict[str, Any]:
     stats['file_size_mb'] = os.path.getsize(cache_path) / (1024 * 1024)
 
     try:
-        with h5py.File(cache_path, 'r') as f:
+        with h5py.File(cache_path, 'r', locking=False) as f:
             if 'metadata' in f:
                 stats['created'] = f['metadata'].attrs.get('created', None)
                 stats['last_updated'] = f['metadata'].attrs.get('last_updated', None)
@@ -380,7 +380,7 @@ def get_unique_sources(cache_path: str, phase: str = 'p') -> List[Tuple[float, f
 
     sources = set()
 
-    with h5py.File(cache_path, 'r') as f:
+    with h5py.File(cache_path, 'r', locking=False) as f:
         phase_group = f'{phase}_wave'
         if phase_group not in f or 'shots' not in f[phase_group]:
             return []
@@ -410,7 +410,7 @@ def get_unique_receivers(cache_path: str, phase: str = 'p') -> List[Tuple[float,
     receivers = set()
     corrupted_count = 0
 
-    with h5py.File(cache_path, 'r') as f:
+    with h5py.File(cache_path, 'r', locking=False) as f:
         phase_group = f'{phase}_wave'
         if phase_group not in f or 'shots' not in f[phase_group]:
             return []

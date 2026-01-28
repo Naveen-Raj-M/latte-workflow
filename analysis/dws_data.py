@@ -74,7 +74,7 @@ def get_dws_metadata(filepath: str) -> Dict[str, Any]:
     metadata = get_velocity_file_metadata(filepath)
 
     # Check if this is a DWS file
-    with h5py.File(filepath, 'r') as f:
+    with h5py.File(filepath, 'r', locking=False) as f:
         if 'velocity' in f:
             dset = f['velocity']
             if 'data_type' in dset.attrs:
