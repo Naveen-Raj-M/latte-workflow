@@ -200,4 +200,12 @@ ray_path_diagnosis:
   dws:
     weight_column: 'weight'  # Weight column in CSV (uses 1.0 if not found)
 
+# Ray path simplification (RDP algorithm to reduce memory usage in analysis)
+ray_path_simplification:
+  enabled: false
+  input_cache_path: "${data.analysis_output_dir}/ray_paths/ray_paths.h5"
+  output_cache_path: "${data.analysis_output_dir}/ray_paths/ray_paths_simplified.h5"
+  epsilon: 0.05  # RDP distance threshold in km (0.01=gentle, 0.05=moderate, 0.10=aggressive)
+  phase_type: "both"  # Options: both, p, s
+
 strict_mode: true

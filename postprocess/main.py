@@ -31,6 +31,7 @@ from .compute_ray_paths import (
     is_cache_valid,
     load_ray_paths_from_cache
 )
+from .simplify_ray_paths import simplify_ray_paths_main
 
 
 def postprocess_latte_outputs(config: DictConfig) -> None:
@@ -255,6 +256,18 @@ def postprocess_latte_outputs(config: DictConfig) -> None:
                 raise
     else:
         print(f"\nRay path diagnosis: DISABLED")
+
+    # Ray path simplification (optional, for reducing memory in analysis)
+    if hasattr(config, "ray_path_simplification") and config.ray_path_simplification.enabled:
+        print(f"\nRay path simplification: ENABLED")
+        try:
+            simplify_ray_paths_main(config)
+        except Exception as e:
+            print(f"Error in ray path simplification: {e}")
+            if config.strict_mode:
+                raise
+    else:
+        print(f"\nRay path simplification: DISABLED")
 
     print("\n=== POST-PROCESSING COMPLETE ===")
 
