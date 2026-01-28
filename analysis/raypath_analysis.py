@@ -16,6 +16,7 @@ import logging
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
+import numpy as np
 from tqdm import tqdm
 
 from .raypath_data import (
