@@ -139,7 +139,8 @@ def plot_ray_paths_projection(
             # Shape: (n_rays, num_samples, 3) -> (n_rays, num_samples, 2)
             ray_2d = ray_paths[:, :, [idx1, idx2]]
             # Convert to list of segments for LineCollection
-            segments = [ray_2d[i] for i in range(len(ray_2d))]
+            # segments = [ray_2d[i] for i in range(len(ray_2d))]
+            segments = list(ray_2d)
         else:
             # Standard format: iterate through list
             segments = []

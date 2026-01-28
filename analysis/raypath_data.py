@@ -13,6 +13,7 @@ from typing import Dict, Any, List, Optional, Set, Tuple
 import h5py
 import numpy as np
 import pandas as pd
+from tqdm import tqdm
 
 logger = logging.getLogger(__name__)
 
@@ -123,7 +124,7 @@ def load_ray_paths_from_cache_vectorized(
 
             logger.info(f"Loading {ph.upper()}-wave rays with vectorized resampling to {num_samples_per_ray} points...")
 
-            for shot_key in load_shot_ids:
+            for shot_key in tqdm(load_shot_ids):
                 if shot_key not in shots_group:
                     continue
 
