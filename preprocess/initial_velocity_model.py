@@ -534,36 +534,81 @@ def create_velocity_model(config: DictConfig,
         # Get grid spacing
         dx, dy, dz = vel_config.grid_spacing_km
 
-        # Start from origin (0, 0) for X and Y
+        # --- X bounds ---
+        # Always start from the origin (x=0). Only go negative if sources/receivers
+        # exist west of the origin, and warn the user in that case.
         min_x = 0.0
-        min_y = 0.0
+        data_min_x = min(events_cart_df[x_col].min(), stations_cart_df[x_col].min())
+        if data_min_x < 0:
+            logger.warning(
+                f"Sources/receivers exist at negative X (west of origin): "
+                f"data min X = {data_min_x:.2f} km. "
+                f"Extending grid westward to include them."
+            )
+            min_x = np.floor(data_min_x / dx) * dx
 
-        # Auto-detect max X and Y bounds from data
         data_max_x = max(events_cart_df[x_col].max(), stations_cart_df[x_col].max())
-        data_max_y = max(events_cart_df[y_col].max(), stations_cart_df[y_col].max())
-
-        # Extend to next grid point beyond data maximum
         max_x = np.ceil(data_max_x / dx) * dx
+
+        logger.info(
+            f"Data X range: [{data_min_x:.2f}, {data_max_x:.2f}] km -> "
+            f"Grid X: [{min_x:.2f}, {max_x:.2f}] km"
+        )
+
+        # --- Y bounds ---
+        # Always start from the origin (y=0). Only go negative if sources/receivers
+        # exist on the negative-Y side of the origin, and warn the user.
+        min_y = 0.0
+        data_min_y = min(events_cart_df[y_col].min(), stations_cart_df[y_col].min())
+        if data_min_y < 0:
+            logger.warning(
+                f"Sources/receivers exist at negative Y (beyond origin): "
+                f"data min Y = {data_min_y:.2f} km. "
+                f"Extending grid to include them."
+            )
+            min_y = np.floor(data_min_y / dy) * dy
+
+        data_max_y = max(events_cart_df[y_col].max(), stations_cart_df[y_col].max())
         max_y = np.ceil(data_max_y / dy) * dy
 
-        logger.info(f"Data max X: {data_max_x:.2f} km -> Extended to grid point: {max_x:.2f} km")
-        logger.info(f"Data max Y: {data_max_y:.2f} km -> Extended to grid point: {max_y:.2f} km")
+        logger.info(
+            f"Data Y range: [{data_min_y:.2f}, {data_max_y:.2f}] km -> "
+            f"Grid Y: [{min_y:.2f}, {max_y:.2f}] km"
+        )
 
-        # For Z: start from minimum data depth
+        # --- Z bounds ---
+        # Always start from the origin (z=0 in Cartesian = origin_depth in absolute).
+        # For example, if origin_depth=-4 km, z=0 corresponds to 4 km above MSL.
+        # Only extend above the origin (negative z) if sources/receivers exist there,
+        # and warn the user in that case.
+        min_z = 0.0
         data_min_z = min(events_cart_df[z_col].min(), stations_cart_df[z_col].min())
-        min_z = np.floor(data_min_z / dz) * dz  # Extend to grid point below minimum
+        if data_min_z < 0:
+            abs_depth_min = data_min_z + origin_depth
+            logger.warning(
+                f"Sources/receivers exist above origin depth "
+                f"(Cartesian z = {data_min_z:.2f} km, "
+                f"absolute depth = {abs_depth_min:.2f} km). "
+                f"Extending grid upward to include them."
+            )
+            min_z = np.floor(data_min_z / dz) * dz
 
         # For Z max: use max_depth_km if specified, otherwise use data maximum
         if vel_config.max_depth_km is not None:
-            # max_depth_km is actual depth, convert to Z_grid_km
-            # Z_grid_km = actual_depth - origin_depth
+            # max_depth_km is absolute depth; convert to Cartesian Z:
+            # Z_grid_km = absolute_depth - origin_depth
             max_z_from_config = vel_config.max_depth_km - origin_depth
-            logger.info(f"Using max_depth_km={vel_config.max_depth_km} km (Z_grid_km={max_z_from_config:.2f} km)")
-            max_z = np.ceil(max_z_from_config / dz) * dz  # Extend to next grid point
+            logger.info(
+                f"Using max_depth_km={vel_config.max_depth_km} km "
+                f"(Cartesian Z_grid_km={max_z_from_config:.2f} km)"
+            )
+            max_z = np.ceil(max_z_from_config / dz) * dz
         else:
             data_max_z = max(events_cart_df[z_col].max(), stations_cart_df[z_col].max())
-            max_z = np.ceil(data_max_z / dz) * dz  # Extend to next grid point
-            logger.info(f"Data max Z: {data_max_z:.2f} km -> Extended to grid point: {max_z:.2f} km")
+            max_z = np.ceil(data_max_z / dz) * dz
+            logger.info(
+                f"Data max Z: {data_max_z:.2f} km -> Extended to grid point: {max_z:.2f} km"
+            )
 
         min_coords = (min_x, min_y, min_z)
         max_coords = (max_x, max_y, max_z)
