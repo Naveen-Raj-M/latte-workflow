@@ -40,21 +40,24 @@ input:
 
 # Checkerboard pattern configuration
 checkerboard:
-  # Enable checkerboard creation
   enabled: true
+  pattern_type: "sinusoidal"  # "sinusoidal" or "block"
+  pattern_dimension: "3d"     # "3d" | "2d" (no depth variation) | "planar" (explicit depth planes)
+  origin_polarity: "positive" # "positive" (default) or "negative" (inverts the pattern); ignored for "planar"
 
-  # Perturbation type: "sinusoidal" or "block"
-  pattern_type: "sinusoidal"
+  # Depth planes for pattern_dimension: "planar" — depths in km, one layer each (snapped to nearest grid point).
+  # An error is raised if both lists are empty when pattern_dimension is "planar".
+  depth_planes_positive_polarity: []  # e.g. [5.0, 20.0, 35.0]
+  depth_planes_negative_polarity: []  # e.g. [10.0, 25.0]
 
-  # Amplitude of velocity perturbation (fraction, e.g., 0.05 = ±5%)
-  amplitude: 0.05
+  amplitude: 0.05  # fractional perturbation (e.g. 0.05 = ±5%)
 
-  # Wavelengths (cell sizes) in each direction (km)
+  # Cell sizes in each direction (km). wavelength_z_km is ignored for "2d" and "planar".
   wavelength_x_km: 10.0
   wavelength_y_km: 10.0
   wavelength_z_km: 5.0
 
-  # Phase shifts (0 to 2π) - use to offset the pattern
+  # Phase shifts in radians. phase_shift_z is ignored for "2d" and "planar".
   phase_shift_x: 0.0
   phase_shift_y: 0.0
   phase_shift_z: 0.0

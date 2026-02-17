@@ -29,6 +29,8 @@ def create_sinusoidal_perturbation(
     phase_shift_x: float = 0.0,
     phase_shift_y: float = 0.0,
     phase_shift_z: float = 0.0,
+    pattern_dimension: str = "3d",
+    polarity: str = "positive",
 ) -> np.ndarray:
     """
     Create sinusoidal checkerboard perturbation pattern.
@@ -36,17 +38,28 @@ def create_sinusoidal_perturbation(
     Args:
         x, y, z: Coordinate arrays (km)
         wavelength_x, y, z: Wavelengths in each direction (km)
+            wavelength_z is ignored when pattern_dimension is "2d"
         amplitude: Perturbation amplitude (fraction, e.g., 0.05 for ±5%)
         phase_shift_x, y, z: Phase shifts (radians)
+        pattern_dimension: "3d" (full 3D) or "2d" (no depth variation)
+        polarity: "positive" (default) or "negative" (inverts the pattern)
 
     Returns:
         Perturbation factor array (e.g., 1.0 ± amplitude)
     """
-    perturbation = amplitude * (
-        np.sin(2 * np.pi * x / wavelength_x + phase_shift_x)
-        * np.sin(2 * np.pi * y / wavelength_y + phase_shift_y)
-        * np.sin(2 * np.pi * z / wavelength_z + phase_shift_z)
-    )
+    eff_amplitude = amplitude if polarity == "positive" else -amplitude
+
+    if pattern_dimension == "2d":
+        perturbation = eff_amplitude * (
+            np.sin(2 * np.pi * x / wavelength_x + phase_shift_x)
+            * np.sin(2 * np.pi * y / wavelength_y + phase_shift_y)
+        )
+    else:  # "3d"
+        perturbation = eff_amplitude * (
+            np.sin(2 * np.pi * x / wavelength_x + phase_shift_x)
+            * np.sin(2 * np.pi * y / wavelength_y + phase_shift_y)
+            * np.sin(2 * np.pi * z / wavelength_z + phase_shift_z)
+        )
 
     # Return as multiplicative factor: 1.0 ± perturbation
     return 1.0 + perturbation
@@ -63,6 +76,8 @@ def create_block_perturbation(
     phase_shift_x: float = 0.0,
     phase_shift_y: float = 0.0,
     phase_shift_z: float = 0.0,
+    pattern_dimension: str = "3d",
+    polarity: str = "positive",
 ) -> np.ndarray:
     """
     Create block (square wave) checkerboard perturbation pattern.
@@ -70,26 +85,109 @@ def create_block_perturbation(
     Args:
         x, y, z: Coordinate arrays (km)
         wavelength_x, y, z: Wavelengths in each direction (km)
+            wavelength_z is ignored when pattern_dimension is "2d"
         amplitude: Perturbation amplitude (fraction, e.g., 0.05 for ±5%)
         phase_shift_x, y, z: Phase shifts (radians)
+        pattern_dimension: "3d" (full 3D) or "2d" (no depth variation)
+        polarity: "positive" (default) or "negative" (inverts the pattern)
 
     Returns:
         Perturbation factor array (e.g., 1.0 ± amplitude)
     """
+    eff_amplitude = amplitude if polarity == "positive" else -amplitude
+
     # Convert coordinates to phase
     phase_x = (2 * np.pi * x / wavelength_x + phase_shift_x) % (2 * np.pi)
     phase_y = (2 * np.pi * y / wavelength_y + phase_shift_y) % (2 * np.pi)
-    phase_z = (2 * np.pi * z / wavelength_z + phase_shift_z) % (2 * np.pi)
 
     # Create square waves (-1 or +1)
     block_x = np.where(phase_x < np.pi, -1.0, 1.0)
     block_y = np.where(phase_y < np.pi, -1.0, 1.0)
-    block_z = np.where(phase_z < np.pi, -1.0, 1.0)
 
-    # Combine: product gives checkerboard pattern
-    perturbation = amplitude * block_x * block_y * block_z
+    if pattern_dimension == "2d":
+        # No depth variation: Z component is omitted (effectively +1)
+        perturbation = eff_amplitude * block_x * block_y
+    else:  # "3d"
+        phase_z = (2 * np.pi * z / wavelength_z + phase_shift_z) % (2 * np.pi)
+        block_z = np.where(phase_z < np.pi, -1.0, 1.0)
+        perturbation = eff_amplitude * block_x * block_y * block_z
 
     return 1.0 + perturbation
+
+
+def create_planar_perturbation(
+    x: np.ndarray,
+    y: np.ndarray,
+    z: np.ndarray,
+    wavelength_x: float,
+    wavelength_y: float,
+    amplitude: float,
+    phase_shift_x: float,
+    phase_shift_y: float,
+    positive_depths: list,
+    negative_depths: list,
+    pattern_type: str,
+) -> np.ndarray:
+    """
+    Create planar checkerboard: XY pattern applied only at specified depth planes.
+    All other grid points are left unperturbed (factor = 1.0).
+
+    Args:
+        x, y, z: Coordinate arrays (km)
+        wavelength_x, wavelength_y: XY cell sizes (km)
+        amplitude: Perturbation amplitude (fraction, e.g., 0.05 for ±5%)
+        phase_shift_x, phase_shift_y: Phase offsets (radians)
+        positive_depths: Depths (km) receiving +amplitude perturbation
+        negative_depths: Depths (km) receiving -amplitude perturbation
+        pattern_type: "sinusoidal" or "block"
+
+    Returns:
+        Perturbation factor array (1.0 where unperturbed, 1.0 ± amplitude at planes)
+    """
+    perturbation_factor = np.ones(len(x), dtype=np.float64)
+    z_unique = np.unique(z)
+
+    planes = (
+        [(float(d), "positive") for d in positive_depths]
+        + [(float(d), "negative") for d in negative_depths]
+    )
+
+    for depth_km, polarity in planes:
+        eff_amplitude = amplitude if polarity == "positive" else -amplitude
+
+        nearest_z = z_unique[np.argmin(np.abs(z_unique - depth_km))]
+        mask = np.isclose(z, nearest_z, atol=1e-6)
+
+        if not mask.any():
+            logger.warning(
+                f"No grid points at depth {depth_km} km (nearest: {nearest_z:.3f} km) — skipping."
+            )
+            continue
+
+        logger.info(
+            f"  Plane {depth_km} km → {nearest_z:.3f} km, polarity={polarity}, points={mask.sum()}"
+        )
+
+        x_plane = x[mask]
+        y_plane = y[mask]
+
+        if pattern_type == "sinusoidal":
+            xy_perturbation = eff_amplitude * (
+                np.sin(2 * np.pi * x_plane / wavelength_x + phase_shift_x)
+                * np.sin(2 * np.pi * y_plane / wavelength_y + phase_shift_y)
+            )
+        elif pattern_type == "block":
+            phase_x = (2 * np.pi * x_plane / wavelength_x + phase_shift_x) % (2 * np.pi)
+            phase_y = (2 * np.pi * y_plane / wavelength_y + phase_shift_y) % (2 * np.pi)
+            block_x = np.where(phase_x < np.pi, -1.0, 1.0)
+            block_y = np.where(phase_y < np.pi, -1.0, 1.0)
+            xy_perturbation = eff_amplitude * block_x * block_y
+        else:
+            raise ValueError(f"Unknown pattern_type for planar perturbation: {pattern_type!r}")
+
+        perturbation_factor[mask] = 1.0 + xy_perturbation
+
+    return perturbation_factor
 
 
 def apply_checkerboard_perturbation(
@@ -116,6 +214,8 @@ def apply_checkerboard_perturbation(
 
     # Extract parameters
     pattern_type = config.get("pattern_type", "sinusoidal")
+    pattern_dimension = config.get("pattern_dimension", "3d")
+    polarity = config.get("origin_polarity", "positive")
     amplitude = config.get("amplitude", 0.05)
     wavelength_x = config.get("wavelength_x_km", 10.0)
     wavelength_y = config.get("wavelength_y_km", 10.0)
@@ -124,17 +224,47 @@ def apply_checkerboard_perturbation(
     phase_shift_y = config.get("phase_shift_y", 0.0)
     phase_shift_z = config.get("phase_shift_z", 0.0)
 
+    if pattern_dimension not in ("3d", "2d", "planar"):
+        raise ValueError(f"Unknown pattern_dimension: {pattern_dimension!r}. Must be '3d', '2d', or 'planar'.")
+    if polarity not in ("positive", "negative"):
+        raise ValueError(f"Unknown origin_polarity: {polarity!r}. Must be 'positive' or 'negative'.")
+
     logger.info(f"Creating {pattern_type} checkerboard pattern:")
+    logger.info(f"  Dimension: {pattern_dimension}")
     logger.info(f"  Amplitude: ±{amplitude * 100:.1f}%")
-    logger.info(f"  Wavelengths: X={wavelength_x} km, Y={wavelength_y} km, Z={wavelength_z} km")
+    logger.info(f"  Wavelengths: X={wavelength_x} km, Y={wavelength_y} km"
+                + (f", Z={wavelength_z} km" if pattern_dimension == "3d" else " (Z ignored)"))
+    if pattern_dimension != "planar":
+        logger.info(f"  Origin polarity: {polarity}")
 
     # Create perturbation pattern
-    if pattern_type == "sinusoidal":
+    if pattern_dimension == "planar":
+        positive_depths = list(config.get("depth_planes_positive_polarity", []) or [])
+        negative_depths = list(config.get("depth_planes_negative_polarity", []) or [])
+        if not positive_depths and not negative_depths:
+            raise ValueError(
+                "pattern_dimension is 'planar' but both depth_planes_positive_polarity "
+                "and depth_planes_negative_polarity are empty. At least one depth is required."
+            )
+        logger.info(f"  Positive-polarity planes: {positive_depths}")
+        logger.info(f"  Negative-polarity planes: {negative_depths}")
+        perturbation_factor = create_planar_perturbation(
+            x, y, z,
+            wavelength_x, wavelength_y,
+            amplitude,
+            phase_shift_x, phase_shift_y,
+            positive_depths,
+            negative_depths,
+            pattern_type,
+        )
+    elif pattern_type == "sinusoidal":
         perturbation_factor = create_sinusoidal_perturbation(
             x, y, z,
             wavelength_x, wavelength_y, wavelength_z,
             amplitude,
             phase_shift_x, phase_shift_y, phase_shift_z,
+            pattern_dimension=pattern_dimension,
+            polarity=polarity,
         )
     elif pattern_type == "block":
         perturbation_factor = create_block_perturbation(
@@ -142,9 +272,11 @@ def apply_checkerboard_perturbation(
             wavelength_x, wavelength_y, wavelength_z,
             amplitude,
             phase_shift_x, phase_shift_y, phase_shift_z,
+            pattern_dimension=pattern_dimension,
+            polarity=polarity,
         )
     else:
-        raise ValueError(f"Unknown pattern_type: {pattern_type}")
+        raise ValueError(f"Unknown pattern_type: {pattern_type!r}. Must be 'sinusoidal' or 'block'.")
 
     # Apply to vp
     if config.get("apply_to_vp", True):
