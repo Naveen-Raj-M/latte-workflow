@@ -7,7 +7,7 @@ Workflow:
 1. Load data from QuakeML or HDF5
 2. Transform coordinates (flattening transformation)
 3. Create geometry and travel time files
-4. Create initial velocity model and binaries (IASP91)
+4. Create initial velocity model and binaries
 5. Generate visualizations
 
 Main components:

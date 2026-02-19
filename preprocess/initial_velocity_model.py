@@ -1,8 +1,8 @@
 """Initial velocity model creation and binary file generation.
 
-This module combines velocity model creation from IASP91 with binary file
-generation. It creates a 3D velocity model on a Cartesian grid and writes
-both CSV and binary formats.
+This module combines velocity model creation from an initial 1D model with
+binary file generation. It creates a 3D velocity model on a Cartesian grid
+and writes both CSV and binary formats.
 """
 
 import logging
@@ -21,16 +21,16 @@ from utils.io_utils import ensure_directory_exists
 from utils.velocity_io import write_velocity_file
 
 
-def load_iasp91_model(filepath: str,
-                      max_depth_km: Optional[float] = None) -> pd.DataFrame:
-    """Load IASP91 velocity model from CSV file.
+def load_initial_model(filepath: str,
+                       max_depth_km: Optional[float] = None) -> pd.DataFrame:
+    """Load initial 1D velocity model from CSV file.
 
     Expected CSV format: depth,vp,vs (with header)
     - depth in km (positive down)
     - vp, vs in km/s
 
     Args:
-        filepath: Path to IASP91 CSV file.
+        filepath: Path to initial 1D model CSV file.
         max_depth_km: Maximum depth to load (filters data).
 
     Returns:
@@ -43,9 +43,9 @@ def load_iasp91_model(filepath: str,
     logger = logging.getLogger(__name__)
 
     if not Path(filepath).exists():
-        raise FileNotFoundError(f"IASP91 model file not found: {filepath}")
+        raise FileNotFoundError(f"Initial model file not found: {filepath}")
 
-    logger.info(f"Loading IASP91 model from: {filepath}")
+    logger.info(f"Loading initial 1D model from: {filepath}")
 
     # Read CSV file
     try:
@@ -232,33 +232,33 @@ def compute_grid_indices(grid_df: pd.DataFrame, min_coords: Tuple[float, float, 
     return grid_df
 
 
-def _get_velocities_vectorized(depths_array, iasp91_model):
+def _get_velocities_vectorized(depths_array, initial_model):
     """Vectorized velocity lookup for an array of depths.
 
     Args:
         depths_array: NumPy array of depths (km)
-        iasp91_model: DataFrame with columns [depth, vp, vs]
+        initial_model: DataFrame with columns [depth, vp, vs]
 
     Returns:
         Tuple of (vp_array, vs_array) in km/s
     """
-    iasp91_depths = iasp91_model['depth'].values
-    iasp91_vp = iasp91_model['vp'].values
-    iasp91_vs = iasp91_model['vs'].values
+    model_depths = initial_model['depth'].values
+    model_vp = initial_model['vp'].values
+    model_vs = initial_model['vs'].values
 
     # Handle depths above MSL (clamp to 0)
     depths_clamped = np.maximum(depths_array, 0.0)
 
     # Use searchsorted to find layer indices for all points at once
     # searchsorted finds insertion point, we want the layer before that
-    indices = np.searchsorted(iasp91_depths, depths_clamped, side='right') - 1
+    indices = np.searchsorted(model_depths, depths_clamped, side='right') - 1
 
     # Clamp indices to valid range
-    indices = np.clip(indices, 0, len(iasp91_depths) - 1)
+    indices = np.clip(indices, 0, len(model_depths) - 1)
 
     # Lookup velocities
-    vp_array = iasp91_vp[indices]
-    vs_array = iasp91_vs[indices]
+    vp_array = model_vp[indices]
+    vs_array = model_vs[indices]
 
     return vp_array, vs_array
 
@@ -288,7 +288,7 @@ def _cartesian_to_geographic_vectorized(x_km, y_km, z_km, origin_lon, origin_lat
     return lon, lat, depth
 
 
-def _assign_velocities_vectorized(grid_df, iasp91_model, origin_lon, origin_lat,
+def _assign_velocities_vectorized(grid_df, initial_model, origin_lon, origin_lat,
                                    origin_depth, invert_y_axis, logger):
     """Fully vectorized velocity assignment (no chunking).
 
@@ -296,7 +296,7 @@ def _assign_velocities_vectorized(grid_df, iasp91_model, origin_lon, origin_lat,
 
     Args:
         grid_df: DataFrame with grid points
-        iasp91_model: Velocity model DataFrame
+        initial_model: Velocity model DataFrame
         origin_lon, origin_lat, origin_depth: Origin parameters
         invert_y_axis: Y-axis direction flag
         logger: Logger instance
@@ -319,8 +319,8 @@ def _assign_velocities_vectorized(grid_df, iasp91_model, origin_lon, origin_lat,
     logger.info("Computing absolute depths...")
     absolute_depths = z_vals + origin_depth
 
-    logger.info("Looking up velocities from IASP91 model...")
-    vp_vals, vs_vals = _get_velocities_vectorized(absolute_depths, iasp91_model)
+    logger.info("Looking up velocities from initial model...")
+    vp_vals, vs_vals = _get_velocities_vectorized(absolute_depths, initial_model)
 
     logger.info("Converting to geographic coordinates...")
     lon_vals, lat_vals, depth_vals = _cartesian_to_geographic_vectorized(
@@ -337,7 +337,7 @@ def _assign_velocities_vectorized(grid_df, iasp91_model, origin_lon, origin_lat,
     return grid_df
 
 
-def _assign_velocities_chunked_vectorized(grid_df, iasp91_model, origin_lon, origin_lat,
+def _assign_velocities_chunked_vectorized(grid_df, initial_model, origin_lon, origin_lat,
                                           origin_depth, invert_y_axis, chunk_size, n_jobs, logger):
     """Vectorized processing within chunks for large grids.
 
@@ -345,7 +345,7 @@ def _assign_velocities_chunked_vectorized(grid_df, iasp91_model, origin_lon, ori
 
     Args:
         grid_df: DataFrame with grid points
-        iasp91_model: Velocity model DataFrame
+        initial_model: Velocity model DataFrame
         origin_lon, origin_lat, origin_depth: Origin parameters
         invert_y_axis: Y-axis direction flag
         chunk_size: Number of points per chunk
@@ -380,7 +380,7 @@ def _assign_velocities_chunked_vectorized(grid_df, iasp91_model, origin_lon, ori
 
         # Vectorized operations on chunk
         absolute_depths = z_chunk + origin_depth
-        vp_chunk, vs_chunk = _get_velocities_vectorized(absolute_depths, iasp91_model)
+        vp_chunk, vs_chunk = _get_velocities_vectorized(absolute_depths, initial_model)
         lon_chunk, lat_chunk, depth_chunk = _cartesian_to_geographic_vectorized(
             x_chunk, y_chunk, z_chunk, origin_lon, origin_lat, origin_depth, invert_y_axis
         )
@@ -424,7 +424,7 @@ def _assign_velocities_chunked_vectorized(grid_df, iasp91_model, origin_lon, ori
     return grid_df
 
 
-def _process_grid_chunk(chunk_rows, iasp91_model, origin_lon, origin_lat,
+def _process_grid_chunk(chunk_rows, initial_model, origin_lon, origin_lat,
                         origin_depth, invert_y_axis, x_col, y_col, z_col):
     """Process a chunk of grid points to assign velocities.
 
@@ -442,7 +442,7 @@ def _process_grid_chunk(chunk_rows, iasp91_model, origin_lon, origin_lat,
 
         # Convert relative z to absolute depth
         absolute_depth = z_km + origin_depth
-        vp, vs = get_velocity_for_depth(absolute_depth, iasp91_model)
+        vp, vs = get_velocity_for_depth(absolute_depth, initial_model)
 
         # Convert Cartesian back to geographic coordinates
         lon, lat, depth = cartesian_to_geographic(
@@ -507,9 +507,9 @@ def create_velocity_model(config: DictConfig,
 
     logger.info("Creating initial velocity model...")
 
-    # Load IASP91 model
-    iasp91_model = load_iasp91_model(
-        vel_config.iasp91_model_file,
+    # Load initial 1D model
+    initial_model = load_initial_model(
+        vel_config.initial_model_file,
         max_depth_km=vel_config.max_depth_km
     )
 
@@ -640,7 +640,7 @@ def create_velocity_model(config: DictConfig,
     # Hybrid vectorization: Choose approach based on grid size
     vectorize_threshold = parallel_config.get('vectorize_max_points', 100_000_000)  # 100M points
 
-    logger.info(f"Assigning velocities from IASP91 model...")
+    logger.info(f"Assigning velocities from initial model...")
     logger.info(f"Grid size: {len(grid_df):,} points")
     logger.info(f"Vectorization threshold: {vectorize_threshold:,} points")
 
@@ -652,13 +652,13 @@ def create_velocity_model(config: DictConfig,
     if len(grid_df) < vectorize_threshold:
         # FAST PATH: Full vectorization for grids that fit in memory
         grid_df = _assign_velocities_vectorized(
-            grid_df, iasp91_model, origin_lon, origin_lat,
+            grid_df, initial_model, origin_lon, origin_lat,
             origin_depth, invert_y_axis, logger
         )
     else:
         # SAFE PATH: Chunked vectorization for large grids
         grid_df = _assign_velocities_chunked_vectorized(
-            grid_df, iasp91_model, origin_lon, origin_lat,
+            grid_df, initial_model, origin_lon, origin_lat,
             origin_depth, invert_y_axis, grid_chunk_size, n_jobs, logger
         )
 
@@ -678,7 +678,7 @@ def create_velocity_model(config: DictConfig,
         'origin_lon': origin_lon,
         'origin_lat': origin_lat,
         'origin_depth_km': origin_depth,
-        'transformation_method': 'iasp91_cartesian',
+        'transformation_method': 'initial_model_cartesian',
         'invert_y_axis': invert_y_axis,
     }
 

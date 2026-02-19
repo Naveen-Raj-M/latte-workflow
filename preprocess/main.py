@@ -151,7 +151,7 @@ def run_velocity_model(cfg: DictConfig, events_cart, stations_cart) -> None:
         return
 
     print("\n" + "="*60)
-    print("CREATING INITIAL VELOCITY MODEL (IASP91)")
+    print("CREATING INITIAL VELOCITY MODEL")
     print("="*60)
 
     with ProcessTimer("Velocity Model Creation"):
@@ -451,7 +451,7 @@ def print_configuration_summary(config: DictConfig) -> None:
         print(f"  2. Geometry and travel time file creation "
               f"(phase_type: {phase_type})")
     if config.initial_velocity_model.enabled:
-        print(f"  3. Initial velocity model (IASP91)")
+        print(f"  3. Initial velocity model")
         print(f"     Max depth: {config.initial_velocity_model.max_depth_km} km")
         phase_type = config.initial_velocity_model.get('phase_type', 'both')
         print(f"     Phase type: {phase_type}")
