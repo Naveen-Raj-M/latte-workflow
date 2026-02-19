@@ -132,9 +132,9 @@ geometry_traveltime:
 initial_velocity_model:
   enabled: true
   # Initial 1D velocity model from CSV
-  initial_model_file: "/path/to/IASP91.csv"
+  initial_model_file: "/path/to/initial_model.csv"
   # Maximum depth to use from initial model
-  max_depth_km: 100.0  # Only use IASP91 data up to this depth
+  max_depth_km: 100.0  # Only use velocity model data up to this depth
 
   # Domain definition
   # Origin and grid spacing from coordinate_transform section
