@@ -51,94 +51,6 @@ def create_centered_norm(vmin: float, vmax: float) -> mcolors.TwoSlopeNorm:
     return mcolors.TwoSlopeNorm(vmin=vmin, vcenter=0.0, vmax=vmax)
 
 
-def create_threshold_colormap(
-    base_cmap_name: str,
-    vmin: float,
-    vmax: float,
-    threshold: float,
-    n_samples: int = 50,
-) -> Tuple[mcolors.LinearSegmentedColormap, mcolors.Normalize]:
-    """
-    Create colormap with black regions for values exceeding threshold.
-
-    The colormap maps:
-    - [-threshold, +threshold] -> base colormap (centered at 0)
-    - Values outside this range -> black
-
-    The colorbar shows actual vmin to vmax with black in regions beyond threshold.
-
-    Args:
-        base_cmap_name: Name of the base matplotlib colormap
-        vmin: Global minimum value
-        vmax: Global maximum value
-        threshold: Threshold value for black regions
-        n_samples: Number of color samples for smooth gradient
-
-    Returns:
-        (colormap, norm) tuple
-    """
-    base_cmap = plt.get_cmap(base_cmap_name)
-
-    # Calculate normalized positions for the boundaries
-    total_range = vmax - vmin
-    if total_range <= 0:
-        total_range = 1e-6
-
-    # Position in [0, 1] normalized space
-    pos_neg_thresh = max(0.0, (-threshold - vmin) / total_range)
-    pos_pos_thresh = min(1.0, (threshold - vmin) / total_range)
-
-    black = (0.0, 0.0, 0.0)
-
-    # Build the colormap segments
-    cdict = {'red': [], 'green': [], 'blue': []}
-
-    for channel_idx, channel in enumerate(['red', 'green', 'blue']):
-        segments = []
-
-        # Black region from vmin to -threshold (if applicable)
-        if vmin < -threshold:
-            segments.append((0.0, black[channel_idx], black[channel_idx]))
-            segments.append((pos_neg_thresh, black[channel_idx], black[channel_idx]))
-
-        # Gradient region from -threshold to +threshold
-        # Sample the base colormap and map to the threshold region
-        for i in range(n_samples):
-            # Position in base colormap [0, 1]
-            t = i / (n_samples - 1) if n_samples > 1 else 0.5
-            color = base_cmap(t)
-
-            # Position in final colormap
-            if vmin < -threshold and vmax > threshold:
-                # Both black regions exist
-                pos = pos_neg_thresh + t * (pos_pos_thresh - pos_neg_thresh)
-            elif vmin < -threshold:
-                # Only lower black region
-                pos = pos_neg_thresh + t * (1.0 - pos_neg_thresh)
-            elif vmax > threshold:
-                # Only upper black region
-                pos = t * pos_pos_thresh
-            else:
-                # No black regions
-                pos = t
-
-            segments.append((pos, color[channel_idx], color[channel_idx]))
-
-        # Black region from +threshold to vmax (if applicable)
-        if vmax > threshold:
-            segments.append((pos_pos_thresh, black[channel_idx], black[channel_idx]))
-            segments.append((1.0, black[channel_idx], black[channel_idx]))
-
-        cdict[channel] = segments
-
-    # Create the colormap
-    custom_cmap = mcolors.LinearSegmentedColormap(f'{base_cmap_name}_threshold', cdict)
-
-    # Use standard normalization with vmin/vmax
-    norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
-
-    return custom_cmap, norm
-
 
 def plot_pattern_xy_slice(
     x_coords: np.ndarray,
@@ -187,27 +99,21 @@ def plot_pattern_xy_slice(
     centered = config.get("centered_at_zero", True)
     cmap_name = config.get("colormap", "seismic")
 
-    # Build plot kwargs
-    plot_kwargs = {'shading': 'auto'}
-
-    if threshold is not None:
-        # Threshold mode: cmap scaled to +/-threshold, black beyond
-        cmap, norm = create_threshold_colormap(cmap_name, vmin, vmax, threshold)
-        plot_kwargs['cmap'] = cmap
-        plot_kwargs['norm'] = norm
-    elif centered:
-        # Centered at zero mode (no threshold)
-        cmap = plt.get_cmap(cmap_name)
+    # Step 1: Build norm — centered_at_zero is independent of threshold
+    if centered:
         norm = create_centered_norm(vmin, vmax)
-        plot_kwargs['cmap'] = cmap
-        plot_kwargs['norm'] = norm
     else:
-        # Simple autoscale
-        plot_kwargs['cmap'] = cmap_name
-        plot_kwargs['vmin'] = vmin
-        plot_kwargs['vmax'] = vmax
+        norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
 
-    im = ax.pcolormesh(X, Y, velocity_slice, **plot_kwargs)
+    # Step 2: Apply threshold masking independently — black beyond ±threshold
+    cmap = plt.get_cmap(cmap_name).copy()
+    if threshold is not None:
+        data_to_plot = np.ma.masked_where(np.abs(velocity_slice) > threshold, velocity_slice)
+        cmap.set_bad(color='black')
+    else:
+        data_to_plot = velocity_slice
+
+    im = ax.pcolormesh(X, Y, data_to_plot, cmap=cmap, norm=norm, shading='auto')
 
     # Recovery contours (only for inverted_pattern)
     if recovery_mask is not None and config.get("show_recovery_contours", False):
@@ -282,23 +188,21 @@ def plot_pattern_xz_slice(
     centered = config.get("centered_at_zero", True)
     cmap_name = config.get("colormap", "seismic")
 
-    plot_kwargs = {'shading': 'auto'}
-
-    if threshold is not None:
-        cmap, norm = create_threshold_colormap(cmap_name, vmin, vmax, threshold)
-        plot_kwargs['cmap'] = cmap
-        plot_kwargs['norm'] = norm
-    elif centered:
-        cmap = plt.get_cmap(cmap_name)
+    # Step 1: Build norm — centered_at_zero is independent of threshold
+    if centered:
         norm = create_centered_norm(vmin, vmax)
-        plot_kwargs['cmap'] = cmap
-        plot_kwargs['norm'] = norm
     else:
-        plot_kwargs['cmap'] = cmap_name
-        plot_kwargs['vmin'] = vmin
-        plot_kwargs['vmax'] = vmax
+        norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
 
-    im = ax.pcolormesh(X, Z, velocity_slice, **plot_kwargs)
+    # Step 2: Apply threshold masking independently — black beyond ±threshold
+    cmap = plt.get_cmap(cmap_name).copy()
+    if threshold is not None:
+        data_to_plot = np.ma.masked_where(np.abs(velocity_slice) > threshold, velocity_slice)
+        cmap.set_bad(color='black')
+    else:
+        data_to_plot = velocity_slice
+
+    im = ax.pcolormesh(X, Z, data_to_plot, cmap=cmap, norm=norm, shading='auto')
 
     # Invert y-axis so depth increases downward
     ax.invert_yaxis()
@@ -376,23 +280,21 @@ def plot_pattern_yz_slice(
     centered = config.get("centered_at_zero", True)
     cmap_name = config.get("colormap", "seismic")
 
-    plot_kwargs = {'shading': 'auto'}
-
-    if threshold is not None:
-        cmap, norm = create_threshold_colormap(cmap_name, vmin, vmax, threshold)
-        plot_kwargs['cmap'] = cmap
-        plot_kwargs['norm'] = norm
-    elif centered:
-        cmap = plt.get_cmap(cmap_name)
+    # Step 1: Build norm — centered_at_zero is independent of threshold
+    if centered:
         norm = create_centered_norm(vmin, vmax)
-        plot_kwargs['cmap'] = cmap
-        plot_kwargs['norm'] = norm
     else:
-        plot_kwargs['cmap'] = cmap_name
-        plot_kwargs['vmin'] = vmin
-        plot_kwargs['vmax'] = vmax
+        norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
 
-    im = ax.pcolormesh(Y, Z, velocity_slice, **plot_kwargs)
+    # Step 2: Apply threshold masking independently — black beyond ±threshold
+    cmap = plt.get_cmap(cmap_name).copy()
+    if threshold is not None:
+        data_to_plot = np.ma.masked_where(np.abs(velocity_slice) > threshold, velocity_slice)
+        cmap.set_bad(color='black')
+    else:
+        data_to_plot = velocity_slice
+
+    im = ax.pcolormesh(Y, Z, data_to_plot, cmap=cmap, norm=norm, shading='auto')
 
     # Invert y-axis so depth increases downward
     ax.invert_yaxis()
