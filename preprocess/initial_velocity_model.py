@@ -117,7 +117,9 @@ def get_velocity_for_depth(target_depth: float,
         ValueError: If model_df is empty.
 
     Note:
-        For depths above MSL (negative values), uses velocities at MSL (depth=0).
+        For depths above MSL (negative values), uses the model value at that depth
+        if the model contains data there. Falls back to the shallowest layer only
+        when the target depth is shallower than all entries in the model.
     """
     if len(model_df) == 0:
         raise ValueError("The 1D model data is empty.")
@@ -125,15 +127,6 @@ def get_velocity_for_depth(target_depth: float,
     depths = model_df['depth'].values
     vp_values = model_df['vp'].values
     vs_values = model_df['vs'].values
-
-    # For depths above MSL (negative), clamp to MSL (depth=0) and use shallowest layer
-    if target_depth <= 0:
-        # Find velocity at depth=0 or use first layer if depth=0 not in model
-        zero_idx = np.where(depths == 0)[0]
-        if len(zero_idx) > 0:
-            return vp_values[zero_idx[0]], vs_values[zero_idx[0]]
-        else:
-            return vp_values[0], vs_values[0]
 
     # If target_depth is shallower than the first layer, use first layer
     if target_depth < depths[0]:
@@ -246,12 +239,8 @@ def _get_velocities_vectorized(depths_array, initial_model):
     model_vp = initial_model['vp'].values
     model_vs = initial_model['vs'].values
 
-    # Handle depths above MSL (clamp to 0)
-    depths_clamped = np.maximum(depths_array, 0.0)
-
-    # Use searchsorted to find layer indices for all points at once
-    # searchsorted finds insertion point, we want the layer before that
-    indices = np.searchsorted(model_depths, depths_clamped, side='right') - 1
+    # Step lookup: find the deepest layer with depth <= target depth
+    indices = np.searchsorted(model_depths, depths_array, side='right') - 1
 
     # Clamp indices to valid range
     indices = np.clip(indices, 0, len(model_depths) - 1)
