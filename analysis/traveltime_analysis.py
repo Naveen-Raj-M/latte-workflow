@@ -279,6 +279,14 @@ def generate_travel_time_report(df: pd.DataFrame, stats: Dict[str, Any],
     if filter_summary is not None:
         fs = filter_summary
         total_removed = fs['initial_count'] - fs['final_count']
+        if comparison_mode == 'method_comparison':
+            method1_name = config['travel_time_analysis'].get('method1_name', 'Method 1')
+            method2_name = config['travel_time_analysis'].get('method2_name', 'Method 2')
+            label_obs = f"synthetic_tt ({method1_name})"
+            label_syn = f"synthetic_tt ({method2_name})"
+        else:
+            label_obs = "observed_tt"
+            label_syn = "synthetic_tt"
         report_lines.extend([
             "DATA FILTERING",
             "-" * 60,
@@ -288,8 +296,8 @@ def generate_travel_time_report(df: pd.DataFrame, stats: Dict[str, Any],
         ])
         if fs['negative_tt_removed'] > 0:
             report_lines.extend([
-                f"    - negative observed_tt:         {fs['negative_observed_tt_count']}",
-                f"    - negative synthetic_tt:        {fs['negative_synthetic_tt_count']}",
+                f"    - negative {label_obs}:  {fs['negative_observed_tt_count']}",
+                f"    - negative {label_syn}:  {fs['negative_synthetic_tt_count']}",
             ])
         report_lines.extend([
             f"  Removed (residual threshold):     {fs['residual_threshold_removed']}",
