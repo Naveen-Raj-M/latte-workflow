@@ -78,21 +78,23 @@ def _analyze_ground_truth_comparison(config: Dict[str, Any]) -> Dict[str, Any]:
     df = apply_analysis_filters(df, config, data_type="travel time data")
 
     # Validate and clean data
-    df_clean = validate_and_clean_travel_time_data(df, config)
-    
+    df_clean, filter_summary = validate_and_clean_travel_time_data(df, config)
+
     # Compute statistics
     logger.info("Computing travel time statistics")
     stats = compute_travel_time_statistics(df_clean, config, comparison_mode='ground_truth')
-    
+
     # Create plots
     logger.info("Creating travel time plots")
     create_travel_time_plots(df_clean, stats, config, comparison_mode='ground_truth')
-    
+
     # Generate summary report
     if config['travel_time_analysis'].get('generate_summary_report', True):
         logger.info("Generating summary report")
-        generate_travel_time_report(df_clean, stats, config, comparison_mode='ground_truth')
-    
+        generate_travel_time_report(df_clean, stats, config,
+                                    comparison_mode='ground_truth',
+                                    filter_summary=filter_summary)
+
     return stats
 
 
@@ -123,68 +125,118 @@ def _analyze_method_comparison(config: Dict[str, Any]) -> Dict[str, Any]:
     # Prepare comparison data
     logger.info("Preparing method comparison data")
     df_comparison = prepare_comparison_data(df1, df2, config)
-    
+
+    # Validate and clean data (identical pipeline to ground truth mode)
+    df_comparison, filter_summary = validate_and_clean_travel_time_data(df_comparison, config)
+
     # Compute statistics
     logger.info("Computing method comparison statistics")
     stats = compute_travel_time_statistics(df_comparison, config, comparison_mode='method_comparison')
-    
+
     # Create plots
     logger.info("Creating method comparison plots")
     create_travel_time_plots(df_comparison, stats, config, comparison_mode='method_comparison')
-    
+
     # Generate summary report
     if config['travel_time_analysis'].get('generate_summary_report', True):
         logger.info("Generating summary report")
-        generate_travel_time_report(df_comparison, stats, config, comparison_mode='method_comparison')
-    
+        generate_travel_time_report(df_comparison, stats, config,
+                                    comparison_mode='method_comparison',
+                                    filter_summary=filter_summary)
+
     return stats
 
 
-def validate_and_clean_travel_time_data(df: pd.DataFrame, 
-                                       config: Dict[str, Any]) -> pd.DataFrame:
+def validate_and_clean_travel_time_data(df: pd.DataFrame,
+                                       config: Dict[str, Any]) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """
     Validate and clean travel time data.
-    
+
+    Applies three sequential filters:
+      1. Remove rows with non-finite (NaN / ±inf) values in observed_tt,
+         synthetic_tt, or residual_s.
+      2. Remove rows where either observed_tt or synthetic_tt is negative
+         (physically meaningless travel times).
+      3. Remove rows whose residual falls outside the configured threshold
+         window [min_residual_threshold, max_residual_threshold].
+
     Args:
         df: Input dataframe
         config: Configuration dictionary
-        
+
     Returns:
-        Cleaned dataframe
+        Tuple of (cleaned dataframe, filter_summary dict)
     """
-    logger.info(f"Validating travel time data: {len(df)} initial records")
-    
-    # Remove infinite and NaN values
     initial_count = len(df)
+    logger.info(f"Validating travel time data: {initial_count} initial records")
+
+    # --- Step 1: Remove non-finite values ---
     df_clean = df.replace([np.inf, -np.inf], np.nan).dropna(
         subset=['observed_tt', 'synthetic_tt', 'residual_s']
     )
-    
-    if len(df_clean) < initial_count:
-        logger.warning(f"Removed {initial_count - len(df_clean)} rows with non-finite values")
-    
-    # Apply residual thresholds
-    min_res = config['travel_time_analysis'].get('min_residual_threshold', -10.0)
-    max_res = config['travel_time_analysis'].get('max_residual_threshold', 10.0)
-    
-    mask = (df_clean['residual_s'] >= min_res) & (df_clean['residual_s'] <= max_res)
-    df_clean = df_clean[mask]
-    
-    logger.info(f"Final clean dataset: {len(df_clean)} records")
-    return df_clean
+    non_finite_removed = initial_count - len(df_clean)
+    if non_finite_removed > 0:
+        logger.warning(
+            f"Removed {non_finite_removed} rows with non-finite values "
+            f"(NaN or ±inf) in observed_tt / synthetic_tt / residual_s"
+        )
+
+    # --- Step 2: Remove negative travel times ---
+    neg_obs  = int((df_clean['observed_tt']  < 0).sum())
+    neg_syn  = int((df_clean['synthetic_tt'] < 0).sum())
+    neg_mask = (df_clean['observed_tt'] < 0) | (df_clean['synthetic_tt'] < 0)
+    neg_either = int(neg_mask.sum())
+    if neg_either > 0:
+        logger.warning(
+            f"Removing {neg_either} rows with negative travel times "
+            f"(observed_tt < 0: {neg_obs}, synthetic_tt < 0: {neg_syn})"
+        )
+        df_clean = df_clean[~neg_mask]
+
+    # --- Step 3: Apply residual thresholds ---
+    min_res = config['travel_time_analysis'].get('min_residual_threshold', -50.0)
+    max_res = config['travel_time_analysis'].get('max_residual_threshold',  50.0)
+    before_thresh = len(df_clean)
+    res_mask = (df_clean['residual_s'] >= min_res) & (df_clean['residual_s'] <= max_res)
+    df_clean = df_clean[res_mask]
+    residual_threshold_removed = before_thresh - len(df_clean)
+    if residual_threshold_removed > 0:
+        logger.warning(
+            f"Removed {residual_threshold_removed} rows with residuals outside "
+            f"[{min_res}, {max_res}] s"
+        )
+
+    logger.info(f"Final clean dataset: {len(df_clean)} records "
+                f"({initial_count - len(df_clean)} total removed)")
+
+    filter_summary = {
+        'initial_count':               initial_count,
+        'non_finite_removed':          non_finite_removed,
+        'negative_tt_removed':         neg_either,
+        'negative_observed_tt_count':  neg_obs,
+        'negative_synthetic_tt_count': neg_syn,
+        'residual_threshold_removed':  residual_threshold_removed,
+        'min_residual_threshold':      min_res,
+        'max_residual_threshold':      max_res,
+        'final_count':                 len(df_clean),
+    }
+    return df_clean, filter_summary
 
 
-def generate_travel_time_report(df: pd.DataFrame, stats: Dict[str, Any], 
+def generate_travel_time_report(df: pd.DataFrame, stats: Dict[str, Any],
                               config: Dict[str, Any],
-                              comparison_mode: str = 'ground_truth') -> None:
+                              comparison_mode: str = 'ground_truth',
+                              filter_summary: Optional[Dict[str, Any]] = None) -> None:
     """
     Generate comprehensive travel time analysis report.
-    
+
     Args:
-        df: Travel time dataframe
+        df: Travel time dataframe (after all cleaning)
         stats: Statistics dictionary
         config: Configuration dictionary
         comparison_mode: 'ground_truth' or 'method_comparison'
+        filter_summary: Dict returned by validate_and_clean_travel_time_data,
+                        documents how many records were removed at each stage.
     """
     output_dir = Path(config['travel_time_analysis']['output_dir'])
     reports_dir = output_dir / 'reports'
@@ -223,6 +275,31 @@ def generate_travel_time_report(df: pd.DataFrame, stats: Dict[str, Any],
             "",
         ])
     
+    # Data filtering section
+    if filter_summary is not None:
+        fs = filter_summary
+        total_removed = fs['initial_count'] - fs['final_count']
+        report_lines.extend([
+            "DATA FILTERING",
+            "-" * 60,
+            f"Initial records:                    {fs['initial_count']}",
+            f"  Removed (non-finite values):      {fs['non_finite_removed']}",
+            f"  Removed (negative travel times):  {fs['negative_tt_removed']}",
+        ])
+        if fs['negative_tt_removed'] > 0:
+            report_lines.extend([
+                f"    - negative observed_tt:         {fs['negative_observed_tt_count']}",
+                f"    - negative synthetic_tt:        {fs['negative_synthetic_tt_count']}",
+            ])
+        report_lines.extend([
+            f"  Removed (residual threshold):     {fs['residual_threshold_removed']}",
+            f"    Threshold window:               [{fs['min_residual_threshold']}, "
+            f"{fs['max_residual_threshold']}] s",
+            f"Total records removed:              {total_removed}",
+            f"Final records used:                 {fs['final_count']}",
+            "",
+        ])
+
     report_lines.extend([
         "SUMMARY",
         "-" * 60,

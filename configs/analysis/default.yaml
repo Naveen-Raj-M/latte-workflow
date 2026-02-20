@@ -68,8 +68,8 @@ travel_time_analysis:
   enable_ln_ratio_analysis: true
   enable_corrected_format: true
   outlier_threshold_sigma: 3.0
-  min_residual_threshold: -10.0
-  max_residual_threshold: 10.0
+  min_residual_threshold: -50.0
+  max_residual_threshold: 50.0
   histogram_bins: 50
   scatter_alpha: 0.6
   scatter_size: 15
