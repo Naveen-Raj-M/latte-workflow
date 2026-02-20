@@ -49,6 +49,54 @@ def create_centered_norm(vmin: float, vmax: float) -> mcolors.Normalize:
     return mcolors.Normalize(vmin=-abs_max, vmax=abs_max)
 
 
+def create_threshold_colormap(
+    base_cmap_name: str,
+    vmin: float,
+    vmax: float,
+    threshold: float,
+    n_samples: int = 512,
+) -> mcolors.ListedColormap:
+    """
+    Create a colormap with black regions beyond ±threshold.
+
+    Maps:
+    - [vmin, -threshold] → black
+    - [-threshold, +threshold] → base colormap
+    - [+threshold, vmax]  → black
+
+    This makes both the plot and the colorbar show black beyond the threshold.
+
+    Args:
+        base_cmap_name: Name of the base matplotlib colormap
+        vmin: Norm minimum (norm.vmin)
+        vmax: Norm maximum (norm.vmax)
+        threshold: Values with |value| > threshold are coloured black
+        n_samples: Number of discrete colour samples for smoothness
+
+    Returns:
+        ListedColormap with black beyond ±threshold
+    """
+    base_cmap = plt.get_cmap(base_cmap_name)
+    total_range = vmax - vmin
+    if total_range <= 0:
+        total_range = 1e-6
+
+    # Positions of ±threshold in [0, 1] normalised space
+    pos_neg = max(0.0, (-threshold - vmin) / total_range)
+    pos_pos = min(1.0, ( threshold - vmin) / total_range)
+
+    colors = []
+    for i in range(n_samples):
+        t = i / (n_samples - 1)
+        if t <= pos_neg or t >= pos_pos:
+            colors.append((0.0, 0.0, 0.0, 1.0))
+        else:
+            t_base = (t - pos_neg) / (pos_pos - pos_neg)
+            colors.append(base_cmap(t_base))
+
+    return mcolors.ListedColormap(colors)
+
+
 
 def plot_pattern_xy_slice(
     x_coords: np.ndarray,
@@ -103,13 +151,12 @@ def plot_pattern_xy_slice(
     else:
         norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
 
-    # Step 2: Apply threshold masking independently — black beyond ±threshold
-    cmap = plt.get_cmap(cmap_name).copy()
+    # Step 2: Build colormap — threshold bakes black into both the plot and the colorbar
     if threshold is not None:
-        data_to_plot = np.ma.masked_where(np.abs(velocity_slice) > threshold, velocity_slice)
-        cmap.set_bad(color='black')
+        cmap = create_threshold_colormap(cmap_name, norm.vmin, norm.vmax, threshold)
     else:
-        data_to_plot = velocity_slice
+        cmap = plt.get_cmap(cmap_name).copy()
+    data_to_plot = velocity_slice
 
     im = ax.pcolormesh(X, Y, data_to_plot, cmap=cmap, norm=norm, shading='auto')
 
@@ -192,13 +239,12 @@ def plot_pattern_xz_slice(
     else:
         norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
 
-    # Step 2: Apply threshold masking independently — black beyond ±threshold
-    cmap = plt.get_cmap(cmap_name).copy()
+    # Step 2: Build colormap — threshold bakes black into both the plot and the colorbar
     if threshold is not None:
-        data_to_plot = np.ma.masked_where(np.abs(velocity_slice) > threshold, velocity_slice)
-        cmap.set_bad(color='black')
+        cmap = create_threshold_colormap(cmap_name, norm.vmin, norm.vmax, threshold)
     else:
-        data_to_plot = velocity_slice
+        cmap = plt.get_cmap(cmap_name).copy()
+    data_to_plot = velocity_slice
 
     im = ax.pcolormesh(X, Z, data_to_plot, cmap=cmap, norm=norm, shading='auto')
 
@@ -284,13 +330,12 @@ def plot_pattern_yz_slice(
     else:
         norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
 
-    # Step 2: Apply threshold masking independently — black beyond ±threshold
-    cmap = plt.get_cmap(cmap_name).copy()
+    # Step 2: Build colormap — threshold bakes black into both the plot and the colorbar
     if threshold is not None:
-        data_to_plot = np.ma.masked_where(np.abs(velocity_slice) > threshold, velocity_slice)
-        cmap.set_bad(color='black')
+        cmap = create_threshold_colormap(cmap_name, norm.vmin, norm.vmax, threshold)
     else:
-        data_to_plot = velocity_slice
+        cmap = plt.get_cmap(cmap_name).copy()
+    data_to_plot = velocity_slice
 
     im = ax.pcolormesh(Y, Z, data_to_plot, cmap=cmap, norm=norm, shading='auto')
 
