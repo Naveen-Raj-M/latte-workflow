@@ -28,26 +28,24 @@ def compute_global_limits(velocity_3d: np.ndarray) -> Tuple[float, float]:
     return float(np.nanmin(velocity_3d)), float(np.nanmax(velocity_3d))
 
 
-def create_centered_norm(vmin: float, vmax: float) -> mcolors.TwoSlopeNorm:
+def create_centered_norm(vmin: float, vmax: float) -> mcolors.Normalize:
     """
-    Create a TwoSlopeNorm centered at zero.
+    Create a symmetric Normalize centered at zero.
 
-    This centers the colormap at zero WITHOUT forcing symmetric +/- values.
-    Example: data range [-5, +10] will have white/neutral at 0.
+    Uses abs_max = max(|vmin|, |vmax|) so the colorbar spans [-abs_max, +abs_max].
+    Zero maps to the physical midpoint of the colorbar, with ticks on both sides.
 
     Args:
         vmin: Minimum value
         vmax: Maximum value
 
     Returns:
-        TwoSlopeNorm for centered colormap
+        Normalize with symmetric range around zero
     """
-    # Handle edge cases
-    if vmin >= 0:
-        vmin = -1e-6
-    if vmax <= 0:
-        vmax = 1e-6
-    return mcolors.TwoSlopeNorm(vmin=vmin, vcenter=0.0, vmax=vmax)
+    abs_max = max(abs(vmin), abs(vmax))
+    if abs_max == 0:
+        abs_max = 1e-6
+    return mcolors.Normalize(vmin=-abs_max, vmax=abs_max)
 
 
 def plot_difference_xy_slice(
@@ -92,16 +90,13 @@ def plot_difference_xy_slice(
         vmin, vmax = float(np.nanmin(velocity_slice)), float(np.nanmax(velocity_slice))
 
     cmap_name = config.get("colormap", "seismic")
-    plot_kwargs = {'cmap': cmap_name, 'shading': 'auto'}
 
     if config.get("centered_at_zero", True):
         norm = create_centered_norm(vmin, vmax)
-        plot_kwargs['norm'] = norm
     else:
-        plot_kwargs['vmin'] = vmin
-        plot_kwargs['vmax'] = vmax
+        norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
 
-    im = ax.pcolormesh(X, Y, velocity_slice, **plot_kwargs)
+    im = ax.pcolormesh(X, Y, velocity_slice, cmap=cmap_name, norm=norm, shading='auto')
 
     if config.get("show_colorbar", True):
         cbar = plt.colorbar(im, ax=ax)
@@ -161,16 +156,13 @@ def plot_difference_xz_slice(
         vmin, vmax = float(np.nanmin(velocity_slice)), float(np.nanmax(velocity_slice))
 
     cmap_name = config.get("colormap", "seismic")
-    plot_kwargs = {'cmap': cmap_name, 'shading': 'auto'}
 
     if config.get("centered_at_zero", True):
         norm = create_centered_norm(vmin, vmax)
-        plot_kwargs['norm'] = norm
     else:
-        plot_kwargs['vmin'] = vmin
-        plot_kwargs['vmax'] = vmax
+        norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
 
-    im = ax.pcolormesh(X, Z, velocity_slice, **plot_kwargs)
+    im = ax.pcolormesh(X, Z, velocity_slice, cmap=cmap_name, norm=norm, shading='auto')
 
     # Invert y-axis so depth increases downward
     ax.invert_yaxis()
@@ -233,16 +225,13 @@ def plot_difference_yz_slice(
         vmin, vmax = float(np.nanmin(velocity_slice)), float(np.nanmax(velocity_slice))
 
     cmap_name = config.get("colormap", "seismic")
-    plot_kwargs = {'cmap': cmap_name, 'shading': 'auto'}
 
     if config.get("centered_at_zero", True):
         norm = create_centered_norm(vmin, vmax)
-        plot_kwargs['norm'] = norm
     else:
-        plot_kwargs['vmin'] = vmin
-        plot_kwargs['vmax'] = vmax
+        norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
 
-    im = ax.pcolormesh(Y, Z, velocity_slice, **plot_kwargs)
+    im = ax.pcolormesh(Y, Z, velocity_slice, cmap=cmap_name, norm=norm, shading='auto')
 
     # Invert y-axis so depth increases downward
     ax.invert_yaxis()
