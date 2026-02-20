@@ -748,7 +748,7 @@ def _plot_velocity_profiles(vel_df: pd.DataFrame, profile_type: str,
 
     # Plot Vp profile
     ax1.plot(depth_profile['vp'], depth_profile['depth'],
-            'b-', linewidth=2, label='Vp')
+            'b-', linewidth=2, label='Vp', drawstyle='steps-pre')
     ax1.set_xlabel('Vp (km/s)', fontsize=12)
     ax1.set_ylabel('Depth (km)', fontsize=12)
     ax1.set_title('P-wave Velocity Profile', fontsize=14, fontweight='bold')
@@ -758,7 +758,7 @@ def _plot_velocity_profiles(vel_df: pd.DataFrame, profile_type: str,
 
     # Plot Vs profile
     ax2.plot(depth_profile['vs'], depth_profile['depth'],
-            'r-', linewidth=2, label='Vs')
+            'r-', linewidth=2, label='Vs', drawstyle='steps-pre')
     ax2.set_xlabel('Vs (km/s)', fontsize=12)
     ax2.set_ylabel('Depth (km)', fontsize=12)
     ax2.set_title('S-wave Velocity Profile', fontsize=14, fontweight='bold')
