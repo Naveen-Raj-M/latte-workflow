@@ -8,14 +8,13 @@ Supports both ground truth comparison and method-to-method comparison.
 
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 from pathlib import Path
 from typing import Dict, Any, Tuple, Optional
 import logging
 from datetime import datetime
 
 from utils.io_utils import read_csv_file, write_text_file, ensure_directory_exists
-from utils.plot_utils import setup_plot_style, get_color_scheme
+from utils.plot_utils import setup_plot_style
 
 from .traveltime_plots import create_travel_time_plots
 from .traveltime_statistics import compute_travel_time_statistics
@@ -69,8 +68,7 @@ def _analyze_ground_truth_comparison(config: Dict[str, Any]) -> Dict[str, Any]:
         Dictionary containing analysis results
     """
     input_csv = config['travel_time_analysis']['input_csv']
-    output_dir = Path(config['travel_time_analysis']['output_dir'])
-    
+
     logger.info(f"Loading travel time data from: {input_csv}")
     df = read_csv_file(input_csv)
 
@@ -110,8 +108,7 @@ def _analyze_method_comparison(config: Dict[str, Any]) -> Dict[str, Any]:
     """
     method1_csv = config['travel_time_analysis']['method1_csv']
     method2_csv = config['travel_time_analysis']['method2_csv']
-    output_dir = Path(config['travel_time_analysis']['output_dir'])
-    
+
     logger.info(f"Loading Method 1 data from: {method1_csv}")
     logger.info(f"Loading Method 2 data from: {method2_csv}")
 
@@ -223,7 +220,7 @@ def validate_and_clean_travel_time_data(df: pd.DataFrame,
     return df_clean, filter_summary
 
 
-def generate_travel_time_report(df: pd.DataFrame, stats: Dict[str, Any],
+def generate_travel_time_report(_df: pd.DataFrame, stats: Dict[str, Any],
                               config: Dict[str, Any],
                               comparison_mode: str = 'ground_truth',
                               filter_summary: Optional[Dict[str, Any]] = None) -> None:
