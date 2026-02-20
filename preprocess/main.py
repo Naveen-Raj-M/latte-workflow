@@ -128,6 +128,13 @@ def run_geometry_traveltime(cfg: DictConfig, events_cart, stations_cart,
             cfg, events_cart, stations_cart, picks_df
         )
 
+        if filtered_events is not None and len(filtered_events) > 0:
+            n_receivers = filtered_stations['station_id'].nunique() if filtered_stations is not None else 0
+            print(f"\nAfter geometry/traveltime filtering:")
+            print(f"  Sources: {len(filtered_events)}")
+            print(f"  Unique receivers: {n_receivers}")
+            print(f"  Picks: {len(filtered_picks)}")
+
         print(f"\nGeometry files created in: "
               f"{cfg.geometry_traveltime.geometry_dir}")
         print(f"Travel time files created in: "
@@ -564,6 +571,17 @@ def run_preprocessing_pipeline(config: DictConfig) -> None:
         print("\n" + "="*60)
         print("PREPROCESSING PIPELINE COMPLETED SUCCESSFULLY")
         print("="*60)
+
+        print(f"\nFinal dataset summary:")
+        if filtered_events_cart is not None and len(filtered_events_cart) > 0:
+            n_final_sources = len(filtered_events_cart)
+            n_final_receivers = filtered_stations_cart['station_id'].nunique()
+            print(f"  Sources (events after all filtering): {n_final_sources}")
+            print(f"  Unique receivers: {n_final_receivers}")
+        else:
+            print(f"  Sources: {len(events_cart)} (geometry filtering disabled)")
+            print(f"  Unique receivers: {stations_cart['station_id'].nunique()}")
+
         print(f"\nAll outputs saved to: {config.preprocessing.output_dir}")
 
     except Exception as e:

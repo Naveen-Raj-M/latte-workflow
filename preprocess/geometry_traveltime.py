@@ -337,6 +337,7 @@ def _process_single_event(event_id, event_picks, event_lookup, station_lookup,
     }
 
     unrealistic_velocity_count = 0
+    negative_tt_count = 0
 
     # Parse origin time
     try:
@@ -386,6 +387,7 @@ def _process_single_event(event_id, event_picks, event_lookup, station_lookup,
             physical_travel_time = (pick_dt - origin_dt).total_seconds()
 
             if physical_travel_time < 0:
+                negative_tt_count += 1
                 logger.debug(f"Negative travel time for {event_id}, {station_id}: {physical_travel_time:.2f}s")
                 continue
 
@@ -484,7 +486,7 @@ def _process_single_event(event_id, event_picks, event_lookup, station_lookup,
                             event_data['s_picks'][station_id]['weight'] = \
                                 azimuthal_weights[station_id]
 
-    return (event_id, event_data, unrealistic_velocity_count)
+    return (event_id, event_data, unrealistic_velocity_count, negative_tt_count)
 
 
 def parse_picks_with_cartesian(events_df: pd.DataFrame,
@@ -538,6 +540,7 @@ def parse_picks_with_cartesian(events_df: pd.DataFrame,
         n_jobs = -1  # Use all CPU cores
 
     logger.info(f"Using parallel processing with n_jobs={n_jobs if n_jobs != -1 else 'all cores'}")
+    logger.info(f"Input: {len(events_df)} events, {len(stations_df)} stations, {len(picks_df)} picks")
 
     # Process picks grouped by event
     picks_by_event = list(picks_df.groupby('event_id'))
@@ -557,14 +560,19 @@ def parse_picks_with_cartesian(events_df: pd.DataFrame,
     temp_events = {}
     total_picks = 0
     unrealistic_velocity_count = 0
+    negative_tt_count = 0
+    failed_event_count = 0
 
     for result in results:
         if result is not None:
-            event_id, event_data, unrealistic_count = result
+            event_id, event_data, unrealistic_count, neg_tt_count = result
             temp_events[event_id] = event_data
             # Count total picks from this event
             total_picks += len(event_data['p_picks']) + len(event_data['s_picks'])
             unrealistic_velocity_count += unrealistic_count
+            negative_tt_count += neg_tt_count
+        else:
+            failed_event_count += 1
 
     # Apply global azimuthal weighting if enabled and scale is 'global'
     # This must be done BEFORE phase_type filtering (which converts dicts to lists)
@@ -642,9 +650,13 @@ def parse_picks_with_cartesian(events_df: pd.DataFrame,
                     's_picks': [data['s_picks'][stn] for stn in s_stations]
                 }
 
-    logger.info(f"Parsed {len(final_events)} events with picks")
-    logger.info(f"Total picks processed: {total_picks}")
-    logger.info(f"Picks rejected due to unrealistic velocity: {unrealistic_velocity_count}")
+    logger.info(f"Pick filtering summary:")
+    logger.info(f"  Events parsed: {len(picks_by_event)} in -> {len(temp_events)} with valid picks "
+                f"({failed_event_count} failed origin-time parse)")
+    logger.info(f"  Picks accepted: {total_picks}")
+    logger.info(f"  Picks rejected (negative travel time): {negative_tt_count}")
+    logger.info(f"  Picks rejected (unrealistic velocity): {unrealistic_velocity_count}")
+    logger.info(f"  Events after phase-type filter ({phase_type}): {len(final_events)}")
 
     return final_events, station_lookup
 
@@ -1083,6 +1095,7 @@ def create_geometry_and_traveltime_files(config: DictConfig,
         return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
     logger.info("--- Starting Geometry and Travel Time File Generation ---")
+    logger.info(f"Input: {len(events_df)} events, {len(stations_df)} stations, {len(picks_df)} picks")
 
     # Create output directories
     ensure_directory_exists(Path(geom_config.geometry_dir))
@@ -1118,8 +1131,14 @@ def create_geometry_and_traveltime_files(config: DictConfig,
     logger.info("=" * 60)
     logger.info("GEOMETRY & TRAVELTIME GENERATION SUMMARY")
     logger.info("=" * 60)
+    num_receivers = len(set(
+        pick['station']
+        for data in event_data.values()
+        for pick in data['p_picks'] + data['s_picks']
+    ))
     logger.info(f"Phase type: {phase_type}")
-    logger.info(f"Number of sources (filtered events): {num_sources}")
+    logger.info(f"Sources (events after all filtering): {num_sources}")
+    logger.info(f"Unique receivers: {num_receivers}")
 
     # Log weighting method
     apply_default_weights = geom_config.get('apply_default_weights', False)

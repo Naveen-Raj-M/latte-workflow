@@ -783,7 +783,7 @@ def create_velocity_model(config: DictConfig,
     logger.info(f"  Grid dimensions (nx, ny, nz): {nx} x {ny} x {nz}")
     logger.info(f"  Grid spacing (dx, dy, dz): {dx:.2f} x {dy:.2f} x {dz:.2f} km")
     logger.info(f"  Total grid points: {len(grid_df):,}")
-    logger.info(f"  Number of sources (filtered events): {num_sources}")
+    logger.info(f"  Events used for grid bounds: {num_sources}")
     logger.info(f"  Vp range: {grid_df['vp'].min():.3f} - "
                f"{grid_df['vp'].max():.3f} km/s")
     logger.info(f"  Vs range: {grid_df['vs'].min():.3f} - "
@@ -799,7 +799,7 @@ def create_velocity_model(config: DictConfig,
     logger.info("=" * 60)
     logger.info("VELOCITY MODEL SUMMARY")
     logger.info("=" * 60)
-    logger.info(f"Number of sources (filtered events): {num_sources}")
+    logger.info(f"Events used for grid bounds: {num_sources}")
     logger.info(f"Grid dimensions (nx, ny, nz): {nx} x {ny} x {nz}")
     logger.info(f"Grid spacing (dx, dy, dz): {dx:.2f} km x {dy:.2f} km x {dz:.2f} km")
     logger.info(f"Total grid points: {len(grid_df):,}")
