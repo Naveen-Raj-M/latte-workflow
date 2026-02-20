@@ -318,26 +318,37 @@ def _plot_map_view(source_lons: np.ndarray, source_lats: np.ndarray,
     ax.grid(True, alpha=0.3)
     ax.legend(fontsize=fs_legend)
 
-    if len(source_lons) > 0 or len(receiver_lons) > 0:
-        ax.axis('equal')
+    # Set axis limits to the model domain.
+    # The domain starts at the origin (0,0 Cartesian) and extends to the data extent.
+    origin_lon = full_config.coordinate_transform.get('origin_lon', None)
+    origin_lat = full_config.coordinate_transform.get('origin_lat', None)
 
-    # Apply geographic filters to axis limits if specified
+    all_lons = np.concatenate([arr for arr in [source_lons, receiver_lons] if len(arr) > 0]) if (len(source_lons) > 0 or len(receiver_lons) > 0) else np.array([])
+    all_lats = np.concatenate([arr for arr in [source_lats, receiver_lats] if len(arr) > 0]) if (len(source_lons) > 0 or len(receiver_lons) > 0) else np.array([])
+
+    if len(all_lons) > 0:
+        lons_for_extent = np.append(all_lons, origin_lon) if origin_lon is not None else all_lons
+        lats_for_extent = np.append(all_lats, origin_lat) if origin_lat is not None else all_lats
+        lon_margin = max((lons_for_extent.max() - lons_for_extent.min()) * 0.02, 0.01)
+        lat_margin = max((lats_for_extent.max() - lats_for_extent.min()) * 0.02, 0.01)
+        xlim = [lons_for_extent.min() - lon_margin, lons_for_extent.max() + lon_margin]
+        ylim = [lats_for_extent.min() - lat_margin, lats_for_extent.max() + lat_margin]
+    else:
+        xlim = list(ax.get_xlim())
+        ylim = list(ax.get_ylim())
+
     filters = full_config.get('filters', {})
-    if filters.get('lon_min') is not None or filters.get('lon_max') is not None:
-        current_xlim = ax.get_xlim()
-        new_xlim = [
-            filters.get('lon_min') if filters.get('lon_min') is not None else current_xlim[0],
-            filters.get('lon_max') if filters.get('lon_max') is not None else current_xlim[1]
-        ]
-        ax.set_xlim(new_xlim)
+    if filters.get('lon_min') is not None:
+        xlim[0] = filters['lon_min']
+    if filters.get('lon_max') is not None:
+        xlim[1] = filters['lon_max']
+    if filters.get('lat_min') is not None:
+        ylim[0] = filters['lat_min']
+    if filters.get('lat_max') is not None:
+        ylim[1] = filters['lat_max']
 
-    if filters.get('lat_min') is not None or filters.get('lat_max') is not None:
-        current_ylim = ax.get_ylim()
-        new_ylim = [
-            filters.get('lat_min') if filters.get('lat_min') is not None else current_ylim[0],
-            filters.get('lat_max') if filters.get('lat_max') is not None else current_ylim[1]
-        ]
-        ax.set_ylim(new_ylim)
+    ax.set_xlim(xlim)
+    ax.set_ylim(ylim)
 
     # Plot basin boundaries if enabled
     if basin_boundaries and hasattr(vis_config, 'basin_boundaries'):
