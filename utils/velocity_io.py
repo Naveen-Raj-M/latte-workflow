@@ -448,9 +448,11 @@ def _write_hdf5_velocity(
     n_chunks = (n_rows + chunk_size - 1) // chunk_size
 
     if show_progress:
-        with tqdm(total=100, desc=desc) as pbar:
+        total_steps = 1 + 1 + n_chunks + 1
+
+        with tqdm(total=total_steps, desc=desc) as pbar:
             with h5py.File(filepath, mode, locking=False) as f:
-                pbar.update(5)
+                pbar.update(1)  # file opened
 
                 # Remove existing dataset if present
                 if dataset in f:
@@ -466,7 +468,7 @@ def _write_hdf5_velocity(
                     compression_opts=compression_opts if compression == 'gzip' else None,
                     chunks=True
                 )
-                pbar.update(10)
+                pbar.update(1)  # dataset created
 
                 pbar.set_description(f"{desc} - Writing data")
                 # Write data in chunks
@@ -480,8 +482,7 @@ def _write_hdf5_velocity(
                     # Write chunk to dataset
                     dset[start_idx:end_idx, :] = chunk_data
 
-                    # Update progress (70% for writing data)
-                    pbar.update(70 / n_chunks)
+                    pbar.update(1)  # one chunk written
 
                 pbar.set_description(f"{desc} - Writing metadata")
                 # Store column names as attribute
@@ -498,14 +499,7 @@ def _write_hdf5_velocity(
                         else:
                             dset.attrs[key] = value
 
-                pbar.update(15)
-
-        # Log file size
-        file_size_mb = os.path.getsize(filepath) / (1024 ** 2)
-        logger.info(
-            f"Wrote {len(df):,} points to {filepath}:{dataset} "
-            f"({file_size_mb:.1f} MB, {n_chunks} chunks)"
-        )
+                pbar.update(1)  # metadata written
     else:
         with h5py.File(filepath, mode, locking=False) as f:
             if dataset in f:
