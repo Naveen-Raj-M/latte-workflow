@@ -16,6 +16,7 @@ from checkerboard_test.grid_utils import prepare_3d_grid
 from checkerboard_test.visualize_model import visualize_velocity_model
 from checkerboard_test.visualize_difference import visualize_difference
 from checkerboard_test.visualize_pattern import visualize_pattern
+from analysis.basin_boundaries import load_basin_boundaries
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +86,10 @@ def visualize_checkerboard_test(
         "font_size": config.get("font_size", {"title": 14, "labels": 12, "colorbar": 10}),
     }
 
+    # Load basin boundaries once (shared across all visualizations, XY plane only)
+    basin_config = config.get("basin_boundaries", {})
+    basin_data = load_basin_boundaries(basin_config)
+
     # Get velocity fields to process
     velocity_field = shared_config["velocity_field"]
     if velocity_field == "both":
@@ -102,7 +107,8 @@ def visualize_checkerboard_test(
         logger.info("Visualizing input model")
         df_input = read_velocity_file(input_csv, show_progress=False)
         model_config = _merge_config(shared_config, input_config)
-        visualize_velocity_model(df_input, output_dir, model_config, "input")
+        visualize_velocity_model(df_input, output_dir, model_config, "input",
+                                 basin_data=basin_data, basin_config=basin_config)
         del df_input
 
     # =========== CHECKERBOARD MODEL ===========
@@ -114,7 +120,8 @@ def visualize_checkerboard_test(
         logger.info("Visualizing checkerboard model")
         df_checkerboard = read_velocity_file(checkerboard_csv, show_progress=False)
         model_config = _merge_config(shared_config, checkerboard_config)
-        visualize_velocity_model(df_checkerboard, output_dir, model_config, "checkerboard")
+        visualize_velocity_model(df_checkerboard, output_dir, model_config, "checkerboard",
+                                 basin_data=basin_data, basin_config=basin_config)
         del df_checkerboard
 
     # =========== INVERTED MODEL ===========
@@ -126,7 +133,8 @@ def visualize_checkerboard_test(
         logger.info("Visualizing inverted model")
         df_inverted = read_velocity_file(inverted_csv, show_progress=False)
         model_config = _merge_config(shared_config, inverted_config)
-        visualize_velocity_model(df_inverted, output_dir, model_config, "inverted")
+        visualize_velocity_model(df_inverted, output_dir, model_config, "inverted",
+                                 basin_data=basin_data, basin_config=basin_config)
         del df_inverted
 
     # =========== DIFFERENCE PLOT ===========
@@ -145,7 +153,8 @@ def visualize_checkerboard_test(
         for vel_field in velocity_fields:
             visualize_difference(
                 df_inverted, df_checkerboard, output_dir,
-                difference_config, vel_field
+                difference_config, vel_field,
+                basin_data=basin_data, basin_config=basin_config,
             )
 
         del df_inverted, df_checkerboard
@@ -182,7 +191,8 @@ def visualize_checkerboard_test(
             visualize_pattern(
                 df_pattern, output_dir, checkerboard_pattern_config,
                 "checkerboard_pattern", vel_field,
-                checkerboard_pattern_3d=None  # No recovery for checkerboard pattern
+                checkerboard_pattern_3d=None,  # No recovery for checkerboard pattern
+                basin_data=basin_data, basin_config=basin_config,
             )
             del df_pattern
 
@@ -243,6 +253,7 @@ def visualize_checkerboard_test(
                 df_pattern, output_dir, inverted_pattern_config,
                 "inverted_pattern", vel_field,
                 checkerboard_pattern_3d=checkerboard_pattern_3d,
+                basin_data=basin_data, basin_config=basin_config,
             )
             del df_pattern
 

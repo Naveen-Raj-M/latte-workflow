@@ -20,6 +20,7 @@ from checkerboard_test.grid_utils import (
     convert_km_spacing_to_indices,
 )
 from checkerboard_test.recovery_analysis import compute_fair_recovery_mask, compute_recovery_metrics
+from analysis.basin_boundaries import plot_basin_boundaries
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +110,8 @@ def plot_pattern_xy_slice(
     recovery_mask: Optional[np.ndarray] = None,
     global_vmin: Optional[float] = None,
     global_vmax: Optional[float] = None,
+    basin_data: Optional[Dict] = None,
+    basin_config: Optional[Dict] = None,
 ) -> None:
     """
     Plot XY slice for pattern visualization.
@@ -127,6 +130,8 @@ def plot_pattern_xy_slice(
         title_prefix: Prefix for title
         recovery_mask: Optional 2D boolean mask for fair recovery contours
         global_vmin/vmax: Pre-computed global limits (used if uniform_cbar=True)
+        basin_data: Optional basin boundary data from load_basin_boundaries()
+        basin_config: Optional basin boundaries configuration for styling
     """
     fig, ax = plt.subplots(
         figsize=config["figure"]["figsize"],
@@ -184,6 +189,11 @@ def plot_pattern_xy_slice(
 
     if config.get("show_grid", True):
         ax.grid(True, alpha=0.3)
+
+    if basin_data and basin_config:
+        xlim = ax.get_xlim()
+        ylim = ax.get_ylim()
+        plot_basin_boundaries(ax, basin_data, basin_config, xlim=xlim, ylim=ylim)
 
     plt.tight_layout()
     plt.savefig(output_path, format=config["figure"]["format"], dpi=config["figure"]["dpi"])
@@ -379,6 +389,8 @@ def visualize_pattern(
     pattern_name: str,
     velocity_field: str,
     checkerboard_pattern_3d: Optional[np.ndarray] = None,
+    basin_data: Optional[Dict] = None,
+    basin_config: Optional[Dict] = None,
 ) -> None:
     """
     Main function to visualize a pattern.
@@ -390,6 +402,8 @@ def visualize_pattern(
         pattern_name: "checkerboard_pattern" or "inverted_pattern"
         velocity_field: "vp" or "vs"
         checkerboard_pattern_3d: For recovery contour computation (inverted_pattern only)
+        basin_data: Optional basin boundary data from load_basin_boundaries()
+        basin_config: Optional basin boundaries configuration for styling
     """
     logger.info(f"Visualizing {pattern_name} for {velocity_field}")
 
@@ -480,6 +494,8 @@ def visualize_pattern(
                     recovery_mask=recovery_mask,
                     global_vmin=global_vmin,
                     global_vmax=global_vmax,
+                    basin_data=basin_data,
+                    basin_config=basin_config,
                 )
 
     # Plot XZ slices (N-S vertical)

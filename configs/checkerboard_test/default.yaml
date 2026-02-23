@@ -264,6 +264,27 @@ visualization:
     labels: 12
     colorbar: 10
 
+  # Basin boundaries overlay on XY (depth) slices only
+  basin_boundaries:
+    enabled: false  # Set to true to enable basin boundaries on XY plots
+    data_dir: "/path/to/preprocessed/coordinate_transform/basin_boundaries"
+    basins:
+      - file: "CentralBasin_Verticies_WGS84.csv"
+        label: "Central Basin"
+      - file: "DelawareBasin_Verticies_WGS84.csv"
+        label: "Delaware Basin"
+      - file: "MidlandBasin_Verticies_WGS84.csv"
+        label: "Midland Basin"
+    line_color: "darkgreen"
+    line_width: 2
+    line_style: "-"
+    line_alpha: 0.8
+    show_labels: true
+    label_fontsize: 12
+    label_fontweight: "bold"
+    label_offset_x: 0.0  # km offset from centroid
+    label_offset_y: 0.0  # km offset from centroid
+
   # Original velocity model visualization
   visualize_input:
     enabled: false

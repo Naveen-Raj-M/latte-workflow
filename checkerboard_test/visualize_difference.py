@@ -19,6 +19,7 @@ from checkerboard_test.grid_utils import (
     parse_slice_specification,
     convert_km_spacing_to_indices,
 )
+from analysis.basin_boundaries import plot_basin_boundaries
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +59,8 @@ def plot_difference_xy_slice(
     title_prefix: str = "",
     global_vmin: Optional[float] = None,
     global_vmax: Optional[float] = None,
+    basin_data: Optional[Dict] = None,
+    basin_config: Optional[Dict] = None,
 ) -> None:
     """
     Plot XY slice for difference visualization.
@@ -75,6 +78,8 @@ def plot_difference_xy_slice(
         title_prefix: Prefix for title
         global_vmin: Pre-computed global minimum (used if uniform_cbar=True)
         global_vmax: Pre-computed global maximum (used if uniform_cbar=True)
+        basin_data: Optional basin boundary data from load_basin_boundaries()
+        basin_config: Optional basin boundaries configuration for styling
     """
     fig, ax = plt.subplots(
         figsize=config["figure"]["figsize"],
@@ -111,6 +116,11 @@ def plot_difference_xy_slice(
 
     if config.get("show_grid", True):
         ax.grid(True, alpha=0.3)
+
+    if basin_data and basin_config:
+        xlim = ax.get_xlim()
+        ylim = ax.get_ylim()
+        plot_basin_boundaries(ax, basin_data, basin_config, xlim=xlim, ylim=ylim)
 
     plt.tight_layout()
     plt.savefig(output_path, format=config["figure"]["format"], dpi=config["figure"]["dpi"])
@@ -261,6 +271,8 @@ def visualize_difference(
     output_dir: Path,
     config: Dict,
     velocity_field: str,
+    basin_data: Optional[Dict] = None,
+    basin_config: Optional[Dict] = None,
 ) -> None:
     """
     Visualize difference between inverted and checkerboard models.
@@ -271,6 +283,8 @@ def visualize_difference(
         output_dir: Output directory
         config: From visualize_difference section
         velocity_field: "vp" or "vs"
+        basin_data: Optional basin boundary data from load_basin_boundaries()
+        basin_config: Optional basin boundaries configuration for styling
     """
     logger.info(f"Visualizing difference for {velocity_field}")
 
@@ -341,6 +355,8 @@ def visualize_difference(
                     title_prefix=f"Difference {velocity_field.upper()} - ",
                     global_vmin=global_vmin,
                     global_vmax=global_vmax,
+                    basin_data=basin_data,
+                    basin_config=basin_config,
                 )
 
     # Plot XZ slices (N-S vertical)

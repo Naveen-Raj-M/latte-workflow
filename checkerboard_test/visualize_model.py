@@ -18,6 +18,7 @@ from checkerboard_test.grid_utils import (
     parse_slice_specification,
     convert_km_spacing_to_indices,
 )
+from analysis.basin_boundaries import plot_basin_boundaries
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,8 @@ def plot_model_xy_slice(
     output_path: Path,
     config: Dict,
     title_prefix: str = "",
+    basin_data: Optional[Dict] = None,
+    basin_config: Optional[Dict] = None,
 ) -> None:
     """
     Plot XY (horizontal/depth) slice for model visualization.
@@ -44,6 +47,8 @@ def plot_model_xy_slice(
         output_path: Output file path
         config: Visualization configuration
         title_prefix: Prefix for title
+        basin_data: Optional basin boundary data from load_basin_boundaries()
+        basin_config: Optional basin boundaries configuration for styling
     """
     fig, ax = plt.subplots(
         figsize=config["figure"]["figsize"],
@@ -73,6 +78,11 @@ def plot_model_xy_slice(
 
     if config.get("show_grid", True):
         ax.grid(True, alpha=0.3)
+
+    if basin_data and basin_config:
+        xlim = ax.get_xlim()
+        ylim = ax.get_ylim()
+        plot_basin_boundaries(ax, basin_data, basin_config, xlim=xlim, ylim=ylim)
 
     plt.tight_layout()
     plt.savefig(output_path, format=config["figure"]["format"], dpi=config["figure"]["dpi"])
@@ -204,6 +214,8 @@ def visualize_velocity_model(
     output_dir: Path,
     config: Dict,
     model_name: str,
+    basin_data: Optional[Dict] = None,
+    basin_config: Optional[Dict] = None,
 ) -> None:
     """
     Main function to visualize a velocity model.
@@ -213,6 +225,8 @@ def visualize_velocity_model(
         output_dir: Output directory
         config: Visualization config (from visualize_input/checkerboard/inverted section)
         model_name: Name for output subdirectory
+        basin_data: Optional basin boundary data from load_basin_boundaries()
+        basin_config: Optional basin boundaries configuration for styling
     """
     logger.info(f"Visualizing {model_name}")
 
@@ -276,6 +290,8 @@ def visualize_velocity_model(
                         x_coords, y_coords, velocity_slice, z_value,
                         output_path, config,
                         title_prefix=f"{model_name.replace('_', ' ').title()} {vel_field.upper()} - ",
+                        basin_data=basin_data,
+                        basin_config=basin_config,
                     )
 
         # Plot XZ slices (N-S vertical)
