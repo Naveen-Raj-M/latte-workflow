@@ -103,12 +103,16 @@ def plot_difference_xy_slice(
 
     im = ax.pcolormesh(X, Y, velocity_slice, cmap=cmap_name, norm=norm, shading='auto')
 
+    tick_size = config["font_size"]["ticks"]
+
     if config.get("show_colorbar", True):
         cbar = plt.colorbar(im, ax=ax)
         cbar.set_label("Velocity Difference (km/s)", fontsize=config["font_size"]["colorbar"])
+        cbar.ax.tick_params(labelsize=tick_size)
 
     ax.set_xlabel("X (km)", fontsize=config["font_size"]["labels"])
     ax.set_ylabel("Y (km)", fontsize=config["font_size"]["labels"])
+    ax.tick_params(labelsize=tick_size)
 
     if config.get("show_title", True):
         ax.set_title(f"{title_prefix}Depth Slice at Z = {z_value:.1f} km",
@@ -177,12 +181,16 @@ def plot_difference_xz_slice(
     # Invert y-axis so depth increases downward
     ax.invert_yaxis()
 
+    tick_size = config["font_size"]["ticks"]
+
     if config.get("show_colorbar", True):
         cbar = plt.colorbar(im, ax=ax)
         cbar.set_label("Velocity Difference (km/s)", fontsize=config["font_size"]["colorbar"])
+        cbar.ax.tick_params(labelsize=tick_size)
 
     ax.set_xlabel("X (km)", fontsize=config["font_size"]["labels"])
     ax.set_ylabel("Z (km)", fontsize=config["font_size"]["labels"])
+    ax.tick_params(labelsize=tick_size)
 
     if config.get("show_title", True):
         ax.set_title(f"{title_prefix}N-S Slice at Y = {y_value:.1f} km",
@@ -246,12 +254,16 @@ def plot_difference_yz_slice(
     # Invert y-axis so depth increases downward
     ax.invert_yaxis()
 
+    tick_size = config["font_size"]["ticks"]
+
     if config.get("show_colorbar", True):
         cbar = plt.colorbar(im, ax=ax)
         cbar.set_label("Velocity Difference (km/s)", fontsize=config["font_size"]["colorbar"])
+        cbar.ax.tick_params(labelsize=tick_size)
 
     ax.set_xlabel("Y (km)", fontsize=config["font_size"]["labels"])
     ax.set_ylabel("Z (km)", fontsize=config["font_size"]["labels"])
+    ax.tick_params(labelsize=tick_size)
 
     if config.get("show_title", True):
         ax.set_title(f"{title_prefix}E-W Slice at X = {x_value:.1f} km",

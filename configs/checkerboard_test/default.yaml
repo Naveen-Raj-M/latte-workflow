@@ -263,6 +263,7 @@ visualization:
     title: 14
     labels: 12
     colorbar: 10
+    ticks: 10
 
   # Basin boundaries overlay on XY (depth) slices only
   basin_boundaries:
