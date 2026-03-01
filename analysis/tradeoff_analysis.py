@@ -17,6 +17,8 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
+from tqdm import tqdm
+
 from utils.io_utils import ensure_directory_exists
 from utils.plot_utils import setup_plot_style
 from utils.logging_utils import ProcessTimer
@@ -321,7 +323,7 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
     vs_variances_by_depth: Dict[float, Dict[int, float]] = {d: {} for d in depth_layers}
 
     with ProcessTimer("Computing model variance per iteration"):
-        for idx in common_iterations:
+        for idx in tqdm(common_iterations, desc="Model variance", unit="iter"):
             iter_dir = vel_dir_map[idx]
             df_inverted = load_velocity_model_for_iteration(iter_dir, velocity_dataset)
 
