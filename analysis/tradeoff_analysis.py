@@ -127,6 +127,12 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
     min_residual_threshold = tcfg.get('min_residual_threshold', -50.0)
     max_residual_threshold = tcfg.get('max_residual_threshold', 50.0)
     use_percentage_change = bool(mv_cfg.get('use_percentage_change', False))
+    aggregation = mv_cfg.get('aggregation', 'mean')
+    if aggregation not in ('mean', 'max'):
+        raise ValueError(
+            f"Invalid model_variance.aggregation: '{aggregation}'. "
+            "Valid options: 'mean', 'max'"
+        )
 
     logger.info("=" * 60)
     logger.info("TRADEOFF ANALYSIS CONFIGURATION")
@@ -135,6 +141,7 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
     if y_axis_mode == 'rms':
         logger.info(f"Phase mode:       {phase_mode}")
     logger.info(f"Region mode:      {region}")
+    logger.info(f"Aggregation:      {aggregation}")
     logger.info(f"Velocity dataset: {velocity_dataset}")
     logger.info(f"Output directory: {output_dir}")
 
@@ -344,6 +351,7 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
                     var = compute_model_variance_for_mask(
                         df_initial, df_inverted, mask_main,
                         use_percentage_change=use_percentage_change,
+                        aggregation=aggregation,
                     )
                     vp_variances[idx] = var['vp']
                     vs_variances[idx] = var['vs']
@@ -363,6 +371,7 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
                         var_d = compute_model_variance_for_mask(
                             df_initial, df_inverted, mask_d,
                             use_percentage_change=use_percentage_change,
+                            aggregation=aggregation,
                         )
                         vp_variances_by_depth[depth_km][idx] = var_d['vp']
                         vs_variances_by_depth[depth_km][idx] = var_d['vs']

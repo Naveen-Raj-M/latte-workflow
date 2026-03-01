@@ -180,35 +180,44 @@ def compute_model_variance_for_mask(
     df_inverted: pd.DataFrame,
     mask: np.ndarray,
     use_percentage_change: bool = False,
+    aggregation: str = 'mean',
 ) -> Dict[str, float]:
     """
     Compute model variance for vp and vs at selected grid points.
 
-    Two formulas are available:
+    Two value formulas:
 
     Absolute (use_percentage_change=False):
-        variance = mean(|v_initial - v_inverted|)   [km/s]
+        values = |v_initial - v_inverted|   [km/s]
 
     Percentage (use_percentage_change=True):
-        variance = mean(|v_initial - v_inverted| / |v_initial|) * 100   [%]
+        values = |v_initial - v_inverted| / |v_initial| * 100   [%]
 
         Grid points where |v_initial| < 1e-6 km/s are excluded from the
-        percentage computation to avoid division by near-zero values. A
-        WARNING is logged if any such points are found.
+        percentage computation. A WARNING is logged if any are found.
+
+    Two aggregation modes (aggregation):
+        "mean"  variance = mean(values)
+        "max"   variance = max(values)
 
     Args:
         df_initial: Initial velocity model DataFrame.
         df_inverted: Inverted velocity model DataFrame for one iteration.
         mask: Boolean selection mask for grid points to include.
         use_percentage_change: If True, compute percentage change.
+        aggregation: "mean" or "max".
 
     Returns:
         Dict with keys: 'vp', 'vs', 'max'.
         Units are km/s when use_percentage_change=False, % otherwise.
 
     Raises:
-        ValueError: If mask selects zero points.
+        ValueError: If mask selects zero points or aggregation is invalid.
     """
+    if aggregation not in ('mean', 'max'):
+        raise ValueError(
+            f"Invalid aggregation: '{aggregation}'. Valid options: 'mean', 'max'"
+        )
     n_selected = int(mask.sum())
     if n_selected == 0:
         raise ValueError(
@@ -254,15 +263,17 @@ def compute_model_variance_for_mask(
                 "cannot compute percentage model variance."
             )
 
+        agg = np.max if aggregation == 'max' else np.mean
         variance_vp = float(
-            np.mean(vp_abs_diff[vp_valid] / np.abs(vp_init[vp_valid])) * 100.0
+            agg(vp_abs_diff[vp_valid] / np.abs(vp_init[vp_valid])) * 100.0
         )
         variance_vs = float(
-            np.mean(vs_abs_diff[vs_valid] / np.abs(vs_init[vs_valid])) * 100.0
+            agg(vs_abs_diff[vs_valid] / np.abs(vs_init[vs_valid])) * 100.0
         )
     else:
-        variance_vp = float(np.mean(vp_abs_diff))
-        variance_vs = float(np.mean(vs_abs_diff))
+        agg = np.max if aggregation == 'max' else np.mean
+        variance_vp = float(agg(vp_abs_diff))
+        variance_vs = float(agg(vs_abs_diff))
 
     variance_max = max(variance_vp, variance_vs)
     return {'vp': variance_vp, 'vs': variance_vs, 'max': variance_max}

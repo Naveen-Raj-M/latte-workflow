@@ -445,6 +445,7 @@ tradeoff_analysis:
     x_bounds: [null, null]            # Optional: [x_min, x_max] km (applied before variance)
     y_bounds: [null, null]            # Optional: [y_min, y_max] km (applied before variance)
     use_percentage_change: false      # true = mean(|v_initial - v_inverted| / |v_initial|) * 100 (%)
+    aggregation: "mean"               # Aggregation over selected grid points: "mean" or "max"
 
   # --- Output ---
   output_dir: "${paths.output_base_dir}/tradeoff_analysis"
