@@ -444,6 +444,7 @@ tradeoff_analysis:
     depth_tolerance_km: 0.5           # Z-matching tolerance for depth_layer mode
     x_bounds: [null, null]            # Optional: [x_min, x_max] km (applied before variance)
     y_bounds: [null, null]            # Optional: [y_min, y_max] km (applied before variance)
+    use_percentage_change: false      # true = mean(|v_initial - v_inverted| / |v_initial|) * 100 (%)
 
   # --- Output ---
   output_dir: "${paths.output_base_dir}/tradeoff_analysis"
@@ -456,7 +457,7 @@ tradeoff_analysis:
     show_iteration_labels: true       # Annotate each data point with its iteration number
     use_log_scale_x: false            # Log scale on X-axis (model variance)
     use_log_scale_y: false            # Log scale on Y-axis (data misfit / RMS)
-    x_label: "Model Variance (km/s)"  # X-axis label
+    x_label: null                     # null = auto-derived ("Model Variance (km/s)" or "Model Variance (%)")
     y_label: null                     # null = auto-derived from y_axis_mode and phase_mode
     marker_style: "o"                 # Matplotlib marker style: "o", "s", "^", "D", etc.
     color_by_iteration: false         # Color each point by iteration number using colormap

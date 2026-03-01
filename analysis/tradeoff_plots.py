@@ -107,7 +107,9 @@ def create_tradeoff_plot(
     colormap_name = plot_cfg.get('colormap', 'viridis')
     highlight_optimal = plot_cfg.get('highlight_optimal', False)
 
-    x_label = plot_cfg.get('x_label') or "Model Variance (km/s)"
+    use_pct = bool(tcfg.get('model_variance', {}).get('use_percentage_change', False))
+    default_x_label = "Model Variance (%)" if use_pct else "Model Variance (km/s)"
+    x_label = plot_cfg.get('x_label') or default_x_label
     y_label = plot_cfg.get('y_label') or _auto_y_label(y_axis_mode, phase_mode, use_normalized)
 
     fig, ax = plt.subplots(figsize=(fig_width, fig_height))

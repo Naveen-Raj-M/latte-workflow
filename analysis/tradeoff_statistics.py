@@ -179,22 +179,32 @@ def compute_model_variance_for_mask(
     df_initial: pd.DataFrame,
     df_inverted: pd.DataFrame,
     mask: np.ndarray,
+    use_percentage_change: bool = False,
 ) -> Dict[str, float]:
     """
-    Compute model variance (mean absolute deviation) for vp and vs.
+    Compute model variance for vp and vs at selected grid points.
 
-    Formula:
-        variance_vp = mean(|vp_initial[mask] - vp_inverted[mask]|)
-        variance_vs = mean(|vs_initial[mask] - vs_inverted[mask]|)
-        variance_max = max(variance_vp, variance_vs)
+    Two formulas are available:
+
+    Absolute (use_percentage_change=False):
+        variance = mean(|v_initial - v_inverted|)   [km/s]
+
+    Percentage (use_percentage_change=True):
+        variance = mean(|v_initial - v_inverted| / |v_initial|) * 100   [%]
+
+        Grid points where |v_initial| < 1e-6 km/s are excluded from the
+        percentage computation to avoid division by near-zero values. A
+        WARNING is logged if any such points are found.
 
     Args:
         df_initial: Initial velocity model DataFrame.
         df_inverted: Inverted velocity model DataFrame for one iteration.
         mask: Boolean selection mask for grid points to include.
+        use_percentage_change: If True, compute percentage change.
 
     Returns:
-        Dict with keys: 'vp', 'vs', 'max' (all float km/s).
+        Dict with keys: 'vp', 'vs', 'max'.
+        Units are km/s when use_percentage_change=False, % otherwise.
 
     Raises:
         ValueError: If mask selects zero points.
@@ -206,17 +216,55 @@ def compute_model_variance_for_mask(
             "Check your bounds configuration."
         )
 
-    vp_diff = np.abs(
-        df_initial['vp'].values[mask] - df_inverted['vp'].values[mask]
-    )
-    vs_diff = np.abs(
-        df_initial['vs'].values[mask] - df_inverted['vs'].values[mask]
-    )
+    vp_init = df_initial['vp'].values[mask]
+    vs_init = df_initial['vs'].values[mask]
+    vp_inv = df_inverted['vp'].values[mask]
+    vs_inv = df_inverted['vs'].values[mask]
 
-    variance_vp = float(np.mean(vp_diff))
-    variance_vs = float(np.mean(vs_diff))
+    vp_abs_diff = np.abs(vp_init - vp_inv)
+    vs_abs_diff = np.abs(vs_init - vs_inv)
+
+    if use_percentage_change:
+        # Exclude near-zero initial velocities to avoid division by ~0
+        vp_valid = np.abs(vp_init) >= 1e-6
+        vs_valid = np.abs(vs_init) >= 1e-6
+
+        n_vp_excluded = int((~vp_valid).sum())
+        n_vs_excluded = int((~vs_valid).sum())
+
+        if n_vp_excluded:
+            logger.warning(
+                f"{n_vp_excluded} grid points have |vp_initial| < 1e-6 km/s "
+                "and are excluded from percentage variance computation."
+            )
+        if n_vs_excluded:
+            logger.warning(
+                f"{n_vs_excluded} grid points have |vs_initial| < 1e-6 km/s "
+                "and are excluded from percentage variance computation."
+            )
+
+        if not vp_valid.any():
+            raise ValueError(
+                "All selected grid points have near-zero initial Vp – "
+                "cannot compute percentage model variance."
+            )
+        if not vs_valid.any():
+            raise ValueError(
+                "All selected grid points have near-zero initial Vs – "
+                "cannot compute percentage model variance."
+            )
+
+        variance_vp = float(
+            np.mean(vp_abs_diff[vp_valid] / np.abs(vp_init[vp_valid])) * 100.0
+        )
+        variance_vs = float(
+            np.mean(vs_abs_diff[vs_valid] / np.abs(vs_init[vs_valid])) * 100.0
+        )
+    else:
+        variance_vp = float(np.mean(vp_abs_diff))
+        variance_vs = float(np.mean(vs_abs_diff))
+
     variance_max = max(variance_vp, variance_vs)
-
     return {'vp': variance_vp, 'vs': variance_vs, 'max': variance_max}
 
 
@@ -226,7 +274,6 @@ def assemble_tradeoff_table(
     vp_variances: Dict[int, float],
     vs_variances: Dict[int, float],
     phase_mode: str,
-    y_axis_mode: str,
 ) -> pd.DataFrame:
     """
     Assemble per-iteration statistics into a single tradeoff DataFrame.
@@ -247,7 +294,6 @@ def assemble_tradeoff_table(
         vp_variances: Mapping from iteration → vp variance.
         vs_variances: Mapping from iteration → vs variance.
         phase_mode: Determines column naming for separate phase mode.
-        y_axis_mode: "data_misfit" or "rms" (informational for column naming).
 
     Returns:
         DataFrame sorted ascending by iteration. Rows with missing data excluded.

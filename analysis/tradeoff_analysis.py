@@ -124,6 +124,7 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
 
     min_residual_threshold = tcfg.get('min_residual_threshold', -50.0)
     max_residual_threshold = tcfg.get('max_residual_threshold', 50.0)
+    use_percentage_change = bool(mv_cfg.get('use_percentage_change', False))
 
     logger.info("=" * 60)
     logger.info("TRADEOFF ANALYSIS CONFIGURATION")
@@ -339,13 +340,15 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
             if region in ('full', 'z_bounded'):
                 try:
                     var = compute_model_variance_for_mask(
-                        df_initial, df_inverted, mask_main
+                        df_initial, df_inverted, mask_main,
+                        use_percentage_change=use_percentage_change,
                     )
                     vp_variances[idx] = var['vp']
                     vs_variances[idx] = var['vs']
+                    units = "%" if use_percentage_change else "km/s"
                     logger.debug(
                         f"Iteration {idx}: vp_var={var['vp']:.6f}, "
-                        f"vs_var={var['vs']:.6f} km/s"
+                        f"vs_var={var['vs']:.6f} {units}"
                     )
                 except ValueError as e:
                     logger.error(f"Iteration {idx}: {e}")
@@ -356,7 +359,8 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
                 for depth_km, mask_d in masks.items():
                     try:
                         var_d = compute_model_variance_for_mask(
-                            df_initial, df_inverted, mask_d
+                            df_initial, df_inverted, mask_d,
+                            use_percentage_change=use_percentage_change,
                         )
                         vp_variances_by_depth[depth_km][idx] = var_d['vp']
                         vs_variances_by_depth[depth_km][idx] = var_d['vs']
@@ -391,7 +395,6 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
             vp_variances=vp_variances,
             vs_variances=vs_variances,
             phase_mode=phase_mode,
-            y_axis_mode=y_axis_mode,
         )
         results['tradeoff_table'] = df_tradeoff
 
@@ -404,7 +407,6 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
                 vp_variances=vp_variances_by_depth[depth_km],
                 vs_variances=vs_variances_by_depth[depth_km],
                 phase_mode=phase_mode,
-                y_axis_mode=y_axis_mode,
             )
             by_depth[depth_km] = df_d
         results['by_depth'] = by_depth
