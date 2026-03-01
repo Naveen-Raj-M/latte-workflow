@@ -1,0 +1,391 @@
+"""
+Statistical computations for tradeoff analysis.
+
+Handles: spatial domain validation, model variance computation per iteration,
+elbow/optimal-point detection, and summary statistics assembly.
+"""
+
+import logging
+from typing import Any, Dict, List, Optional, Tuple
+
+import numpy as np
+import pandas as pd
+
+logger = logging.getLogger(__name__)
+
+# Type alias for an optional float bound pair
+BoundPair = Tuple[Optional[float], Optional[float]]
+
+
+def validate_spatial_bounds(
+    df_initial: pd.DataFrame,
+    x_bounds: BoundPair,
+    y_bounds: BoundPair,
+    z_bounds: Optional[BoundPair],
+) -> None:
+    """
+    Validate user-specified spatial bounds against the actual model domain.
+
+    For each axis, checks for overlap with the model extent. Partial overlap
+    raises a WARNING; no overlap at all raises a ValueError.
+
+    Args:
+        df_initial: Initial velocity model DataFrame with X/Y/Z_grid_km columns.
+        x_bounds: (x_min, x_max) – either element may be None (no bound).
+        y_bounds: (y_min, y_max) – same convention.
+        z_bounds: (z_min, z_max) or None (no Z filter).
+
+    Raises:
+        ValueError: If any bound has zero overlap with the model domain.
+    """
+    axes = [
+        ('X', 'X_grid_km', x_bounds),
+        ('Y', 'Y_grid_km', y_bounds),
+    ]
+    if z_bounds is not None:
+        axes.append(('Z', 'Z_grid_km', z_bounds))
+
+    for axis_name, col, bounds in axes:
+        lo, hi = bounds
+        if lo is None and hi is None:
+            continue  # No bound on this axis
+
+        model_min = float(df_initial[col].min())
+        model_max = float(df_initial[col].max())
+
+        effective_lo = lo if lo is not None else model_min
+        effective_hi = hi if hi is not None else model_max
+
+        # Check for zero overlap
+        if effective_lo > model_max or effective_hi < model_min:
+            raise ValueError(
+                f"{axis_name}_bounds [{lo}, {hi}] has no overlap with the model "
+                f"domain [{model_min:.3f}, {model_max:.3f}] km. "
+                f"No grid points would be selected."
+            )
+
+        # Warn if bounds extend beyond model domain
+        if lo is not None and lo < model_min:
+            logger.warning(
+                f"{axis_name}_bounds lower limit {lo:.3f} km is below the model "
+                f"minimum {model_min:.3f} km – it will be clipped to the model domain."
+            )
+        if hi is not None and hi > model_max:
+            logger.warning(
+                f"{axis_name}_bounds upper limit {hi:.3f} km exceeds the model "
+                f"maximum {model_max:.3f} km – it will be clipped to the model domain."
+            )
+
+        logger.info(
+            f"{axis_name}_bounds [{lo}, {hi}] km valid against model "
+            f"domain [{model_min:.3f}, {model_max:.3f}] km"
+        )
+
+
+def build_spatial_mask(
+    df: pd.DataFrame,
+    x_bounds: BoundPair,
+    y_bounds: BoundPair,
+    z_bounds: Optional[BoundPair],
+) -> np.ndarray:
+    """
+    Build a boolean mask selecting grid points within all spatial bounds.
+
+    A None bound value means "no restriction" on that side.
+
+    Args:
+        df: Velocity model DataFrame with X_grid_km, Y_grid_km, Z_grid_km.
+        x_bounds: (x_min, x_max).
+        y_bounds: (y_min, y_max).
+        z_bounds: (z_min, z_max) or None.
+
+    Returns:
+        Boolean numpy array of length len(df), True where point is inside bounds.
+    """
+    mask = np.ones(len(df), dtype=bool)
+
+    def _apply_bound(col: str, lo: Optional[float], hi: Optional[float]) -> None:
+        nonlocal mask
+        if lo is not None:
+            mask &= (df[col].values >= lo)
+        if hi is not None:
+            mask &= (df[col].values <= hi)
+
+    _apply_bound('X_grid_km', *x_bounds)
+    _apply_bound('Y_grid_km', *y_bounds)
+    if z_bounds is not None:
+        _apply_bound('Z_grid_km', *z_bounds)
+
+    n_selected = int(mask.sum())
+    logger.debug(f"Spatial mask selects {n_selected} / {len(df)} grid points")
+    return mask
+
+
+def build_depth_layer_mask(
+    df: pd.DataFrame,
+    depth_km: float,
+    depth_tolerance_km: float,
+    x_bounds: BoundPair,
+    y_bounds: BoundPair,
+) -> np.ndarray:
+    """
+    Build mask for points within tolerance of a specific depth layer.
+
+    Args:
+        df: Velocity model DataFrame.
+        depth_km: Target depth in km.
+        depth_tolerance_km: Half-window tolerance around target depth.
+        x_bounds: (x_min, x_max) optional horizontal bounds.
+        y_bounds: (y_min, y_max) optional horizontal bounds.
+
+    Returns:
+        Boolean numpy array of length len(df).
+    """
+    depth_mask = np.abs(df['Z_grid_km'].values - depth_km) <= depth_tolerance_km
+
+    # Apply horizontal bounds
+    xy_mask = np.ones(len(df), dtype=bool)
+    x_lo, x_hi = x_bounds
+    y_lo, y_hi = y_bounds
+    if x_lo is not None:
+        xy_mask &= (df['X_grid_km'].values >= x_lo)
+    if x_hi is not None:
+        xy_mask &= (df['X_grid_km'].values <= x_hi)
+    if y_lo is not None:
+        xy_mask &= (df['Y_grid_km'].values >= y_lo)
+    if y_hi is not None:
+        xy_mask &= (df['Y_grid_km'].values <= y_hi)
+
+    combined = depth_mask & xy_mask
+    n_selected = int(combined.sum())
+
+    if n_selected == 0:
+        available_z = np.sort(df['Z_grid_km'].unique())
+        nearest = available_z[np.argmin(np.abs(available_z - depth_km))]
+        logger.warning(
+            f"Depth layer mask at Z={depth_km:.2f} km (±{depth_tolerance_km:.2f} km) "
+            f"selected 0 points. Nearest available Z: {nearest:.3f} km. "
+            f"Available Z values: {available_z[:10].tolist()}{'...' if len(available_z) > 10 else ''}"
+        )
+    else:
+        logger.debug(
+            f"Depth layer mask at Z={depth_km:.2f} km: {n_selected} grid points selected"
+        )
+
+    return combined
+
+
+def compute_model_variance_for_mask(
+    df_initial: pd.DataFrame,
+    df_inverted: pd.DataFrame,
+    mask: np.ndarray,
+) -> Dict[str, float]:
+    """
+    Compute model variance (mean absolute deviation) for vp and vs.
+
+    Formula:
+        variance_vp = mean(|vp_initial[mask] - vp_inverted[mask]|)
+        variance_vs = mean(|vs_initial[mask] - vs_inverted[mask]|)
+        variance_max = max(variance_vp, variance_vs)
+
+    Args:
+        df_initial: Initial velocity model DataFrame.
+        df_inverted: Inverted velocity model DataFrame for one iteration.
+        mask: Boolean selection mask for grid points to include.
+
+    Returns:
+        Dict with keys: 'vp', 'vs', 'max' (all float km/s).
+
+    Raises:
+        ValueError: If mask selects zero points.
+    """
+    n_selected = int(mask.sum())
+    if n_selected == 0:
+        raise ValueError(
+            "Model variance mask selects 0 grid points. "
+            "Check your bounds configuration."
+        )
+
+    vp_diff = np.abs(
+        df_initial['vp'].values[mask] - df_inverted['vp'].values[mask]
+    )
+    vs_diff = np.abs(
+        df_initial['vs'].values[mask] - df_inverted['vs'].values[mask]
+    )
+
+    variance_vp = float(np.mean(vp_diff))
+    variance_vs = float(np.mean(vs_diff))
+    variance_max = max(variance_vp, variance_vs)
+
+    return {'vp': variance_vp, 'vs': variance_vs, 'max': variance_max}
+
+
+def assemble_tradeoff_table(
+    iteration_indices: List[int],
+    y_values: Dict[int, Any],
+    vp_variances: Dict[int, float],
+    vs_variances: Dict[int, float],
+    phase_mode: str,
+    y_axis_mode: str,
+) -> pd.DataFrame:
+    """
+    Assemble per-iteration statistics into a single tradeoff DataFrame.
+
+    For all modes except phase_mode=="separate":
+        Columns: [iteration, y_value, model_variance_vp, model_variance_vs,
+                  model_variance_max]
+
+    For phase_mode=="separate":
+        Columns: [iteration, rms_p, rms_s, model_variance_vp, model_variance_vs,
+                  model_variance_max]
+
+    Args:
+        iteration_indices: Ordered list of iteration integers to include.
+        y_values: Mapping from iteration → y value(s).
+                  For non-separate: {iter: float}
+                  For separate:     {iter: {'p': float, 's': float}}
+        vp_variances: Mapping from iteration → vp variance.
+        vs_variances: Mapping from iteration → vs variance.
+        phase_mode: Determines column naming for separate phase mode.
+        y_axis_mode: "data_misfit" or "rms" (informational for column naming).
+
+    Returns:
+        DataFrame sorted ascending by iteration. Rows with missing data excluded.
+    """
+    rows = []
+    skipped = []
+
+    for idx in iteration_indices:
+        vp_var = vp_variances.get(idx)
+        vs_var = vs_variances.get(idx)
+        y_val = y_values.get(idx)
+
+        if vp_var is None or vs_var is None:
+            skipped.append(idx)
+            continue
+
+        if phase_mode == 'separate':
+            if not isinstance(y_val, dict) or y_val.get('p') is None or y_val.get('s') is None:
+                skipped.append(idx)
+                continue
+            rows.append({
+                'iteration': idx,
+                'rms_p': y_val['p'],
+                'rms_s': y_val['s'],
+                'model_variance_vp': vp_var,
+                'model_variance_vs': vs_var,
+                'model_variance_max': max(vp_var, vs_var),
+            })
+        else:
+            # For non-separate modes, y_val may be a dict with one key or a scalar
+            if isinstance(y_val, dict):
+                key = next(iter(y_val))  # 'combined', 'p', or 's'
+                scalar_y = y_val.get(key)
+            else:
+                scalar_y = y_val
+
+            if scalar_y is None:
+                skipped.append(idx)
+                continue
+
+            rows.append({
+                'iteration': idx,
+                'y_value': scalar_y,
+                'model_variance_vp': vp_var,
+                'model_variance_vs': vs_var,
+                'model_variance_max': max(vp_var, vs_var),
+            })
+
+    if skipped:
+        logger.warning(
+            f"Skipped {len(skipped)} iterations due to missing data: {skipped}"
+        )
+
+    if not rows:
+        logger.warning("Tradeoff table is empty – no complete iteration data found")
+        # Return empty DataFrame with correct columns
+        if phase_mode == 'separate':
+            cols = ['iteration', 'rms_p', 'rms_s', 'model_variance_vp',
+                    'model_variance_vs', 'model_variance_max']
+        else:
+            cols = ['iteration', 'y_value', 'model_variance_vp',
+                    'model_variance_vs', 'model_variance_max']
+        return pd.DataFrame(columns=cols)
+
+    df = pd.DataFrame(rows).sort_values('iteration').reset_index(drop=True)
+    logger.info(
+        f"Tradeoff table assembled: {len(df)} iterations "
+        f"[{df['iteration'].min()}–{df['iteration'].max()}]"
+    )
+    return df
+
+
+def detect_elbow(
+    x_values: np.ndarray,
+    y_values: np.ndarray,
+) -> int:
+    """
+    Detect the 'elbow' index on a tradeoff curve using the perpendicular
+    distance method (L-curve corner criterion).
+
+    Algorithm:
+        1. Normalize both axes to [0, 1] via min-max scaling.
+        2. Draw a straight line from (x[0], y[0]) to (x[-1], y[-1]).
+        3. Compute the perpendicular distance from each point to this line.
+        4. Return the index of the maximum distance point.
+
+    Args:
+        x_values: X-axis values (model variance).
+        y_values: Y-axis values (data misfit or RMS).
+
+    Returns:
+        Integer index into the arrays (not iteration number).
+    """
+    x = np.asarray(x_values, dtype=float)
+    y = np.asarray(y_values, dtype=float)
+
+    if len(x) < 3:
+        logger.warning(
+            f"Only {len(x)} points available for elbow detection – "
+            "returning midpoint index"
+        )
+        return len(x) // 2
+
+    # Normalize to [0, 1]
+    x_range = x.max() - x.min()
+    y_range = y.max() - y.min()
+
+    if x_range == 0 or y_range == 0:
+        logger.warning(
+            "Constant axis in tradeoff curve – elbow detection unreliable, "
+            "returning midpoint index"
+        )
+        return len(x) // 2
+
+    x_norm = (x - x.min()) / x_range
+    y_norm = (y - y.min()) / y_range
+
+    # Line from first to last point
+    dx = x_norm[-1] - x_norm[0]
+    dy = y_norm[-1] - y_norm[0]
+    line_len = np.sqrt(dx ** 2 + dy ** 2)
+
+    if line_len < 1e-10:
+        logger.warning(
+            "First and last tradeoff points are identical – "
+            "elbow detection unreliable, returning midpoint index"
+        )
+        return len(x) // 2
+
+    # Perpendicular distance of each point from the line
+    # Distance = |dy*(x_norm[i]-x_norm[0]) - dx*(y_norm[i]-y_norm[0])| / line_len
+    distances = np.abs(
+        dy * (x_norm - x_norm[0]) - dx * (y_norm - y_norm[0])
+    ) / line_len
+
+    elbow_idx = int(np.argmax(distances))
+    logger.info(
+        f"Elbow detected at array index {elbow_idx} "
+        f"(max perpendicular distance: {distances[elbow_idx]:.4f})"
+    )
+    return elbow_idx

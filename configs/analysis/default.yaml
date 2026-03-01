@@ -409,6 +409,62 @@ ray_density_analysis:
   figure_height: 10
   colormap: "hot"  # Colormap for density plots
 
+tradeoff_analysis:
+  enabled: false
+
+  # --- Y-axis mode ---
+  y_axis_mode: "data_misfit"          # Options: "data_misfit", "rms"
+
+  # data_misfit mode: read from a data_misfit.txt file (3-column whitespace-separated)
+  # Columns: iteration | data_misfit | normalized_data_misfit
+  data_misfit_file_path: null         # e.g. /path/to/inversion_runs/.../data_misfit.txt
+  use_normalized_misfit: false        # true = use normalized column; false = absolute
+
+  # rms mode: compute RMS from per-iteration traveltime residual CSVs
+  inversion_base_path: null           # Dir containing iteration_*/ subdirs with traveltime CSVs
+  traveltime_csv_pattern: "travel_time_residuals*.csv"
+  phase_mode: "both"                  # Options: "both", "p", "s", "separate"
+  min_residual_threshold: -50.0       # Residual threshold (s) for RMS computation
+  max_residual_threshold: 50.0
+
+  # --- Model paths ---
+  initial_model_csv: null             # Path to initial velocity model CSV
+  initial_model_hdf5: null            # Path to initial velocity model HDF5 (takes precedence)
+  inversion_analysis_dir: null        # Dir containing iteration_*/ subdirs with postprocessed velocity
+  velocity_dataset: "velocity"        # HDF5 dataset name: "velocity" or "velocity_coarse"
+
+  # --- Model variance (X-axis) ---
+  # Model variance = mean(|v_initial - v_inverted|) at selected grid points (km/s)
+  # For data_misfit mode (P+S combined): X = max(vp_variance, vs_variance)
+  # For rms mode with phase_mode "separate": separate vp and vs curves plotted
+  model_variance:
+    region: "full"                    # Options: "full", "z_bounded", "depth_layer"
+    z_bounds: [null, null]            # [z_min_km, z_max_km] — used when region = "z_bounded"
+    depth_layers: []                  # [d1, d2, ...] km — used when region = "depth_layer"
+    depth_tolerance_km: 0.5           # Z-matching tolerance for depth_layer mode
+    x_bounds: [null, null]            # Optional: [x_min, x_max] km (applied before variance)
+    y_bounds: [null, null]            # Optional: [y_min, y_max] km (applied before variance)
+
+  # --- Output ---
+  output_dir: "${paths.output_base_dir}/tradeoff_analysis"
+
+  # --- Plot controls ---
+  plot:
+    figure_width: 10
+    figure_height: 8
+    show_grid: true
+    show_iteration_labels: true       # Annotate each data point with its iteration number
+    use_log_scale_x: false            # Log scale on X-axis (model variance)
+    use_log_scale_y: false            # Log scale on Y-axis (data misfit / RMS)
+    x_label: "Model Variance (km/s)"  # X-axis label
+    y_label: null                     # null = auto-derived from y_axis_mode and phase_mode
+    marker_style: "o"                 # Matplotlib marker style: "o", "s", "^", "D", etc.
+    color_by_iteration: false         # Color each point by iteration number using colormap
+    colormap: "viridis"               # Colormap when color_by_iteration is true
+    highlight_optimal: false          # Annotate the elbow/optimal point with a gold star
+    vp_color: null                    # null = use analysis.plot_style.colors.p_wave_dark
+    vs_color: null                    # null = use analysis.plot_style.colors.s_wave_dark
+
 paths:
   input_dir: "data/processed"
   output_base_dir: "results/analysis"

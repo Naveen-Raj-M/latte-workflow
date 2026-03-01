@@ -58,6 +58,11 @@ __all__ = [
     # Ray density analysis
     'analyze_ray_density',
 
+    # Tradeoff analysis
+    'analyze_tradeoff',
+    'assemble_tradeoff_table',
+    'create_all_tradeoff_plots',
+
     # Basin boundaries (for XY plane plots)
     'load_basin_boundaries',
     'plot_basin_boundaries',
@@ -190,6 +195,15 @@ try:
 except ImportError as e:
     import logging
     logging.debug(f"Basin boundaries module import warning: {e}")
+
+# Tradeoff analysis imports
+try:
+    from .tradeoff_analysis import analyze_tradeoff
+    from .tradeoff_statistics import assemble_tradeoff_table
+    from .tradeoff_plots import create_all_tradeoff_plots
+except ImportError as e:
+    import logging
+    logging.debug(f"Tradeoff analysis module import warning: {e}")
 
 # Import common filtering utilities
 # Moved to separate module to avoid circular imports

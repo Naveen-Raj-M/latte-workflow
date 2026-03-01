@@ -26,6 +26,7 @@ from .gradient_analysis import analyze_gradients_and_search
 from .dws_analysis import analyze_dws
 from .raypath_analysis import analyze_ray_paths
 from .ray_density_analysis import analyze_ray_density
+from .tradeoff_analysis import analyze_tradeoff
 
 logger = logging.getLogger(__name__)
 
@@ -293,6 +294,43 @@ def run_ray_density_analysis(cfg: DictConfig) -> None:
             raise
 
 
+def run_tradeoff_analysis(cfg: DictConfig) -> None:
+    """Run tradeoff (data misfit vs model variance) analysis."""
+    if not cfg.tradeoff_analysis.get('enabled', False):
+        logger.info("Tradeoff analysis disabled, skipping")
+        return
+
+    logger.info("=" * 60)
+    logger.info("STARTING TRADEOFF ANALYSIS")
+    logger.info("=" * 60)
+
+    with ProcessTimer("Tradeoff analysis"):
+        try:
+            ensure_directory_exists(cfg.tradeoff_analysis.output_dir)
+            results = analyze_tradeoff(OmegaConf.to_container(cfg, resolve=True))
+            logger.info("Tradeoff analysis completed successfully")
+            logger.info(f"Results saved to: {cfg.tradeoff_analysis.output_dir}")
+
+            # Log brief summary
+            if 'tradeoff_table' in results:
+                df = results['tradeoff_table']
+                if not df.empty:
+                    logger.info(f"  Iterations included: {len(df)}")
+                    logger.info(
+                        f"  Iteration range: "
+                        f"[{df['iteration'].min()}, {df['iteration'].max()}]"
+                    )
+            elif 'by_depth' in results:
+                for depth_km, df in results['by_depth'].items():
+                    if not df.empty:
+                        logger.info(
+                            f"  Z={depth_km:.2f} km: {len(df)} iterations"
+                        )
+        except Exception as e:
+            logger.error(f"Tradeoff analysis failed: {e}")
+            raise
+
+
 def run_single_function(cfg: DictConfig, function_name: str) -> None:
     """
     Run a single analysis function.
@@ -311,6 +349,7 @@ def run_single_function(cfg: DictConfig, function_name: str) -> None:
         'dws_analysis': run_dws_analysis,
         'raypath_analysis': run_raypath_analysis,
         'ray_density_analysis': run_ray_density_analysis,
+        'tradeoff_analysis': run_tradeoff_analysis,
     }
 
     if function_name not in function_map:
@@ -422,6 +461,7 @@ def run_analysis_pipeline(cfg: DictConfig) -> None:
             ('Ray Path Analysis', run_raypath_analysis),
             ('DWS Analysis', run_dws_analysis),
             ('Ray Density Analysis', run_ray_density_analysis),
+            ('Tradeoff Analysis', run_tradeoff_analysis),
         ]
         
         completed_analyses = []
@@ -492,7 +532,9 @@ def validate_configuration(cfg: DictConfig) -> None:
         enabled_analyses.append('dws_analysis')
     if cfg.ray_density_analysis.get('enabled', False):
         enabled_analyses.append('ray_density_analysis')
-    
+    if cfg.tradeoff_analysis.get('enabled', False):
+        enabled_analyses.append('tradeoff_analysis')
+
     if not enabled_analyses:
         logger.error("No analysis modules are enabled!")
         logger.error("Please enable at least one analysis module in the configuration")
@@ -523,7 +565,11 @@ def validate_configuration(cfg: DictConfig) -> None:
     # Validate gradient analysis configuration
     if cfg.gradient_analysis.get('enabled', False):
         _validate_gradient_config(cfg)
-    
+
+    # Validate tradeoff analysis configuration
+    if cfg.tradeoff_analysis.get('enabled', False):
+        _validate_tradeoff_config(cfg)
+
     logger.info("Configuration validation completed")
 
 
@@ -833,6 +879,101 @@ def _validate_gradient_config(cfg: DictConfig) -> None:
                 else:
                     logger.error(f"Source gradient file not found (tried CSV: {source_gradient_csv}, HDF5: {source_gradient_hdf5})")
                     sys.exit(1)
+
+
+def _validate_tradeoff_config(cfg: DictConfig) -> None:
+    """Validate tradeoff analysis configuration."""
+    tcfg = cfg.tradeoff_analysis
+
+    # y_axis_mode
+    y_mode = tcfg.get('y_axis_mode', 'data_misfit')
+    if y_mode not in ('data_misfit', 'rms'):
+        logger.error(
+            f"Invalid tradeoff_analysis y_axis_mode: '{y_mode}'. "
+            "Valid options: 'data_misfit', 'rms'"
+        )
+        sys.exit(1)
+
+    # data_misfit mode requirements
+    if y_mode == 'data_misfit':
+        if not tcfg.get('data_misfit_file_path'):
+            logger.error(
+                "tradeoff_analysis: data_misfit_file_path is required "
+                "when y_axis_mode = 'data_misfit'"
+            )
+            sys.exit(1)
+        if cfg.get('quality_control', {}).get('validate_input_data', True):
+            fp = tcfg.get('data_misfit_file_path')
+            if fp and not Path(fp).exists():
+                logger.error(f"tradeoff_analysis: data_misfit_file_path not found: {fp}")
+                sys.exit(1)
+
+    # rms mode requirements
+    if y_mode == 'rms':
+        if not tcfg.get('inversion_base_path'):
+            logger.error(
+                "tradeoff_analysis: inversion_base_path is required "
+                "when y_axis_mode = 'rms'"
+            )
+            sys.exit(1)
+        phase_mode = tcfg.get('phase_mode', 'both')
+        if phase_mode not in ('both', 'p', 's', 'separate'):
+            logger.error(
+                f"Invalid tradeoff_analysis phase_mode: '{phase_mode}'. "
+                "Valid options: 'both', 'p', 's', 'separate'"
+            )
+            sys.exit(1)
+
+    # Model paths
+    if not tcfg.get('initial_model_csv') and not tcfg.get('initial_model_hdf5'):
+        logger.error(
+            "tradeoff_analysis: initial_model_csv or initial_model_hdf5 is required"
+        )
+        sys.exit(1)
+    if not tcfg.get('inversion_analysis_dir'):
+        logger.error("tradeoff_analysis: inversion_analysis_dir is required")
+        sys.exit(1)
+
+    if cfg.get('quality_control', {}).get('validate_input_data', True):
+        hdf5 = tcfg.get('initial_model_hdf5')
+        csv = tcfg.get('initial_model_csv')
+        if hdf5 and not Path(hdf5).exists():
+            logger.error(
+                f"tradeoff_analysis: initial_model_hdf5 not found: {hdf5}"
+            )
+            sys.exit(1)
+        elif not hdf5 and csv and not Path(csv).exists():
+            logger.error(
+                f"tradeoff_analysis: initial_model_csv not found: {csv}"
+            )
+            sys.exit(1)
+
+        inv_dir = tcfg.get('inversion_analysis_dir')
+        if inv_dir and not Path(inv_dir).exists():
+            logger.error(
+                f"tradeoff_analysis: inversion_analysis_dir not found: {inv_dir}"
+            )
+            sys.exit(1)
+
+    # Region mode
+    mv_cfg = tcfg.get('model_variance', {})
+    region = mv_cfg.get('region', 'full')
+    if region not in ('full', 'z_bounded', 'depth_layer'):
+        logger.error(
+            f"Invalid tradeoff_analysis model_variance.region: '{region}'. "
+            "Valid options: 'full', 'z_bounded', 'depth_layer'"
+        )
+        sys.exit(1)
+    if region == 'depth_layer':
+        layers = mv_cfg.get('depth_layers', [])
+        if not layers:
+            logger.error(
+                "tradeoff_analysis: model_variance.depth_layers must be non-empty "
+                "when region = 'depth_layer'"
+            )
+            sys.exit(1)
+
+    logger.info("Tradeoff analysis configuration validated")
 
 
 @hydra.main(version_base=None, config_path="../configs/analysis", config_name="config")
