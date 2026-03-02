@@ -1,5 +1,9 @@
 # Default configuration for LATTE analysis module
 
+hydra:
+  run:
+    dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}_analysis_${hydra:job.config_name}
+
 analysis:
   log_level: "DEBUG"  # Options: DEBUG, INFO, WARNING, ERROR
   output_format: "png"  # Options: png, pdf, svg

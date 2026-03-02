@@ -4,6 +4,10 @@
 defaults:
   - _self_
 
+hydra:
+  run:
+    dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}_checkerboard_test_${hydra:job.config_name}
+
 # General settings
 general:
   # Output directory for all checkerboard test results

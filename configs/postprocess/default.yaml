@@ -1,5 +1,9 @@
 # configs/postprocess/default.yaml
 
+hydra:
+  run:
+    dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}_postprocess_${hydra:job.config_name}
+
 general:
   strict_mode: true
   log_level: INFO  # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
