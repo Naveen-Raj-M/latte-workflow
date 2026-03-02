@@ -277,27 +277,28 @@ def load_velocity_model_for_iteration(
         or None on failure.
     """
     hdf5_candidates = sorted(
-        list(iteration_dir.glob('*.h5')) + list(iteration_dir.glob('*.hdf5'))
+        list(iteration_dir.rglob('*.h5')) + list(iteration_dir.rglob('*.hdf5'))
     )
-    csv_candidates = sorted(iteration_dir.glob('*.csv'))
+    csv_candidates = sorted(iteration_dir.rglob('*.csv'))
 
     if hdf5_candidates:
         if len(hdf5_candidates) > 1:
             logger.warning(
-                f"Multiple HDF5 files in {iteration_dir}, "
-                f"using: {hdf5_candidates[0].name}"
+                f"Multiple HDF5 files found under {iteration_dir}, "
+                f"using: {hdf5_candidates[0].relative_to(iteration_dir)}"
             )
         chosen = hdf5_candidates[0]
     elif csv_candidates:
         if len(csv_candidates) > 1:
             logger.warning(
-                f"Multiple CSV files in {iteration_dir}, "
-                f"using: {csv_candidates[0].name}"
+                f"Multiple CSV files found under {iteration_dir}, "
+                f"using: {csv_candidates[0].relative_to(iteration_dir)}"
             )
         chosen = csv_candidates[0]
     else:
         logger.error(
-            f"No velocity model file (HDF5 or CSV) found in {iteration_dir}"
+            f"No velocity model file (HDF5 or CSV) found in {iteration_dir} "
+            "or any of its subdirectories"
         )
         return None
 
@@ -316,7 +317,8 @@ def load_velocity_model_for_iteration(
         return None
 
     logger.debug(
-        f"Loaded velocity model: {chosen.name} ({len(df)} grid points)"
+        f"Loaded velocity model: {chosen.relative_to(iteration_dir)} "
+        f"({len(df)} grid points)"
     )
     return df
 
