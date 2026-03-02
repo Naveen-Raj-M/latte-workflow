@@ -328,6 +328,11 @@ def create_noisy_traveltimes_csv(
                 # Get the indices for this shot_id and phase in the original dataframe
                 indices = group.index
 
+                # Subtract configured origin time so synthetic_tt is physical travel time only,
+                # consistent with observed_tt (which carries no offset) and postprocessing convention.
+                configured_origin_time = group["origin_time_s"].iloc[0]
+                noisy_tt = noisy_tt - configured_origin_time
+
                 # Verify size matches
                 if len(noisy_tt) != len(indices):
                     logger.warning(
