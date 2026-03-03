@@ -431,6 +431,11 @@ tradeoff_analysis:
   min_residual_threshold: -50.0       # Residual threshold (s) for RMS computation
   max_residual_threshold: 50.0
 
+  # rms comparison mode: 'ground_truth' or 'method_comparison'
+  rms_comparison_mode: "ground_truth"
+  method1_csv: null                   # Static path to Method 1 traveltime CSV
+  method2_csv_pattern: "travel_time_residuals*.csv"  # Pattern for Method 2 CSV per iteration
+
   # --- Model paths ---
   initial_model_csv: null             # Path to initial velocity model CSV
   initial_model_hdf5: null            # Path to initial velocity model HDF5 (takes precedence)

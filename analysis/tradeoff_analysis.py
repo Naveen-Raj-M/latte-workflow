@@ -30,6 +30,8 @@ from .tradeoff_data import (
     load_traveltime_residuals_for_iteration,
     compute_rms_for_iteration,
     load_velocity_model_for_iteration,
+    load_static_method_csv,
+    compute_method_comparison_rms_for_iteration,
 )
 from .tradeoff_statistics import (
     validate_spatial_bounds,
@@ -120,6 +122,7 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
 
     y_axis_mode = tcfg.get('y_axis_mode', 'data_misfit')
     phase_mode = tcfg.get('phase_mode', 'both')
+    rms_comparison_mode = tcfg.get('rms_comparison_mode', 'ground_truth')
     mv_cfg = tcfg.get('model_variance', {})
     region = mv_cfg.get('region', 'full')
     velocity_dataset = tcfg.get('velocity_dataset', 'velocity')
@@ -140,6 +143,7 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
     logger.info(f"Y-axis mode:      {y_axis_mode}")
     if y_axis_mode == 'rms':
         logger.info(f"Phase mode:       {phase_mode}")
+        logger.info(f"RMS comparison:   {rms_comparison_mode}")
     logger.info(f"Region mode:      {region}")
     logger.info(f"Aggregation:      {aggregation}")
     logger.info(f"Velocity dataset: {velocity_dataset}")
@@ -254,24 +258,50 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
                     f"{inversion_base}"
                 )
 
-            traveltime_pattern = tcfg.get(
-                'traveltime_csv_pattern', 'travel_time_residuals*.csv'
-            )
-
-            for idx, iter_dir in tt_iter_dirs:
-                df_tt = load_traveltime_residuals_for_iteration(
-                    iter_dir, traveltime_pattern
-                )
-                if df_tt is None:
-                    logger.warning(
-                        f"Iteration {idx}: skipping – no traveltime CSV found"
+            if rms_comparison_mode == 'method_comparison':
+                method1_csv = tcfg.get('method1_csv')
+                if not method1_csv:
+                    raise ValueError(
+                        "method1_csv must be specified when "
+                        "rms_comparison_mode = 'method_comparison'"
                     )
-                    continue
-                rms_dict = compute_rms_for_iteration(
-                    df_tt, phase_mode,
-                    min_residual_threshold, max_residual_threshold,
+                df_method1 = load_static_method_csv(method1_csv)
+                method2_pattern = tcfg.get(
+                    'method2_csv_pattern', 'travel_time_residuals*.csv'
                 )
-                y_dict[idx] = rms_dict
+                logger.info(f"Method 2 pattern (per iteration): {method2_pattern}")
+
+                for idx, iter_dir in tt_iter_dirs:
+                    rms_dict = compute_method_comparison_rms_for_iteration(
+                        df_method1, iter_dir, method2_pattern,
+                        phase_mode, min_residual_threshold, max_residual_threshold,
+                    )
+                    if rms_dict is None:
+                        logger.warning(
+                            f"Iteration {idx}: skipping – method comparison RMS failed"
+                        )
+                        continue
+                    y_dict[idx] = rms_dict
+
+            else:
+                # ground_truth: residuals are pre-computed in the per-iteration CSV
+                traveltime_pattern = tcfg.get(
+                    'traveltime_csv_pattern', 'travel_time_residuals*.csv'
+                )
+                for idx, iter_dir in tt_iter_dirs:
+                    df_tt = load_traveltime_residuals_for_iteration(
+                        iter_dir, traveltime_pattern
+                    )
+                    if df_tt is None:
+                        logger.warning(
+                            f"Iteration {idx}: skipping – no traveltime CSV found"
+                        )
+                        continue
+                    rms_dict = compute_rms_for_iteration(
+                        df_tt, phase_mode,
+                        min_residual_threshold, max_residual_threshold,
+                    )
+                    y_dict[idx] = rms_dict
     else:
         raise ValueError(
             f"Unknown y_axis_mode: '{y_axis_mode}'. "

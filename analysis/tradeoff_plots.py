@@ -112,18 +112,86 @@ def create_tradeoff_plot(
     x_label = plot_cfg.get('x_label') or default_x_label
     y_label = plot_cfg.get('y_label') or _auto_y_label(y_axis_mode, phase_mode, use_normalized)
 
-    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
-
     iterations = df['iteration'].values
 
     if phase_mode == 'separate' and 'rms_p' in df.columns and 'rms_s' in df.columns:
-        # Two curves: P on model_variance_vp, S on model_variance_vs
-        _plot_separate_phases(
-            ax, df, iterations, colors, marker_style, marker_size,
-            line_width, color_by_iter, colormap_name, show_iter_labels,
-            highlight_optimal, plot_style,
-        )
+        # ── Separate subplots: P (left) and S (right) ──────────────────────
+        fig, (ax_p, ax_s) = plt.subplots(1, 2, figsize=(fig_width, fig_height))
+
+        for ax, x_col, y_col, color, phase_label in [
+            (ax_p, 'model_variance_vp', 'rms_p', colors['vp'], 'P-wave'),
+            (ax_s, 'model_variance_vs', 'rms_s', colors['vs'], 'S-wave'),
+        ]:
+            x_vals = df[x_col].values
+            y_vals = df[y_col].values
+
+            if color_by_iter:
+                _plot_colormap_curve(
+                    ax, x_vals, y_vals, iterations, marker_style, marker_size,
+                    line_width, colormap_name, plot_style,
+                )
+            else:
+                ax.plot(
+                    x_vals, y_vals,
+                    marker=marker_style,
+                    markersize=marker_size,
+                    linewidth=line_width,
+                    color=color,
+                    alpha=plot_style.get('alpha', 0.85),
+                    label=phase_label,
+                )
+
+            if show_iter_labels:
+                _annotate_iterations(ax, x_vals, y_vals, iterations, plot_style)
+
+            if highlight_optimal and len(x_vals) >= 3:
+                elbow_idx = detect_elbow(x_vals, y_vals)
+                ax.plot(
+                    x_vals[elbow_idx], y_vals[elbow_idx],
+                    marker='*',
+                    markersize=marker_size * 3,
+                    color='gold',
+                    markeredgecolor='black',
+                    markeredgewidth=0.8,
+                    zorder=5,
+                    label=f"Optimal (iter {iterations[elbow_idx]})",
+                )
+
+            ax.legend(fontsize=plot_style.get('legend_size', 12))
+
+            if use_log_x:
+                ax.set_xscale('log')
+            if use_log_y:
+                ax.set_yscale('log')
+
+            ax.set_xlabel(x_label, fontsize=plot_style.get('label_size', 14))
+            ax.set_ylabel(
+                f"{phase_label} RMS Residual (s)",
+                fontsize=plot_style.get('label_size', 14),
+            )
+
+            if show_grid:
+                ax.grid(
+                    True,
+                    alpha=plot_style.get('grid_alpha', 0.3),
+                    color=global_colors.get('grid_color', '#cccccc'),
+                )
+
+            if depth_label:
+                ax.text(
+                    0.98, 0.98, depth_label,
+                    transform=ax.transAxes,
+                    ha='right', va='top',
+                    fontsize=plot_style.get('legend_size', 12),
+                    bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.8),
+                )
+
+        fig.suptitle(title, fontsize=plot_style.get('title_size', 16))
+
     else:
+        # ── Single axes ─────────────────────────────────────────────────────
+        fig, ax = plt.subplots(figsize=(fig_width, fig_height))
+
         # Single curve
         x_col = 'model_variance_max'
         y_col = 'y_value'
@@ -162,29 +230,29 @@ def create_tradeoff_plot(
             )
             ax.legend(fontsize=plot_style.get('legend_size', 12))
 
-    # Axis configuration
-    if use_log_x:
-        ax.set_xscale('log')
-    if use_log_y:
-        ax.set_yscale('log')
+        # Axis configuration
+        if use_log_x:
+            ax.set_xscale('log')
+        if use_log_y:
+            ax.set_yscale('log')
 
-    ax.set_xlabel(x_label, fontsize=plot_style.get('label_size', 14))
-    ax.set_ylabel(y_label, fontsize=plot_style.get('label_size', 14))
-    ax.set_title(title, fontsize=plot_style.get('title_size', 16))
+        ax.set_xlabel(x_label, fontsize=plot_style.get('label_size', 14))
+        ax.set_ylabel(y_label, fontsize=plot_style.get('label_size', 14))
+        ax.set_title(title, fontsize=plot_style.get('title_size', 16))
 
-    if show_grid:
-        ax.grid(True, alpha=plot_style.get('grid_alpha', 0.3),
-                color=global_colors.get('grid_color', '#cccccc'))
+        if show_grid:
+            ax.grid(True, alpha=plot_style.get('grid_alpha', 0.3),
+                    color=global_colors.get('grid_color', '#cccccc'))
 
-    # Depth label text box
-    if depth_label:
-        ax.text(
-            0.98, 0.98, depth_label,
-            transform=ax.transAxes,
-            ha='right', va='top',
-            fontsize=plot_style.get('legend_size', 12),
-            bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.8),
-        )
+        # Depth label text box
+        if depth_label:
+            ax.text(
+                0.98, 0.98, depth_label,
+                transform=ax.transAxes,
+                ha='right', va='top',
+                fontsize=plot_style.get('legend_size', 12),
+                bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.8),
+            )
 
     fig.tight_layout()
 
@@ -196,60 +264,6 @@ def create_tradeoff_plot(
     save_figure(fig, output_path, output_format=output_format, dpi=dpi)
     logger.info(f"Saved tradeoff plot: {output_path}")
 
-
-def _plot_separate_phases(
-    ax: plt.Axes,
-    df: pd.DataFrame,
-    iterations: np.ndarray,
-    colors: Dict[str, str],
-    marker_style: str,
-    marker_size: float,
-    line_width: float,
-    color_by_iter: bool,
-    colormap_name: str,
-    show_iter_labels: bool,
-    highlight_optimal: bool,
-    plot_style: Dict[str, Any],
-) -> None:
-    """Plot P-wave and S-wave tradeoff curves on the same axes."""
-    x_p = df['model_variance_vp'].values
-    x_s = df['model_variance_vs'].values
-    y_p = df['rms_p'].values
-    y_s = df['rms_s'].values
-
-    alpha = plot_style.get('alpha', 0.85)
-
-    ax.plot(
-        x_p, y_p,
-        marker=marker_style, markersize=marker_size, linewidth=line_width,
-        color=colors['vp'], alpha=alpha, label='P-wave',
-    )
-    ax.plot(
-        x_s, y_s,
-        marker=marker_style, markersize=marker_size, linewidth=line_width,
-        color=colors['vs'], alpha=alpha, label='S-wave', linestyle='--',
-    )
-
-    if show_iter_labels:
-        _annotate_iterations(ax, x_p, y_p, iterations, plot_style)
-        _annotate_iterations(ax, x_s, y_s, iterations, plot_style, color=colors['vs'])
-
-    if highlight_optimal:
-        for x_vals, y_vals, color, label_suffix in [
-            (x_p, y_p, colors['vp'], 'P'),
-            (x_s, y_s, colors['vs'], 'S'),
-        ]:
-            if len(x_vals) >= 3:
-                elbow_idx = detect_elbow(x_vals, y_vals)
-                ax.plot(
-                    x_vals[elbow_idx], y_vals[elbow_idx],
-                    marker='*', markersize=marker_size * 3,
-                    color='gold', markeredgecolor='black',
-                    markeredgewidth=0.8, zorder=5,
-                    label=f"Optimal-{label_suffix} (iter {iterations[elbow_idx]})",
-                )
-
-    ax.legend(fontsize=plot_style.get('legend_size', 12))
 
 
 def _plot_colormap_curve(

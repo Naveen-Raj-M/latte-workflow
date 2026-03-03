@@ -21,6 +21,10 @@ logger = logging.getLogger(__name__)
 # Required columns for traveltime CSV
 _TT_REQUIRED_COLS = {'residual_s', 'phase'}
 
+# Required columns for method-comparison CSVs
+_MC_REQUIRED_COLS = {'synthetic_tt', 'phase', 'event_id', 'station'}
+_MC_MERGE_KEYS = ['event_id', 'station', 'phase']
+
 # Required columns for velocity CSV
 _VEL_REQUIRED_COLS = {'X_grid_km', 'Y_grid_km', 'Z_grid_km', 'vp', 'vs'}
 
@@ -256,6 +260,131 @@ def compute_rms_for_iteration(
             f"Invalid phase_mode: '{phase_mode}'. "
             f"Valid options: 'both', 'p', 's', 'separate'"
         )
+
+
+def load_static_method_csv(filepath: str) -> pd.DataFrame:
+    """
+    Load and validate a static Method 1 CSV for method-comparison RMS mode.
+
+    Required columns: event_id, station, phase, synthetic_tt.
+
+    Args:
+        filepath: Path to the CSV file.
+
+    Returns:
+        Validated DataFrame.
+
+    Raises:
+        FileNotFoundError: If filepath does not exist.
+        ValueError: If the file cannot be loaded or required columns are missing.
+    """
+    path = Path(filepath)
+    if not path.exists():
+        raise FileNotFoundError(f"Method 1 CSV not found: {filepath}")
+
+    try:
+        df = read_csv_file(str(path))
+    except Exception as e:
+        raise ValueError(f"Failed to load Method 1 CSV {filepath}: {e}") from e
+
+    missing = _MC_REQUIRED_COLS - set(df.columns)
+    if missing:
+        raise ValueError(
+            f"Method 1 CSV missing required columns: {missing}. "
+            f"Available: {list(df.columns)}"
+        )
+
+    logger.info(f"Loaded Method 1 CSV (static): {path.name} ({len(df)} rows)")
+    return df
+
+
+def compute_method_comparison_rms_for_iteration(
+    method1_df: pd.DataFrame,
+    iteration_dir: Path,
+    method2_csv_pattern: str,
+    phase_mode: str,
+    min_residual_threshold: float = -50.0,
+    max_residual_threshold: float = 50.0,
+) -> Optional[Dict[str, Optional[float]]]:
+    """
+    Compute RMS for method comparison for a single iteration.
+
+    Loads the Method 2 CSV from the iteration directory, merges with the
+    static Method 1 DataFrame on (event_id, station, phase), computes
+    residuals (Method2.synthetic_tt - Method1.synthetic_tt), and returns RMS.
+
+    Args:
+        method1_df: Static Method 1 DataFrame with columns
+            [event_id, station, phase, synthetic_tt].
+        iteration_dir: Path to one iteration_* subdirectory.
+        method2_csv_pattern: Glob pattern for Method 2 CSV within the iteration dir.
+        phase_mode: One of "both", "p", "s", "separate".
+        min_residual_threshold: Minimum residual to include (seconds).
+        max_residual_threshold: Maximum residual to include (seconds).
+
+    Returns:
+        Dict with RMS values per curve key (same format as compute_rms_for_iteration),
+        or None if loading or merging fails.
+    """
+    candidates = sorted(iteration_dir.glob(method2_csv_pattern))
+
+    if not candidates:
+        logger.warning(
+            f"No Method 2 CSV matching '{method2_csv_pattern}' "
+            f"found in {iteration_dir}"
+        )
+        return None
+
+    if len(candidates) > 1:
+        logger.warning(
+            f"Multiple Method 2 CSVs found in {iteration_dir}, "
+            f"using: {candidates[0].name}. Others: {[c.name for c in candidates[1:]]}"
+        )
+
+    chosen = candidates[0]
+    try:
+        df2 = read_csv_file(str(chosen))
+    except Exception as e:
+        logger.error(f"Failed to load Method 2 CSV {chosen}: {e}")
+        return None
+
+    missing2 = _MC_REQUIRED_COLS - set(df2.columns)
+    if missing2:
+        logger.error(
+            f"Method 2 CSV {chosen.name} missing required columns: {missing2}"
+        )
+        return None
+
+    df_merged = pd.merge(
+        method1_df[_MC_MERGE_KEYS + ['synthetic_tt']],
+        df2[_MC_MERGE_KEYS + ['synthetic_tt']],
+        on=_MC_MERGE_KEYS,
+        suffixes=('_m1', '_m2'),
+        how='inner',
+    )
+
+    if df_merged.empty:
+        logger.warning(
+            f"No matching records between Method 1 and Method 2 in {iteration_dir}"
+        )
+        return None
+
+    df_merged['residual_s'] = (
+        df_merged['synthetic_tt_m2'] - df_merged['synthetic_tt_m1']
+    )
+
+    logger.debug(
+        f"Method comparison {iteration_dir.name}: {len(df_merged)} matched pairs, "
+        f"residual mean={df_merged['residual_s'].mean():.4f} s, "
+        f"RMS={np.sqrt(np.mean(df_merged['residual_s'] ** 2)):.4f} s"
+    )
+
+    return compute_rms_for_iteration(
+        df_merged[['residual_s', 'phase']],
+        phase_mode,
+        min_residual_threshold,
+        max_residual_threshold,
+    )
 
 
 def load_velocity_model_for_iteration(
