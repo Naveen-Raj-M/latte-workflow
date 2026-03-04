@@ -540,7 +540,7 @@ def parse_picks_with_cartesian(events_df: pd.DataFrame,
         n_jobs = -1  # Use all CPU cores
 
     logger.info(f"Using parallel processing with n_jobs={n_jobs if n_jobs != -1 else 'all cores'}")
-    logger.info(f"Input: {len(events_df)} events, {len(stations_df)} stations, {len(picks_df)} picks")
+    logger.info(f"Input: {len(events_df)} events, {len(stations_df.drop_duplicates(subset=['x', 'y', 'z']))} stations (unique positions), {len(picks_df)} picks")
 
     # Process picks grouped by event
     picks_by_event = list(picks_df.groupby('event_id'))
@@ -970,7 +970,7 @@ def write_travel_time_csv(events: Dict, config: DictConfig) -> None:
         logger.info(f"  Phase type: {phase_type}")
         logger.info(f"  Total records: {len(csv_data)}")
         logger.info(f"  Unique events: {df['event_id'].nunique()}")
-        logger.info(f"  Unique stations: {df['station'].nunique()}")
+        logger.info(f"  Unique station positions: {df.drop_duplicates(subset=['station_longitude', 'station_latitude', 'station_depth_km']).shape[0]}")
 
         # Print phase-specific statistics
         if phase_type in ['both', 'p']:
@@ -1064,7 +1064,7 @@ def convert_final_events_to_dataframes(final_events: Dict,
 
     logger.info(f"Converted final_events to DataFrames:")
     logger.info(f"  Filtered events: {len(filtered_events_df)}")
-    logger.info(f"  Filtered stations: {len(filtered_stations_df)}")
+    logger.info(f"  Filtered stations: {len(filtered_stations_df.drop_duplicates(subset=['x', 'y', 'z']))} (unique positions)")
     logger.info(f"  Filtered picks: {len(filtered_picks_df)}")
 
     return filtered_events_df, filtered_stations_df, filtered_picks_df
@@ -1095,7 +1095,7 @@ def create_geometry_and_traveltime_files(config: DictConfig,
         return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
     logger.info("--- Starting Geometry and Travel Time File Generation ---")
-    logger.info(f"Input: {len(events_df)} events, {len(stations_df)} stations, {len(picks_df)} picks")
+    logger.info(f"Input: {len(events_df)} events, {len(stations_df.drop_duplicates(subset=['x', 'y', 'z']))} stations (unique positions), {len(picks_df)} picks")
 
     # Create output directories
     ensure_directory_exists(Path(geom_config.geometry_dir))
@@ -1132,13 +1132,13 @@ def create_geometry_and_traveltime_files(config: DictConfig,
     logger.info("GEOMETRY & TRAVELTIME GENERATION SUMMARY")
     logger.info("=" * 60)
     num_receivers = len(set(
-        pick['station']
+        pick['coords']
         for data in event_data.values()
         for pick in data['p_picks'] + data['s_picks']
     ))
     logger.info(f"Phase type: {phase_type}")
     logger.info(f"Sources (events after all filtering): {num_sources}")
-    logger.info(f"Unique receivers: {num_receivers}")
+    logger.info(f"Unique receivers (unique positions): {num_receivers}")
 
     # Log weighting method
     apply_default_weights = geom_config.get('apply_default_weights', False)

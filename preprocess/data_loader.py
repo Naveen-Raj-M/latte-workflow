@@ -228,7 +228,7 @@ def load_from_hdf5(h5_file: str, config: DictConfig = None) -> Tuple[pd.DataFram
         picks_df = pd.DataFrame()
 
     print(f"  Loaded {len(events_df)} events")
-    print(f"  Loaded {len(stations_df)} stations")
+    print(f"  Loaded {len(stations_df.drop_duplicates(subset=['longitude', 'latitude', 'depth']))} stations (unique positions)")
     if not arrivals_df.empty:
         print(f"  Loaded {len(arrivals_df)} arrivals")
     if not picks_df.empty:
@@ -241,7 +241,7 @@ def load_from_hdf5(h5_file: str, config: DictConfig = None) -> Tuple[pd.DataFram
             events_df, stations_df, arrivals_df, picks_df, config
         )
         print(f"  After filtering: {len(events_df)} events")
-        print(f"  After filtering: {len(stations_df)} stations")
+        print(f"  After filtering: {len(stations_df.drop_duplicates(subset=['longitude', 'latitude', 'depth']))} stations (unique positions)")
         if not arrivals_df.empty:
             print(f"  After filtering: {len(arrivals_df)} arrivals")
         if not picks_df.empty:
@@ -651,7 +651,7 @@ def load_from_quakeml(config: DictConfig) -> Tuple[pd.DataFrame, pd.DataFrame,
     # Load station inventory
     print(f"Loading station inventory from: {config.data.station_file}")
     station_inventory = load_station_inventory(config.data.station_file)
-    print(f"Loaded {len(station_inventory)} stations")
+    print(f"Loaded {len(set((v['lat'], v['lon'], v['elevation']) for v in station_inventory.values()))} stations (unique positions)")
 
     # Get QML files
     print(f"\nSearching for QML files in: {config.data.quakeml_dir}")
@@ -710,7 +710,11 @@ def load_from_quakeml(config: DictConfig) -> Tuple[pd.DataFrame, pd.DataFrame,
     print(f"  Total events: {len(all_events)}")
     print(f"  Total picks: {len(all_picks)}")
     print(f"  Total arrivals: {len(all_arrivals)}")
-    print(f"  Total unique stations: {len(all_stations)}")
+    n_unique_station_pos = len(set(
+        (station_inventory[sid]['lat'], station_inventory[sid]['lon'], station_inventory[sid]['elevation'])
+        for sid in all_stations if sid in station_inventory
+    ))
+    print(f"  Total unique station positions: {n_unique_station_pos}")
 
     # Convert to DataFrames
     events_df = pd.DataFrame(all_events)

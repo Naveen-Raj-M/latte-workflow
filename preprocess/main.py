@@ -53,7 +53,7 @@ def run_data_loading(cfg: DictConfig):
 
         print(f"\nLoaded data summary:")
         print(f"  Events: {len(events_df)}")
-        print(f"  Stations: {len(stations_df)}")
+        print(f"  Stations: {len(stations_df.drop_duplicates(subset=['longitude', 'latitude', 'depth']))} (unique positions)")
         print(f"  Arrivals: {len(arrivals_df)}")
         print(f"  Picks: {len(picks_df)}")
 
@@ -94,7 +94,7 @@ def run_coordinate_transform(cfg: DictConfig, events_df, stations_df, picks_df):
 
         print(f"\nTransformed coordinates:")
         print(f"  Events: {len(events_cart)} to Cartesian")
-        print(f"  Stations: {len(stations_cart)} to Cartesian")
+        print(f"  Stations: {len(stations_cart.drop_duplicates(subset=['x', 'y', 'z']))} (unique positions) to Cartesian")
 
     return events_cart, stations_cart
 
@@ -129,10 +129,10 @@ def run_geometry_traveltime(cfg: DictConfig, events_cart, stations_cart,
         )
 
         if filtered_events is not None and len(filtered_events) > 0:
-            n_receivers = filtered_stations['station_id'].nunique() if filtered_stations is not None else 0
+            n_receivers = len(filtered_stations.drop_duplicates(subset=['x', 'y', 'z'])) if filtered_stations is not None else 0
             print(f"\nAfter geometry/traveltime filtering:")
             print(f"  Sources: {len(filtered_events)}")
-            print(f"  Unique receivers: {n_receivers}")
+            print(f"  Unique receivers (unique positions): {n_receivers}")
             print(f"  Picks: {len(filtered_picks)}")
 
         print(f"\nGeometry files created in: "
@@ -225,7 +225,7 @@ def load_existing_data_for_visualization(cfg: DictConfig) -> Tuple[Optional[pd.D
         try:
             events_df = pd.read_csv(events_geo_filtered_path)
             stations_df = pd.read_csv(stations_geo_filtered_path)
-            logger.info(f"Loaded FILTERED geodetic data: {len(events_df)} events, {len(stations_df)} stations")
+            logger.info(f"Loaded FILTERED geodetic data: {len(events_df)} events, {len(stations_df.drop_duplicates(subset=['longitude', 'latitude', 'depth']))} stations (unique positions)")
         except Exception as e:
             logger.warning(f"Failed to load filtered geodetic CSVs: {e}")
             events_df = None
@@ -236,7 +236,7 @@ def load_existing_data_for_visualization(cfg: DictConfig) -> Tuple[Optional[pd.D
         try:
             events_df = pd.read_csv(events_geo_path)
             stations_df = pd.read_csv(stations_geo_path)
-            logger.info(f"Loaded original geodetic data: {len(events_df)} events, {len(stations_df)} stations")
+            logger.info(f"Loaded original geodetic data: {len(events_df)} events, {len(stations_df.drop_duplicates(subset=['longitude', 'latitude', 'depth']))} stations (unique positions)")
             logger.warning("Using UNFILTERED geodetic data - visualization may show more data than output files")
         except Exception as e:
             logger.warning(f"Failed to load geodetic CSVs: {e}")
@@ -248,7 +248,7 @@ def load_existing_data_for_visualization(cfg: DictConfig) -> Tuple[Optional[pd.D
         try:
             events_cart = pd.read_csv(events_cart_filtered_path)
             stations_cart = pd.read_csv(stations_cart_filtered_path)
-            logger.info(f"Loaded FILTERED Cartesian data: {len(events_cart)} events, {len(stations_cart)} stations")
+            logger.info(f"Loaded FILTERED Cartesian data: {len(events_cart)} events, {len(stations_cart.drop_duplicates(subset=['x', 'y', 'z']))} stations (unique positions)")
         except Exception as e:
             logger.warning(f"Failed to load filtered Cartesian CSVs: {e}")
             events_cart = None
@@ -259,7 +259,7 @@ def load_existing_data_for_visualization(cfg: DictConfig) -> Tuple[Optional[pd.D
         try:
             events_cart = pd.read_csv(events_cart_path)
             stations_cart = pd.read_csv(stations_cart_path)
-            logger.info(f"Loaded original Cartesian data: {len(events_cart)} events, {len(stations_cart)} stations")
+            logger.info(f"Loaded original Cartesian data: {len(events_cart)} events, {len(stations_cart.drop_duplicates(subset=['x', 'y', 'z']))} stations (unique positions)")
             logger.warning("Using UNFILTERED Cartesian data - visualization may show more data than output files")
         except Exception as e:
             logger.warning(f"Failed to load Cartesian CSVs: {e}")
@@ -555,7 +555,7 @@ def run_preprocessing_pipeline(config: DictConfig) -> None:
 
             print(f"\nVisualization will use FILTERED data:")
             print(f"  Events: {len(events_df_for_vis)} (filtered from {len(events_df)})")
-            print(f"  Stations: {len(stations_df_for_vis)} (filtered from {len(stations_df)})")
+            print(f"  Stations: {len(stations_df_for_vis.drop_duplicates(subset=['longitude', 'latitude', 'depth']))} (unique positions, filtered from {len(stations_df.drop_duplicates(subset=['longitude', 'latitude', 'depth']))})")
             print(f"  Picks: {len(picks_df_for_vis)} (filtered from {len(picks_df)})")
         else:
             # Fallback to original data if geometry processing was disabled
@@ -575,12 +575,12 @@ def run_preprocessing_pipeline(config: DictConfig) -> None:
         print(f"\nFinal dataset summary:")
         if filtered_events_cart is not None and len(filtered_events_cart) > 0:
             n_final_sources = len(filtered_events_cart)
-            n_final_receivers = filtered_stations_cart['station_id'].nunique()
+            n_final_receivers = len(filtered_stations_cart.drop_duplicates(subset=['x', 'y', 'z']))
             print(f"  Sources (events after all filtering): {n_final_sources}")
-            print(f"  Unique receivers: {n_final_receivers}")
+            print(f"  Unique receivers (unique positions): {n_final_receivers}")
         else:
             print(f"  Sources: {len(events_cart)} (geometry filtering disabled)")
-            print(f"  Unique receivers: {stations_cart['station_id'].nunique()}")
+            print(f"  Unique receivers (unique positions): {len(stations_cart.drop_duplicates(subset=['x', 'y', 'z']))}")
 
         print(f"\nAll outputs saved to: {config.preprocessing.output_dir}")
 

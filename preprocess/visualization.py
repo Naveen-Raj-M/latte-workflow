@@ -174,9 +174,10 @@ def create_station_event_visualization(config: DictConfig,
         lat_col = 'lat' if 'lat' in stations_df.columns else 'latitude'
         lon_col = 'lon' if 'lon' in stations_df.columns else 'longitude'
 
-        receiver_lats = stations_df[lat_col].values
-        receiver_lons = stations_df[lon_col].values
-        receiver_depths = stations_df['depth'].values
+        stations_unique = stations_df.drop_duplicates(subset=[lon_col, lat_col, 'depth'])
+        receiver_lats = stations_unique[lat_col].values
+        receiver_lons = stations_unique[lon_col].values
+        receiver_depths = stations_unique['depth'].values
     else:
         receiver_lats = np.array([])
         receiver_lons = np.array([])

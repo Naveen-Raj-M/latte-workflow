@@ -276,7 +276,7 @@ def transform_coordinates(config: DictConfig, events_df: pd.DataFrame,
                                            origin_lat, origin_depth, invert_y_axis)
 
     # Transform stations
-    logger.info(f"Transforming {len(stations_df)} stations...")
+    logger.info(f"Transforming {len(stations_df.drop_duplicates(subset=['longitude', 'latitude', 'depth']))} stations (unique positions)...")
     stations_cart = flattening_transformation(stations_df, origin_lon,
                                              origin_lat, origin_depth, invert_y_axis)
 
