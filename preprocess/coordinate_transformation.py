@@ -280,31 +280,9 @@ def transform_coordinates(config: DictConfig, events_df: pd.DataFrame,
     stations_cart = flattening_transformation(stations_df, origin_lon,
                                              origin_lat, origin_depth, invert_y_axis)
 
-    # Save geodetic coordinates to base output directory (for independent visualization)
-    base_output_dir = Path(config.data.output_base_dir)
-    ensure_directory_exists(base_output_dir)
-
-    events_geo_csv = base_output_dir / 'events_geodetic.csv'
-    stations_geo_csv = base_output_dir / 'stations_geodetic.csv'
-
-    events_df.to_csv(events_geo_csv, index=False)
-    stations_df.to_csv(stations_geo_csv, index=False)
-    logger.info(f"Saved geodetic coordinates: {events_geo_csv}, {stations_geo_csv}")
-
-    # Save Cartesian coordinates to coordinate_transform output directory
+    # Transform basin boundaries if configured
     output_dir = Path(coord_config.output_dir)
     ensure_directory_exists(output_dir)
-
-    events_csv = output_dir / 'events_cartesian.csv'
-    stations_csv = output_dir / 'stations_cartesian.csv'
-
-    events_cart.to_csv(events_csv, index=False)
-    stations_cart.to_csv(stations_csv, index=False)
-
-    logger.info(f"Saved transformed events: {events_csv}")
-    logger.info(f"Saved transformed stations: {stations_csv}")
-
-    # Transform basin boundaries if configured
     if hasattr(coord_config, 'basin_boundaries'):
         _load_and_transform_basin_boundaries(
             coord_config.basin_boundaries,

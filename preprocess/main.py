@@ -197,19 +197,9 @@ def load_existing_data_for_visualization(cfg: DictConfig) -> Tuple[Optional[pd.D
     """
     logger = logging.getLogger(__name__)
 
-    # Define paths - prefer filtered data if available
-    # Filtered geodetic coordinates
-    events_geo_filtered_path = Path(cfg.data.output_base_dir) / "events_geodetic_filtered.csv"
-    stations_geo_filtered_path = Path(cfg.data.output_base_dir) / "stations_geodetic_filtered.csv"
-    # Original geodetic coordinates (fallback)
+    # Define paths - only fully-filtered data is written
     events_geo_path = Path(cfg.data.output_base_dir) / "events_geodetic.csv"
     stations_geo_path = Path(cfg.data.output_base_dir) / "stations_geodetic.csv"
-
-    # Filtered Cartesian coordinates
-    events_cart_filtered_path = Path(cfg.coordinate_transform.output_dir) / "events_cartesian_filtered.csv"
-    stations_cart_filtered_path = Path(cfg.coordinate_transform.output_dir) / "stations_cartesian_filtered.csv"
-    picks_filtered_path = Path(cfg.coordinate_transform.output_dir) / "picks_filtered.csv"
-    # Original Cartesian coordinates (fallback)
     events_cart_path = Path(cfg.coordinate_transform.output_dir) / "events_cartesian.csv"
     stations_cart_path = Path(cfg.coordinate_transform.output_dir) / "stations_cartesian.csv"
     picks_path = Path(cfg.coordinate_transform.output_dir) / "picks_cartesian.csv"
@@ -220,70 +210,28 @@ def load_existing_data_for_visualization(cfg: DictConfig) -> Tuple[Optional[pd.D
     stations_cart = None
     picks_df = None
 
-    # Load geodetic - prefer filtered data
-    if events_geo_filtered_path.exists() and stations_geo_filtered_path.exists():
-        try:
-            events_df = pd.read_csv(events_geo_filtered_path)
-            stations_df = pd.read_csv(stations_geo_filtered_path)
-            logger.info(f"Loaded FILTERED geodetic data: {len(events_df)} events, {len(stations_df.drop_duplicates(subset=['longitude', 'latitude', 'depth']))} stations (unique positions)")
-        except Exception as e:
-            logger.warning(f"Failed to load filtered geodetic CSVs: {e}")
-            events_df = None
-            stations_df = None
-
-    # Fallback to original geodetic if filtered not available
-    if events_df is None and events_geo_path.exists() and stations_geo_path.exists():
+    if events_geo_path.exists() and stations_geo_path.exists():
         try:
             events_df = pd.read_csv(events_geo_path)
             stations_df = pd.read_csv(stations_geo_path)
-            logger.info(f"Loaded original geodetic data: {len(events_df)} events, {len(stations_df.drop_duplicates(subset=['longitude', 'latitude', 'depth']))} stations (unique positions)")
-            logger.warning("Using UNFILTERED geodetic data - visualization may show more data than output files")
+            logger.info(f"Loaded geodetic data: {len(events_df)} events, {len(stations_df.drop_duplicates(subset=['longitude', 'latitude', 'depth']))} stations (unique positions)")
         except Exception as e:
             logger.warning(f"Failed to load geodetic CSVs: {e}")
-            events_df = None
-            stations_df = None
 
-    # Load Cartesian - prefer filtered data
-    if events_cart_filtered_path.exists() and stations_cart_filtered_path.exists():
-        try:
-            events_cart = pd.read_csv(events_cart_filtered_path)
-            stations_cart = pd.read_csv(stations_cart_filtered_path)
-            logger.info(f"Loaded FILTERED Cartesian data: {len(events_cart)} events, {len(stations_cart.drop_duplicates(subset=['x', 'y', 'z']))} stations (unique positions)")
-        except Exception as e:
-            logger.warning(f"Failed to load filtered Cartesian CSVs: {e}")
-            events_cart = None
-            stations_cart = None
-
-    # Fallback to original Cartesian if filtered not available
-    if events_cart is None and events_cart_path.exists() and stations_cart_path.exists():
+    if events_cart_path.exists() and stations_cart_path.exists():
         try:
             events_cart = pd.read_csv(events_cart_path)
             stations_cart = pd.read_csv(stations_cart_path)
-            logger.info(f"Loaded original Cartesian data: {len(events_cart)} events, {len(stations_cart.drop_duplicates(subset=['x', 'y', 'z']))} stations (unique positions)")
-            logger.warning("Using UNFILTERED Cartesian data - visualization may show more data than output files")
+            logger.info(f"Loaded Cartesian data: {len(events_cart)} events, {len(stations_cart.drop_duplicates(subset=['x', 'y', 'z']))} stations (unique positions)")
         except Exception as e:
             logger.warning(f"Failed to load Cartesian CSVs: {e}")
-            events_cart = None
-            stations_cart = None
 
-    # Load picks - prefer filtered data
-    if picks_filtered_path.exists():
-        try:
-            picks_df = pd.read_csv(picks_filtered_path)
-            logger.info(f"Loaded FILTERED picks: {len(picks_df)} picks")
-        except Exception as e:
-            logger.warning(f"Failed to load filtered picks CSV: {e}")
-            picks_df = None
-
-    # Fallback to original picks if filtered not available
-    if picks_df is None and picks_path.exists():
+    if picks_path.exists():
         try:
             picks_df = pd.read_csv(picks_path)
-            logger.info(f"Loaded original picks: {len(picks_df)} picks")
-            logger.warning("Using UNFILTERED picks - visualization may show more data than output files")
+            logger.info(f"Loaded picks: {len(picks_df)} picks")
         except Exception as e:
             logger.warning(f"Failed to load picks CSV: {e}")
-            picks_df = None
 
     return events_df, stations_df, events_cart, stations_cart, picks_df
 
@@ -512,15 +460,15 @@ def run_preprocessing_pipeline(config: DictConfig) -> None:
         # Step 4: Velocity model and binaries
         run_velocity_model(config, events_cart, stations_cart)
 
-        # Save filtered data to CSV for standalone visualization runs
+        # Save fully-filtered data to CSV
         if filtered_events_cart is not None and len(filtered_events_cart) > 0:
             output_dir = Path(config.coordinate_transform.output_dir)
             ensure_directory_exists(output_dir)
 
             # Save filtered Cartesian data
-            filtered_events_cart.to_csv(output_dir / 'events_cartesian_filtered.csv', index=False)
-            filtered_stations_cart.to_csv(output_dir / 'stations_cartesian_filtered.csv', index=False)
-            filtered_picks.to_csv(output_dir / 'picks_filtered.csv', index=False)
+            filtered_events_cart.to_csv(output_dir / 'events_cartesian.csv', index=False)
+            filtered_stations_cart.to_csv(output_dir / 'stations_cartesian.csv', index=False)
+            filtered_picks.to_csv(output_dir / 'picks_cartesian.csv', index=False)
 
             # Also save filtered geodetic data
             filtered_event_ids = set(filtered_events_cart['event_id'].unique())
@@ -530,15 +478,15 @@ def run_preprocessing_pipeline(config: DictConfig) -> None:
 
             geo_output_dir = Path(config.data.output_base_dir)
             ensure_directory_exists(geo_output_dir)
-            events_df_filtered.to_csv(geo_output_dir / 'events_geodetic_filtered.csv', index=False)
-            stations_df_filtered.to_csv(geo_output_dir / 'stations_geodetic_filtered.csv', index=False)
+            events_df_filtered.to_csv(geo_output_dir / 'events_geodetic.csv', index=False)
+            stations_df_filtered.to_csv(geo_output_dir / 'stations_geodetic.csv', index=False)
 
             print(f"\nFiltered data saved:")
-            print(f"  {output_dir / 'events_cartesian_filtered.csv'}")
-            print(f"  {output_dir / 'stations_cartesian_filtered.csv'}")
-            print(f"  {output_dir / 'picks_filtered.csv'}")
-            print(f"  {geo_output_dir / 'events_geodetic_filtered.csv'}")
-            print(f"  {geo_output_dir / 'stations_geodetic_filtered.csv'}")
+            print(f"  {output_dir / 'events_cartesian.csv'}")
+            print(f"  {output_dir / 'stations_cartesian.csv'}")
+            print(f"  {output_dir / 'picks_cartesian.csv'}")
+            print(f"  {geo_output_dir / 'events_geodetic.csv'}")
+            print(f"  {geo_output_dir / 'stations_geodetic.csv'}")
 
         # Step 5: Visualizations
         # Use filtered data if available (from geometry processing), otherwise use original data
