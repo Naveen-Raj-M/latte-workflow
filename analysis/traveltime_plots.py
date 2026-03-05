@@ -69,7 +69,7 @@ def create_travel_time_plots(df: pd.DataFrame, stats: Dict[str, Any],
         create_ln_ratio_histograms(df, colors, plots_dir, output_format, config,
                                    comparison_mode)
         create_ln_ratio_plots(df, colors, plots_dir, output_format, config,
-                             xlabel_obs)
+                             xlabel_obs, comparison_mode)
 
 
 def create_basic_travel_time_plots(df: pd.DataFrame, colors: Dict[str, str],
@@ -301,7 +301,8 @@ def create_ln_ratio_histograms(df: pd.DataFrame, colors: Dict[str, str],
 def create_ln_ratio_plots(df: pd.DataFrame, colors: Dict[str, str],
                          plots_dir: Path, output_format: str,
                          config: Dict[str, Any],
-                         xlabel_obs: str) -> None:
+                         xlabel_obs: str,
+                         comparison_mode: str = 'ground_truth') -> None:
     """Create logarithmic ratio vs travel time plots."""
     # Filter positive values for ratio analysis
     ratio_data = df[(df['observed_tt'] > 0) & (df['synthetic_tt'] > 0)].copy()
@@ -321,7 +322,14 @@ def create_ln_ratio_plots(df: pd.DataFrame, colors: Dict[str, str],
     
     p_data = ratio_data[ratio_data['phase'] == 'P']
     s_data = ratio_data[ratio_data['phase'] == 'S']
-    
+
+    if comparison_mode == 'method_comparison':
+        method1_name = config['travel_time_analysis'].get('method1_name', 'Method 1')
+        method2_name = config['travel_time_analysis'].get('method2_name', 'Method 2')
+        ylabel_ratio = f'ln({method2_name}/{method1_name})'
+    else:
+        ylabel_ratio = 'ln(Synthetic/Estimated)'
+
     # Create ln(ratio) vs travel time plots
     fig, axes = create_multi_panel_figure(2, 2, figsize=(16, 12),
                                         title='Logarithmic Ratio vs Travel Time Analysis')
@@ -339,7 +347,7 @@ def create_ln_ratio_plots(df: pd.DataFrame, colors: Dict[str, str],
                        alpha=0.6, s=15, color=colors['p_wave_dark'])
         axes[0].axhline(0, color='red', linestyle='--', linewidth=2)
         axes[0].set_xlabel(xlabel_obs)
-        axes[0].set_ylabel('ln(Synthetic/Estimated)')
+        axes[0].set_ylabel(ylabel_ratio)
         axes[0].set_title('P-wave: ln(Ratio) vs Time')
         axes[0].grid(True, alpha=0.3)
     
@@ -349,7 +357,7 @@ def create_ln_ratio_plots(df: pd.DataFrame, colors: Dict[str, str],
                        alpha=0.6, s=15, color=colors['s_wave_dark'])
         axes[1].axhline(0, color='red', linestyle='--', linewidth=2)
         axes[1].set_xlabel(xlabel_obs)
-        axes[1].set_ylabel('ln(Synthetic/Estimated)')
+        axes[1].set_ylabel(ylabel_ratio)
         axes[1].set_title('S-wave: ln(Ratio) vs Time')
         axes[1].grid(True, alpha=0.3)
     
@@ -360,7 +368,7 @@ def create_ln_ratio_plots(df: pd.DataFrame, colors: Dict[str, str],
                         alpha=0.6, markersize=4, color=colors['p_wave_dark'])
         axes[2].axhline(0, color='red', linestyle='--', linewidth=2)
         axes[2].set_xlabel(f'{xlabel_obs} [log scale]')
-        axes[2].set_ylabel('ln(Synthetic/Estimated)')
+        axes[2].set_ylabel(ylabel_ratio)
         axes[2].set_title('P-wave: ln(Ratio) vs Time (Log Scale)')
         axes[2].grid(True, which="both", ls='--', alpha=0.3)
         axes[2].tick_params(which='both', direction='in')
@@ -372,7 +380,7 @@ def create_ln_ratio_plots(df: pd.DataFrame, colors: Dict[str, str],
                         alpha=0.6, markersize=4, color=colors['s_wave_dark'])
         axes[3].axhline(0, color='red', linestyle='--', linewidth=2)
         axes[3].set_xlabel(f'{xlabel_obs} [log scale]')
-        axes[3].set_ylabel('ln(Synthetic/Estimated)')
+        axes[3].set_ylabel(ylabel_ratio)
         axes[3].set_title('S-wave: ln(Ratio) vs Time (Log Scale)')
         axes[3].grid(True, which="both", ls='--', alpha=0.3)
         axes[3].tick_params(which='both', direction='in')
