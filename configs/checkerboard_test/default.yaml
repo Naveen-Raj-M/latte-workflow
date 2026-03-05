@@ -333,6 +333,7 @@ visualization:
     centered_at_zero: true    # Center colorbar at 0
     uniform_cbar: false       # true: global, false: local
     threshold: null           # e.g., 7.0 for +/-7% threshold with black regions
+    min_cbar_pct: null        # e.g., 7.0 → colorbar always shows at least ±7%; wider if data demands
     show_recovery_contours: false  # Show boundaries of fairly recovered regions
     recovery_threshold_pct: 3.0    # Fair recovery: same sign AND |inverted| >= threshold (%)
 

@@ -150,6 +150,12 @@ def plot_pattern_xy_slice(
     centered = config.get("centered_at_zero", True)
     cmap_name = config.get("colormap", "seismic")
 
+    # Apply minimum colorbar range (symmetric ±, only when centered_at_zero=True)
+    min_cbar_pct = config.get("min_cbar_pct")
+    if min_cbar_pct is not None and centered:
+        abs_max = max(abs(vmin), abs(vmax), float(min_cbar_pct))
+        vmin, vmax = -abs_max, abs_max
+
     # Step 1: Build norm — centered_at_zero is independent of threshold
     if centered:
         norm = create_centered_norm(vmin, vmax)
@@ -247,6 +253,12 @@ def plot_pattern_xz_slice(
     centered = config.get("centered_at_zero", True)
     cmap_name = config.get("colormap", "seismic")
 
+    # Apply minimum colorbar range (symmetric ±, only when centered_at_zero=True)
+    min_cbar_pct = config.get("min_cbar_pct")
+    if min_cbar_pct is not None and centered:
+        abs_max = max(abs(vmin), abs(vmax), float(min_cbar_pct))
+        vmin, vmax = -abs_max, abs_max
+
     # Step 1: Build norm — centered_at_zero is independent of threshold
     if centered:
         norm = create_centered_norm(vmin, vmax)
@@ -341,6 +353,12 @@ def plot_pattern_yz_slice(
     threshold = config.get("threshold")
     centered = config.get("centered_at_zero", True)
     cmap_name = config.get("colormap", "seismic")
+
+    # Apply minimum colorbar range (symmetric ±, only when centered_at_zero=True)
+    min_cbar_pct = config.get("min_cbar_pct")
+    if min_cbar_pct is not None and centered:
+        abs_max = max(abs(vmin), abs(vmax), float(min_cbar_pct))
+        vmin, vmax = -abs_max, abs_max
 
     # Step 1: Build norm — centered_at_zero is independent of threshold
     if centered:
