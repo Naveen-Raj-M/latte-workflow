@@ -439,27 +439,62 @@ def load_exchange_geometry(exchange_geometry_file: Path) -> Dict[int, Tuple[floa
     return virtual_id_to_coord
 
 
-def _find_virtual_id(
-    rx_km: float,
-    ry_km: float,
-    rz_km: float,
-    virtual_coords: np.ndarray,
-    virtual_ids: List[int],
+def _build_virtual_id_to_station_map(
+    virtual_id_to_coord: Dict[int, Tuple[float, float, float]],
+    df_ground_truth: pd.DataFrame,
     tolerance: float,
-) -> Optional[int]:
+) -> Dict[int, str]:
     """
-    Return the virtual_id whose coordinates are closest to (rx, ry, rz) within
-    *tolerance* km, or None if no match is found.
+    Match virtual station coordinates (km) against station_x/y/z_transformed
+    in the ground-truth CSV to produce a virtual_id → station_name mapping.
+
+    This is identical to the matching strategy used by the postprocess module's
+    load_virtual_station_geometry(), ensuring consistent behaviour between
+    the two modules.
+
+    Args:
+        virtual_id_to_coord: Dict from load_exchange_geometry().
+        df_ground_truth: Ground-truth DataFrame with station_x/y/z_transformed columns.
+        tolerance: Coordinate matching tolerance in km.
+
+    Returns:
+        Dict mapping virtual_id → station_name.
     """
-    dists = np.sqrt(
-        (virtual_coords[:, 0] - rx_km) ** 2
-        + (virtual_coords[:, 1] - ry_km) ** 2
-        + (virtual_coords[:, 2] - rz_km) ** 2
+    station_coords_df = (
+        df_ground_truth[['station', 'station_x_transformed', 'station_y_transformed', 'station_z_transformed']]
+        .drop_duplicates(subset='station')
+        .reset_index(drop=True)
     )
-    min_idx = int(np.argmin(dists))
-    if dists[min_idx] <= tolerance:
-        return virtual_ids[min_idx]
-    return None
+    station_names = station_coords_df['station'].tolist()
+    coords_array = station_coords_df[
+        ['station_x_transformed', 'station_y_transformed', 'station_z_transformed']
+    ].values.astype(np.float64)
+
+    logger.info(f"  Matching {len(virtual_id_to_coord)} virtual stations against "
+                f"{len(station_names)} unique stations (tolerance={tolerance} km)...")
+
+    virtual_to_station: Dict[int, str] = {}
+    unmatched = []
+
+    for vid, (vx, vy, vz) in virtual_id_to_coord.items():
+        dists = np.sqrt(
+            (coords_array[:, 0] - vx) ** 2
+            + (coords_array[:, 1] - vy) ** 2
+            + (coords_array[:, 2] - vz) ** 2
+        )
+        min_idx = int(np.argmin(dists))
+        if dists[min_idx] <= tolerance:
+            virtual_to_station[vid] = station_names[min_idx]
+        else:
+            unmatched.append((vid, float(dists[min_idx]), station_names[min_idx]))
+
+    logger.info(f"  Successfully matched: {len(virtual_to_station)}/{len(virtual_id_to_coord)} virtual stations")
+    if unmatched:
+        logger.warning(f"  {len(unmatched)} virtual stations could not be matched within {tolerance} km:")
+        for vid, dist, closest in sorted(unmatched, key=lambda x: x[1])[:5]:
+            logger.warning(f"    Virtual ID {vid}: closest station '{closest}' at {dist:.4f} km")
+
+    return virtual_to_station
 
 
 def process_traveltime_directory_with_exchange(
@@ -475,43 +510,34 @@ def process_traveltime_directory_with_exchange(
     """
     Process traveltime binary files produced by a source-receiver exchange
     forward run, re-assemble them into the standard shot format, apply noise,
-    and write output binaries that are **identical in format** to those produced
-    by the standard (no-exchange) mode.
+    and write output binaries **identical in format** to those produced by a
+    standard (no-exchange) forward run.
 
-    In exchange mode LATTE uses each station as a virtual source. The file
-    ``shot_<virtual_id>_traveltime_{p|s}.bin`` therefore contains one traveltime
-    per real shot (event), stored in compacted array order (skipping any shots
-    removed by LATTE geometry filtering).
+    Receiver-to-virtual-station matching uses the same strategy as the
+    postprocess module: virtual station coordinates from exchange_geometry_file
+    (in km, transformed system) are matched against station_x/y/z_transformed
+    in the ground-truth CSV.  Geometry file coordinates are NOT used for
+    matching because they may be in a different coordinate system.
 
-    This function inverts that layout:
-      - For each real shot_id, read ``shot_<real_id>_geometry.txt`` to learn
-        which receivers are expected and in what order.
-      - For each receiver, find the corresponding virtual station binary and
-        extract the traveltime at the position of ``real_id`` in the compacted
-        array.
-      - Apply noise and write ``shot_<real_id>_traveltime_{p|s}.bin`` so that
-        the k-th value corresponds to the k-th receiver listed in the geometry
-        file — exactly as a standard LATTE output would be.
+    Receiver ordering in the output binary follows the sorted station name
+    order, consistent with how the standard postprocess module reads LATTE
+    output binaries (sort_values('station')).
 
     Args:
-        input_dir: Directory containing exchange traveltime binaries
-                   (``shot_<virtual_id>_traveltime_{p|s}.bin``).
-        output_dir: Directory for output standard traveltime binaries
-                    (``shot_<real_id>_traveltime_{p|s}.bin``).
-        geometry_dir: Directory containing ``shot_N_geometry.txt`` files.
-        ground_truth_csv: CSV with metadata (shot_id, phase, station,
-                          origin_time_s, …).
-        exchange_geometry_file: File mapping virtual_id → (x, y, z) in km
-                                (same coordinate system as
-                                station_x/y/z_transformed in the CSV).
-        noise_config: Noise configuration dictionary (same schema as for the
-                      standard ``process_traveltime_directory``).
-        removed_shots: Shot IDs that LATTE removed during geometry filtering.
-                       These compact the binary arrays. Defaults to ``[]``.
+        input_dir: Directory with exchange binaries (shot_<virtual_id>_traveltime_{p|s}.bin).
+        output_dir: Directory for output standard binaries (shot_<id>_traveltime_{p|s}.bin).
+        geometry_dir: Directory containing shot_N_geometry.txt files (used for
+                      receiver count validation only; not used for coord matching).
+        ground_truth_csv: CSV with shot_id, phase, station, origin_time_s, and
+                          station_x/y/z_transformed columns.
+        exchange_geometry_file: File mapping virtual_id → station coords (km,
+                                same system as station_x/y/z_transformed in CSV).
+        noise_config: Noise configuration dict (same schema as standard mode).
+        removed_shots: Shot IDs removed by LATTE geometry filtering (compact arrays).
         random_seed: Random seed for reproducibility.
 
     Returns:
-        Statistics dictionary with keys 'processed', 'skipped', 'total_samples'.
+        Statistics dict with keys 'processed', 'skipped', 'total_samples'.
     """
     logger.info("=" * 80)
     logger.info("STEP 2: Adding Noise to Synthetic Traveltimes (SOURCE-RECEIVER EXCHANGE MODE)")
@@ -526,16 +552,19 @@ def process_traveltime_directory_with_exchange(
     output_dtype = np.float32 if output_precision == "single" else np.float64
 
     # ------------------------------------------------------------------ #
-    # 1. Ground-truth CSV: enumerate real shots and phases                #
+    # 1. Ground-truth CSV                                                  #
     # ------------------------------------------------------------------ #
     logger.info(f"Reading ground truth CSV: {ground_truth_csv}")
     df = pd.read_csv(ground_truth_csv)
+    logger.info(f"  Ground truth: {len(df)} records")
+    logger.info(f"  Unique shots: {df['shot_id'].nunique()}, unique stations: {df['station'].nunique()}")
+
     unique_shot_ids = sorted(df['shot_id'].unique())
     phases_in_data = sorted(df['phase'].str.upper().unique())
-    logger.info(f"  Unique shots: {len(unique_shot_ids)}, phases: {phases_in_data}")
+    logger.info(f"  Phases: {phases_in_data}")
 
     # ------------------------------------------------------------------ #
-    # 2. Build shot_id ↔ array-index mapping (accounts for removed shots) #
+    # 2. Array-index ↔ shot_id mapping (accounts for removed shots)       #
     # ------------------------------------------------------------------ #
     if removed_set:
         logger.info(f"Removed shots (filtered by LATTE): {sorted(removed_set)}")
@@ -545,27 +574,26 @@ def process_traveltime_directory_with_exchange(
     logger.info(f"  Valid shots after removal: {expected_array_size}")
 
     # ------------------------------------------------------------------ #
-    # 3. Exchange geometry: virtual_id → (x, y, z) in km                 #
+    # 3. Match virtual stations → station names (same as postprocess)     #
     # ------------------------------------------------------------------ #
-    logger.info(f"Loading exchange geometry: {exchange_geometry_file}")
+    logger.info(f"\nLoading exchange geometry: {exchange_geometry_file}")
     virtual_id_to_coord = load_exchange_geometry(exchange_geometry_file)
-    virtual_ids = list(virtual_id_to_coord.keys())
-    virtual_coords = np.array([virtual_id_to_coord[vid] for vid in virtual_ids], dtype=np.float64)
-    logger.info(f"  Loaded {len(virtual_ids)} virtual station coordinates")
+    logger.info(f"  Loaded {len(virtual_id_to_coord)} virtual station coordinates")
 
-    coordinate_tolerance = noise_config.get("coordinate_tolerance", 0.01)  # km
+    coordinate_tolerance = noise_config.get("coordinate_tolerance", 1.0)  # km
+    virtual_to_station = _build_virtual_id_to_station_map(virtual_id_to_coord, df, coordinate_tolerance)
+    station_to_virtual_id: Dict[str, int] = {stn: vid for vid, stn in virtual_to_station.items()}
 
     # ------------------------------------------------------------------ #
-    # 4. Load all exchange binaries into memory (one array per            #
-    #    virtual_id × phase).  Each array has shape (expected_array_size,) #
+    # 4. Load all exchange binaries into memory                           #
     # ------------------------------------------------------------------ #
-    logger.info("Loading exchange traveltime binaries into memory...")
+    logger.info(f"\nLoading exchange traveltime binaries from: {input_dir}")
     exchange_data: Dict[Tuple[int, str], np.ndarray] = {}
 
     for phase in phases_in_data:
         phase_lower = phase.lower()
         loaded = 0
-        for vid in virtual_ids:
+        for vid in virtual_id_to_coord:
             bin_path = input_dir / f"shot_{vid}_traveltime_{phase_lower}.bin"
             if not bin_path.exists():
                 continue
@@ -578,20 +606,37 @@ def process_traveltime_directory_with_exchange(
                     f"Array size mismatch for {bin_path.name}: "
                     f"expected {expected_array_size} elements (valid shots after "
                     f"removing {sorted(removed_set) if removed_set else 'none'}), "
-                    f"got {len(data)}. "
-                    f"Check the removed_shots configuration."
+                    f"got {len(data)}. Check the removed_shots configuration."
                 )
             exchange_data[(vid, phase)] = data
             loaded += 1
-        logger.info(f"  {phase}-wave: loaded {loaded}/{len(virtual_ids)} binaries")
+        logger.info(f"  {phase}-wave: loaded {loaded}/{len(virtual_id_to_coord)} binaries")
 
     # ------------------------------------------------------------------ #
-    # 5. For every real shot, read its geometry file, match each receiver  #
-    #    to a virtual station, assemble the traveltime array, apply noise, #
-    #    and write the output binary.                                      #
+    # 5. For every real shot, assemble traveltime array in sorted-station  #
+    #    order (matching standard LATTE output convention), apply noise,   #
+    #    and write output binary.                                           #
     # ------------------------------------------------------------------ #
     stats = {"processed": 0, "skipped": 0, "total_samples": 0}
-    summary_data = []
+    missing_pairs: List[Tuple] = []
+
+    # Pre-load geometry receiver counts for validation (if geometry_dir is provided)
+    geom_receiver_counts: Dict[int, int] = {}
+    if geometry_dir is not None and geometry_dir.exists():
+        logger.info(f"\nValidating receiver counts against geometry files in: {geometry_dir}")
+        count_ok = 0
+        for shot_id in unique_shot_ids:
+            if shot_id in removed_set:
+                continue
+            geom_file = geometry_dir / f"shot_{shot_id}_geometry.txt"
+            if geom_file.exists():
+                try:
+                    _, recv = read_shot_geometry_file(geom_file)
+                    geom_receiver_counts[shot_id] = len(recv)
+                    count_ok += 1
+                except Exception:
+                    pass
+        logger.info(f"  Loaded receiver counts for {count_ok}/{len(unique_shot_ids) - len(removed_set)} shots")
 
     logger.info("\nAssembling standard-format output binaries per shot...")
     for shot_id in tqdm(unique_shot_ids, desc="Processing shots"):
@@ -600,84 +645,79 @@ def process_traveltime_directory_with_exchange(
             continue
 
         array_idx = shot_id_to_array_index[shot_id]
-
-        # Read geometry file for this shot
-        geom_file = geometry_dir / f"shot_{shot_id}_geometry.txt"
-        if not geom_file.exists():
-            logger.warning(f"Geometry file not found, skipping shot {shot_id}: {geom_file}")
-            stats["skipped"] += 1
-            continue
-
-        try:
-            _, receiver_coords_m = read_shot_geometry_file(geom_file)
-        except Exception as e:
-            logger.error(f"Error parsing {geom_file}: {e}")
-            stats["skipped"] += 1
-            continue
-
-        # Convert receiver coords from meters to km for matching
-        receiver_coords_km = receiver_coords_m / 1000.0
-        nr = len(receiver_coords_km)
+        shot_gt = df[df['shot_id'] == shot_id]
 
         for phase in phases_in_data:
             phase_lower = phase.lower()
+            phase_gt = shot_gt[shot_gt['phase'] == phase]
 
-            # Build traveltime array in geometry-file receiver order
+            if phase_gt.empty:
+                continue
+
+            # Sort by station name — same order as standard postprocess mode
+            phase_gt_sorted = phase_gt.sort_values('station')
+            stations_sorted = phase_gt_sorted['station'].tolist()
+            nr = len(stations_sorted)
+
+            # Validate against geometry file receiver count if available
+            geom_nr = geom_receiver_counts.get(shot_id)
+            if geom_nr is not None and geom_nr != nr:
+                logger.warning(
+                    f"  Shot {shot_id} phase {phase}: ground truth has {nr} receivers "
+                    f"but geometry file lists {geom_nr}. Using ground truth count."
+                )
+
             tt_array = np.zeros(nr, dtype=np.float64)
-            unmatched_indices = []
 
-            for i, (rx, ry, rz) in enumerate(receiver_coords_km):
-                vid = _find_virtual_id(rx, ry, rz, virtual_coords, virtual_ids, coordinate_tolerance)
+            for i, station in enumerate(stations_sorted):
+                vid = station_to_virtual_id.get(station)
                 if vid is None:
-                    unmatched_indices.append(i)
+                    missing_pairs.append((shot_id, station, phase))
                     continue
                 exchange_arr = exchange_data.get((vid, phase))
                 if exchange_arr is None:
-                    unmatched_indices.append(i)
+                    missing_pairs.append((shot_id, station, phase))
                     continue
                 tt_array[i] = exchange_arr[array_idx]
-
-            if unmatched_indices:
-                logger.warning(
-                    f"  Shot {shot_id} phase {phase}: "
-                    f"{len(unmatched_indices)}/{nr} receivers could not be matched "
-                    f"to a virtual station within {coordinate_tolerance} km tolerance. "
-                    f"Unmatched positions set to 0.0. "
-                    f"Check exchange_geometry_file and coordinate_tolerance."
-                )
 
             # Apply noise
             noisy_tt = add_noise_to_traveltime(tt_array, noise_config, phase_lower, random_state)
 
-            # Write output binary — format identical to standard (no-exchange) mode
+            # Write standard-format binary
             output_file = output_dir / f"shot_{shot_id}_traveltime_{phase_lower}.bin"
             write_traveltime_binary(noisy_tt, output_file, output_dtype)
 
             stats["processed"] += 1
             stats["total_samples"] += nr
 
-            summary_data.append({
-                "shot_id": shot_id,
-                "phase": phase_lower,
-                "num_receivers": nr,
-                "unmatched_receivers": len(unmatched_indices),
-            })
-
     # ------------------------------------------------------------------ #
-    # 6. Log summary and write noise statistics CSV                        #
+    # 6. Summary                                                           #
     # ------------------------------------------------------------------ #
     logger.info("\nExchange noise addition completed:")
     logger.info(f"  Processed: {stats['processed']} shot-phase binaries")
-    logger.info(f"  Skipped: {stats['skipped']} shots (removed or missing geometry)")
-    logger.info(f"  Total receiver-phase entries: {stats['total_samples']}")
+    logger.info(f"  Skipped:   {stats['skipped']} shots (removed or not in ground truth)")
+    logger.info(f"  Total receiver entries written: {stats['total_samples']}")
+    if missing_pairs:
+        logger.warning(f"  {len(missing_pairs)} (shot, station, phase) pairs had no matching virtual binary")
 
+    # Noise statistics CSV (receiver counts per shot-phase)
+    summary_data = []
+    for shot_id in unique_shot_ids:
+        if shot_id in removed_set:
+            continue
+        shot_gt = df[df['shot_id'] == shot_id]
+        for phase in phases_in_data:
+            phase_lower = phase.lower()
+            output_file = output_dir / f"shot_{shot_id}_traveltime_{phase_lower}.bin"
+            if output_file.exists():
+                summary_data.append({
+                    "shot_id": shot_id,
+                    "phase": phase_lower,
+                    "num_receivers": len(shot_gt[shot_gt['phase'] == phase]),
+                })
     if summary_data:
-        summary_df = pd.DataFrame(summary_data)
         summary_csv = output_dir / "noise_statistics.csv"
-        summary_df.to_csv(summary_csv, index=False)
-        total_unmatched = summary_df["unmatched_receivers"].sum()
-        if total_unmatched > 0:
-            logger.warning(f"  Total unmatched receiver positions across all shots: {total_unmatched}")
+        pd.DataFrame(summary_data).to_csv(summary_csv, index=False)
         logger.info(f"  Summary saved to: {summary_csv}")
 
     # Create the noisy_traveltimes.csv (same post-step as standard mode)
