@@ -42,6 +42,10 @@ input:
   # Files should be: updated_vp.bin, updated_vs.bin
   inverted_model_dir: "/path/to/latte/output/model"
 
+  # Maps virtual shot ID -> station coords (km): "virtual_id x_km y_km z_km" per line.
+  # Required only when traveltime_noise.source_receiver_exchange = true.
+  exchange_geometry_file: null  # e.g., "/path/to/latte/output/exchange_geometry.txt"
+
 # Checkerboard pattern configuration
 checkerboard:
   enabled: true
@@ -111,33 +115,39 @@ checkerboard:
 
 # Travel time noise configuration
 traveltime_noise:
-  # Enable adding noise to synthetic traveltimes
   enabled: true
 
-  # Noise distribution: "gaussian" or "uniform"
-  noise_type: "gaussian"
+  # Set true when LATTE forward modeling used source-receiver exchange (stations as virtual sources).
+  # Reads shot_<virtual_id>_traveltime_{p|s}.bin, reassembles to standard shot_<id> format
+  # (receiver order matching shot_<id>_geometry.txt), applies noise, writes standard binaries.
+  # Requires input.geometry_dir and input.exchange_geometry_file to be set.
+  source_receiver_exchange: false
 
-  # For Gaussian noise
+  # Shot IDs removed by LATTE geometry filtering (compact the exchange binary arrays).
+  removed_shots: []  # e.g., [60]
+
+  # Tolerance (km) for matching geometry-file receiver coords to exchange_geometry_file entries.
+  coordinate_tolerance: 0.01  # km (~10 m)
+
+  noise_type: "gaussian"  # "gaussian" or "uniform"
+
   gaussian:
-    mean: 0.0        # Mean of noise (seconds)
-    std: 0.01        # Standard deviation (seconds)
+    mean: 0.0        # seconds
+    std: 0.01        # seconds
 
-  # For uniform noise
   uniform:
-    low: -0.02       # Lower bound (seconds)
-    high: 0.02       # Upper bound (seconds)
+    low: -0.02       # seconds
+    high: 0.02       # seconds
 
-  # Phase-specific noise (optional overrides)
-  # Set to null to use default values above
+  # Phase-specific overrides (take precedence over gaussian/uniform defaults above)
   p_wave:
     mean: 0.0
     std: 0.01
 
   s_wave:
     mean: 0.0
-    std: 0.02        # Typically larger for S-waves
+    std: 0.02
 
-  # Output precision for binary files
   output_precision: "single"  # "single" (float32) or "double" (float64)
 
 # Model conversion configuration

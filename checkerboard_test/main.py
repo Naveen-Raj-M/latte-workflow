@@ -18,7 +18,10 @@ from pathlib import Path
 from typing import Dict, Union, Optional
 
 from checkerboard_test.create_checkerboard_model import create_checkerboard_model
-from checkerboard_test.add_traveltime_noise import process_traveltime_directory
+from checkerboard_test.add_traveltime_noise import (
+    process_traveltime_directory,
+    process_traveltime_directory_with_exchange,
+)
 from checkerboard_test.convert_inverted_model import convert_inverted_model
 from checkerboard_test.visualize_slices import visualize_checkerboard_test
 
@@ -130,16 +133,70 @@ def run_checkerboard_workflow(config: Union[Dict, DictConfig]) -> None:
                 logger.warning("Please run LATTE forward modeling first, then re-run this script")
             else:
                 try:
-                    logger.info("\nExecuting Step 2: Add Noise to Synthetic Traveltimes")
                     ground_truth_path = input_config.ground_truth_csv if isinstance(input_config, DictConfig) else input_config["ground_truth_csv"]
                     random_seed = general_config.random_seed if isinstance(general_config, DictConfig) else general_config.get("random_seed")
-                    process_traveltime_directory(
-                        input_dir=synthetic_dir,
-                        output_dir=noisy_traveltime_dir,
-                        ground_truth_csv=Path(ground_truth_path),
-                        noise_config=traveltime_noise_config,
-                        random_seed=random_seed,
+
+                    # Determine whether to use source-receiver exchange mode
+                    use_exchange = (
+                        traveltime_noise_config.source_receiver_exchange
+                        if isinstance(traveltime_noise_config, DictConfig)
+                        else traveltime_noise_config.get("source_receiver_exchange", False)
                     )
+
+                    if use_exchange:
+                        logger.info("\nExecuting Step 2: Add Noise to Synthetic Traveltimes (SOURCE-RECEIVER EXCHANGE MODE)")
+
+                        # geometry_dir comes from input config (shared with other steps)
+                        geometry_dir_path = (
+                            input_config.geometry_dir
+                            if isinstance(input_config, DictConfig)
+                            else input_config.get("geometry_dir")
+                        )
+                        if not geometry_dir_path:
+                            raise ValueError(
+                                "input.geometry_dir must be set when "
+                                "traveltime_noise.source_receiver_exchange = true"
+                            )
+
+                        # exchange_geometry_file comes from input config
+                        exchange_geometry_path = (
+                            input_config.exchange_geometry_file
+                            if isinstance(input_config, DictConfig)
+                            else input_config.get("exchange_geometry_file")
+                        )
+                        if not exchange_geometry_path:
+                            raise ValueError(
+                                "input.exchange_geometry_file must be set when "
+                                "traveltime_noise.source_receiver_exchange = true"
+                            )
+
+                        # removed_shots from noise config
+                        removed_shots = (
+                            list(traveltime_noise_config.removed_shots)
+                            if isinstance(traveltime_noise_config, DictConfig)
+                            else traveltime_noise_config.get("removed_shots", [])
+                        )
+
+                        process_traveltime_directory_with_exchange(
+                            input_dir=synthetic_dir,
+                            output_dir=noisy_traveltime_dir,
+                            geometry_dir=Path(geometry_dir_path),
+                            ground_truth_csv=Path(ground_truth_path),
+                            exchange_geometry_file=Path(exchange_geometry_path),
+                            noise_config=traveltime_noise_config,
+                            removed_shots=removed_shots,
+                            random_seed=random_seed,
+                        )
+                    else:
+                        logger.info("\nExecuting Step 2: Add Noise to Synthetic Traveltimes (STANDARD MODE)")
+                        process_traveltime_directory(
+                            input_dir=synthetic_dir,
+                            output_dir=noisy_traveltime_dir,
+                            ground_truth_csv=Path(ground_truth_path),
+                            noise_config=traveltime_noise_config,
+                            random_seed=random_seed,
+                        )
+
                     logger.info("✓ Step 2 completed successfully")
                 except Exception as e:
                     logger.error(f"✗ Step 2 failed: {e}", exc_info=True)
