@@ -439,16 +439,20 @@ def load_exchange_geometry(exchange_geometry_file: Path) -> Dict[int, Tuple[floa
     return virtual_id_to_coord
 
 
-def _build_virtual_id_to_station_map(
+def _build_station_to_virtual_id_map(
     virtual_id_to_coord: Dict[int, Tuple[float, float, float]],
     df_ground_truth: pd.DataFrame,
     tolerance: float,
-) -> Dict[int, str]:
+) -> Dict[str, int]:
     """
-    Match virtual station coordinates (km) against station_x/y/z_transformed
-    in the ground-truth CSV to produce a virtual_id → station_name mapping.
+    For each unique station in ground_truth_df, find the closest virtual_id in
+    exchange_geometry_file coordinates (both in km, transformed system).
 
-    This is identical to the matching strategy used by the postprocess module's
+    Returns Dict[station_name -> virtual_id].  Multiple stations at the same
+    geographic location (co-located instruments) all map to the same virtual_id
+    and each receives the same synthetic traveltime from that exchange binary.
+
+    This mirrors the matching strategy in the postprocess module's
     load_virtual_station_geometry(), ensuring consistent behaviour between
     the two modules.
 
@@ -458,43 +462,55 @@ def _build_virtual_id_to_station_map(
         tolerance: Coordinate matching tolerance in km.
 
     Returns:
-        Dict mapping virtual_id → station_name.
+        Dict mapping station_name → virtual_id.
     """
     station_coords_df = (
         df_ground_truth[['station', 'station_x_transformed', 'station_y_transformed', 'station_z_transformed']]
         .drop_duplicates(subset='station')
         .reset_index(drop=True)
     )
-    station_names = station_coords_df['station'].tolist()
-    coords_array = station_coords_df[
-        ['station_x_transformed', 'station_y_transformed', 'station_z_transformed']
-    ].values.astype(np.float64)
 
-    logger.info(f"  Matching {len(virtual_id_to_coord)} virtual stations against "
-                f"{len(station_names)} unique stations (tolerance={tolerance} km)...")
+    vids = list(virtual_id_to_coord.keys())
+    vcoords = np.array([virtual_id_to_coord[v] for v in vids], dtype=np.float64)
 
-    virtual_to_station: Dict[int, str] = {}
+    logger.info(f"  Matching {len(station_coords_df)} stations against "
+                f"{len(vids)} virtual station coordinates (tolerance={tolerance} km)...")
+
+    station_to_virtual: Dict[str, int] = {}
     unmatched = []
+    co_located: Dict[int, List[str]] = {}  # virtual_id -> [stations] for logging
 
-    for vid, (vx, vy, vz) in virtual_id_to_coord.items():
+    for _, row in station_coords_df.iterrows():
+        sx = row['station_x_transformed']
+        sy = row['station_y_transformed']
+        sz = row['station_z_transformed']
         dists = np.sqrt(
-            (coords_array[:, 0] - vx) ** 2
-            + (coords_array[:, 1] - vy) ** 2
-            + (coords_array[:, 2] - vz) ** 2
+            (vcoords[:, 0] - sx) ** 2
+            + (vcoords[:, 1] - sy) ** 2
+            + (vcoords[:, 2] - sz) ** 2
         )
         min_idx = int(np.argmin(dists))
         if dists[min_idx] <= tolerance:
-            virtual_to_station[vid] = station_names[min_idx]
+            vid = vids[min_idx]
+            station_to_virtual[row['station']] = vid
+            co_located.setdefault(vid, []).append(row['station'])
         else:
-            unmatched.append((vid, float(dists[min_idx]), station_names[min_idx]))
+            unmatched.append((row['station'], float(dists[min_idx])))
 
-    logger.info(f"  Successfully matched: {len(virtual_to_station)}/{len(virtual_id_to_coord)} virtual stations")
+    logger.info(f"  Successfully matched: {len(station_to_virtual)}/{len(station_coords_df)} stations")
+
+    multi = {vid: names for vid, names in co_located.items() if len(names) > 1}
+    if multi:
+        logger.info(f"  Co-located station groups ({len(multi)} virtual IDs shared by multiple stations):")
+        for vid, names in sorted(multi.items()):
+            logger.info(f"    Virtual ID {vid}: {names}")
+
     if unmatched:
-        logger.warning(f"  {len(unmatched)} virtual stations could not be matched within {tolerance} km:")
-        for vid, dist, closest in sorted(unmatched, key=lambda x: x[1])[:5]:
-            logger.warning(f"    Virtual ID {vid}: closest station '{closest}' at {dist:.4f} km")
+        logger.warning(f"  {len(unmatched)} stations could not be matched within {tolerance} km:")
+        for stn, dist in sorted(unmatched, key=lambda x: x[1])[:5]:
+            logger.warning(f"    Station '{stn}': closest virtual coord at {dist:.4f} km")
 
-    return virtual_to_station
+    return station_to_virtual
 
 
 def process_traveltime_directory_with_exchange(
@@ -581,8 +597,7 @@ def process_traveltime_directory_with_exchange(
     logger.info(f"  Loaded {len(virtual_id_to_coord)} virtual station coordinates")
 
     coordinate_tolerance = noise_config.get("coordinate_tolerance", 1.0)  # km
-    virtual_to_station = _build_virtual_id_to_station_map(virtual_id_to_coord, df, coordinate_tolerance)
-    station_to_virtual_id: Dict[str, int] = {stn: vid for vid, stn in virtual_to_station.items()}
+    station_to_virtual_id = _build_station_to_virtual_id_map(virtual_id_to_coord, df, coordinate_tolerance)
 
     # ------------------------------------------------------------------ #
     # 4. Load all exchange binaries into memory                           #

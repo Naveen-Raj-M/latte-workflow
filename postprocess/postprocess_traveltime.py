@@ -8,7 +8,7 @@ Supports source correction for corrected origin times.
 import os
 import numpy as np
 import pandas as pd
-from typing import Dict, Tuple, Optional
+from typing import Dict, List, Tuple, Optional
 from omegaconf import DictConfig
 from tqdm import tqdm
 
@@ -107,20 +107,24 @@ def load_source_correction_binaries(source_correction_file: str, mode: str = "st
         raise
 
 
-def load_virtual_station_geometry(exchange_geometry_file: str, ground_truth_csv: str, tolerance: float = 1.0) -> Dict[int, str]:
+def load_virtual_station_geometry(exchange_geometry_file: str, ground_truth_csv: str, tolerance: float = 1.0) -> Dict[int, List[str]]:
     """
     Load virtual station geometry and match to actual station names by coordinates.
-    
+
+    Returns a mapping of virtual_id -> list of station names at that location.
+    Multiple stations may share the same geographic location (co-located instruments);
+    all are included so that each co-located station receives the same synthetic traveltime.
+
     Args:
         exchange_geometry_file: Path to exchange geometry file with virtual station coordinates
         ground_truth_csv: Path to ground truth CSV with station coordinates
-        tolerance: Coordinate matching tolerance in meters
-        
+        tolerance: Coordinate matching tolerance
+
     Returns:
-        Dictionary mapping virtual shot ID to station name
+        Dictionary mapping virtual shot ID to list of matched station names
     """
     print(f"\nLoading virtual station geometry from: {exchange_geometry_file}")
-    
+
     # Read exchange geometry file
     virtual_stations = {}
     with open(exchange_geometry_file, 'r') as f:
@@ -132,50 +136,61 @@ def load_virtual_station_geometry(exchange_geometry_file: str, ground_truth_csv:
                     virtual_id = int(parts[0])
                     x, y, z = float(parts[1]), float(parts[2]), float(parts[3])
                     virtual_stations[virtual_id] = (x, y, z)
-    
+
     print(f"  Loaded {len(virtual_stations)} virtual station coordinates")
-    
-    # Load ground truth station coordinates
+
+    # Load ground truth station coordinates (one row per unique station name)
     print(f"  Loading ground truth station coordinates...")
     df_gt = pd.read_csv(ground_truth_csv)
-    station_coords = df_gt[['station', 'station_x_transformed', 'station_y_transformed', 'station_z_transformed']].drop_duplicates()
+    station_coords = (
+        df_gt[['station', 'station_x_transformed', 'station_y_transformed', 'station_z_transformed']]
+        .drop_duplicates(subset='station')
+    )
     print(f"  Found {len(station_coords)} unique stations in ground truth")
-    
-    # Match virtual stations to actual stations by coordinates
-    virtual_to_station = {}
+
+    # For each virtual_id, find ALL stations within tolerance.
+    # Co-located instruments (same geographic position, different names) all receive
+    # the same traveltime from the exchange binary for that location.
+    virtual_to_stations: Dict[int, List[str]] = {}
     unmatched = []
-    
-    print(f"  Matching virtual stations to actual stations (tolerance={tolerance}m)...")
+    co_located_count = 0
+
+    print(f"  Matching virtual stations to actual stations (tolerance={tolerance})...")
     for virtual_id, (vx, vy, vz) in virtual_stations.items():
-        matched = False
+        matched_names = []
         min_distance = float('inf')
         best_match = None
-        
+
         for _, row in station_coords.iterrows():
             sx, sy, sz = row['station_x_transformed'], row['station_y_transformed'], row['station_z_transformed']
             distance = np.sqrt((vx - sx)**2 + (vy - sy)**2 + (vz - sz)**2)
-            
+
             if distance < min_distance:
                 min_distance = distance
-                best_match = (row['station'], distance)
-            
+                best_match = row['station']
+
             if distance <= tolerance:
-                virtual_to_station[virtual_id] = row['station']
-                matched = True
-                break
-        
-        if not matched:
-            unmatched.append((virtual_id, min_distance, best_match[0] if best_match else None))
-    
-    print(f"  Successfully matched: {len(virtual_to_station)}/{len(virtual_stations)} virtual stations")
-    
+                matched_names.append(row['station'])
+
+        if matched_names:
+            virtual_to_stations[virtual_id] = matched_names
+            if len(matched_names) > 1:
+                co_located_count += 1
+                print(f"  Virtual ID {virtual_id}: {len(matched_names)} co-located stations: {matched_names}")
+        else:
+            unmatched.append((virtual_id, min_distance, best_match))
+
+    print(f"  Successfully matched: {len(virtual_to_stations)}/{len(virtual_stations)} virtual stations")
+    if co_located_count:
+        print(f"  Co-located groups (multiple stations at same location): {co_located_count}")
+
     if unmatched:
         print(f"  Warning: {len(unmatched)} virtual stations could not be matched within tolerance")
         print(f"  Closest mismatches (showing first 5):")
         for i, (vid, dist, station) in enumerate(sorted(unmatched, key=lambda x: x[1])[:5]):
-            print(f"    Virtual ID {vid}: closest station '{station}' at {dist:.2f}m")
-    
-    return virtual_to_station
+            print(f"    Virtual ID {vid}: closest station '{station}' at {dist:.4f}")
+
+    return virtual_to_stations
 
 
 def create_ground_truth_lookup(df_ground_truth: pd.DataFrame) -> Dict[Tuple[int, str, str], pd.Series]:
@@ -568,10 +583,10 @@ def create_synthetic_travel_time_csv_with_exchange(config: DictConfig, phase_typ
             # Extract virtual shot ID from filename: shot_{ID}_traveltime_p.bin
             virtual_shot_id = int(bin_file.split('_')[1])
             
-            # Get actual station name for this virtual shot
-            station_name = virtual_to_station.get(virtual_shot_id)
-            if station_name is None:
-                print(f"station_name could not be found for virtual shot id; {virtual_shot_id}")
+            # Get actual station name(s) for this virtual shot (may be multiple co-located stations)
+            station_names = virtual_to_station.get(virtual_shot_id)
+            if station_names is None:
+                print(f"station_names could not be found for virtual shot id: {virtual_shot_id}")
                 continue
             
             # Read binary file
@@ -614,70 +629,73 @@ def create_synthetic_travel_time_csv_with_exchange(config: DictConfig, phase_typ
             for array_idx in range(len(travel_times)):
                 # Map array index (0-based) to actual shot ID (1-based)
                 shot_id = array_index_to_shot_id[array_idx]
-                synthetic_tt = travel_times[array_idx]
+                synthetic_tt_raw = travel_times[array_idx]
 
                 # Skip unrealistic values
-                if synthetic_tt > 1e10 or synthetic_tt < -1e10:
+                if synthetic_tt_raw > 1e10 or synthetic_tt_raw < -1e10:
                     continue
 
-                # OPTIMIZATION: O(1) lookup instead of DataFrame filtering
-                key = (shot_id, station_name, phase)
-                gt_row = gt_lookup.get(key)
+                # Create a record for each co-located station (usually just one,
+                # but multiple stations may share the same geographic location)
+                for station_name in station_names:
+                    # OPTIMIZATION: O(1) lookup instead of DataFrame filtering
+                    key = (shot_id, station_name, phase)
+                    gt_row = gt_lookup.get(key)
 
-                if gt_row is None:
-                    missing_pairs.append(key)
-                    continue
+                    if gt_row is None:
+                        missing_pairs.append(key)
+                        continue
 
-                # Get configured origin time for this shot
-                configured_origin_time = gt_row['origin_time_s']
+                    # Get configured origin time for this shot
+                    configured_origin_time = gt_row['origin_time_s']
 
-                # STEP 1: Subtract configured origin time from synthetic travel time
-                # Synthetic TT from LATTE binary contains: physical_tt + configured_origin_time
-                # We need to convert it back to physical_tt for comparison with observed_tt (which is already physical)
-                synthetic_tt = synthetic_tt - configured_origin_time
+                    # STEP 1: Subtract configured origin time from synthetic travel time
+                    # Synthetic TT from LATTE binary contains: physical_tt + configured_origin_time
+                    # We need to convert it back to physical_tt for comparison with observed_tt (which is already physical)
+                    synthetic_tt = synthetic_tt_raw - configured_origin_time
 
-                # STEP 2: Apply source correction if enabled (for source inversion)
-                # This further adjusts both synthetic and observed by the corrected origin time
-                observed_tt = gt_row['observed_tt']
-                if corrected_origin_times is not None:
-                    origin_correction = corrected_origin_times.get(shot_id, 0.0)
-                    synthetic_tt = synthetic_tt - origin_correction
-                    observed_tt = observed_tt - origin_correction
-                else:
-                    origin_correction = 0.0
+                    # STEP 2: Apply source correction if enabled (for source inversion)
+                    # This further adjusts both synthetic and observed by the corrected origin time
+                    observed_tt = gt_row['observed_tt']
+                    if corrected_origin_times is not None:
+                        origin_correction = corrected_origin_times.get(shot_id, 0.0)
+                        synthetic_tt = synthetic_tt - origin_correction
+                        observed_tt = observed_tt - origin_correction
+                    else:
+                        origin_correction = 0.0
 
-                # Create output record matching ground truth format exactly
-                record = {
-                    'shot_id': shot_id,
-                    'event_id': gt_row['event_id'],
-                    'station': station_name,
-                    'phase': phase,
-                    'observed_tt': observed_tt,
-                    'synthetic_tt': synthetic_tt,
-                    'residual_s': observed_tt - synthetic_tt,
-                    'weight': gt_row['weight'],
-                    'event_longitude': gt_row['event_longitude'],
-                    'event_latitude': gt_row['event_latitude'],
-                    'event_depth_km': gt_row['event_depth_km'],
-                    'station_longitude': gt_row['station_longitude'],
-                    'station_latitude': gt_row['station_latitude'],
-                    'station_depth_km': gt_row['station_depth_km'],
-                    'event_x_transformed': gt_row['event_x_transformed'],
-                    'event_y_transformed': gt_row['event_y_transformed'],
-                    'event_z_transformed': gt_row['event_z_transformed'],
-                    'station_x_transformed': gt_row['station_x_transformed'],
-                    'station_y_transformed': gt_row['station_y_transformed'],
-                    'station_z_transformed': gt_row['station_z_transformed'],
-                    'distance_m': gt_row['distance_m'],
-                    'origin_time_s': gt_row['origin_time_s'],
-                    'weighted_rms': gt_row['weighted_rms']
-                }
-                
-                # Add source correction if applied
-                if corrected_origin_times is not None:
-                    record['corrected_origin_time_s'] = origin_correction
-                
-                output_records.append(record)
+                    # Create output record matching ground truth format exactly
+                    record = {
+                        'shot_id': shot_id,
+                        'event_id': gt_row['event_id'],
+                        'station': station_name,
+                        'phase': phase,
+                        'observed_tt': observed_tt,
+                        'synthetic_tt': synthetic_tt,
+                        'residual_s': observed_tt - synthetic_tt,
+                        'weight': gt_row['weight'],
+                        'event_longitude': gt_row['event_longitude'],
+                        'event_latitude': gt_row['event_latitude'],
+                        'event_depth_km': gt_row['event_depth_km'],
+                        'station_longitude': gt_row['station_longitude'],
+                        'station_latitude': gt_row['station_latitude'],
+                        'station_depth_km': gt_row['station_depth_km'],
+                        'event_x_transformed': gt_row['event_x_transformed'],
+                        'event_y_transformed': gt_row['event_y_transformed'],
+                        'event_z_transformed': gt_row['event_z_transformed'],
+                        'station_x_transformed': gt_row['station_x_transformed'],
+                        'station_y_transformed': gt_row['station_y_transformed'],
+                        'station_z_transformed': gt_row['station_z_transformed'],
+                        'distance_m': gt_row['distance_m'],
+                        'origin_time_s': gt_row['origin_time_s'],
+                        'weighted_rms': gt_row['weighted_rms']
+                    }
+
+                    # Add source correction if applied
+                    if corrected_origin_times is not None:
+                        record['corrected_origin_time_s'] = origin_correction
+
+                    output_records.append(record)
     
     # Convert to DataFrame
     if output_records:
