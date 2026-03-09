@@ -118,9 +118,6 @@ traveltime_noise:
   enabled: true
 
   # Set true when LATTE forward modeling used source-receiver exchange (stations as virtual sources).
-  # Reads shot_<virtual_id>_traveltime_{p|s}.bin, reassembles to standard shot_<id> format
-  # (receiver order matching shot_<id>_geometry.txt), applies noise, writes standard binaries.
-  # Requires input.geometry_dir and input.exchange_geometry_file to be set.
   source_receiver_exchange: false
 
   # Shot IDs removed by LATTE geometry filtering (compact the exchange binary arrays).
