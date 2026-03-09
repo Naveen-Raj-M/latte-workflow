@@ -619,6 +619,7 @@ def process_traveltime_directory_with_exchange(
     # ------------------------------------------------------------------ #
     stats = {"processed": 0, "skipped": 0, "total_samples": 0}
     missing_pairs: List[Tuple] = []
+    noisy_tt_map: Dict[Tuple[int, str, str], float] = {}  # (shot_id, station, phase_upper) -> physical tt
 
     # Pre-load geometry receiver counts for validation (if geometry_dir is provided)
     geom_receiver_counts: Dict[int, int] = {}
@@ -667,9 +668,10 @@ def process_traveltime_directory_with_exchange(
                     f"but geometry file lists {geom_nr}. Using ground truth count."
                 )
 
-            tt_array = np.zeros(nr, dtype=np.float64)
+            matched_stations: List[str] = []
+            tt_list: List[float] = []
 
-            for i, station in enumerate(stations_sorted):
+            for station in stations_sorted:
                 vid = station_to_virtual_id.get(station)
                 if vid is None:
                     missing_pairs.append((shot_id, station, phase))
@@ -678,17 +680,29 @@ def process_traveltime_directory_with_exchange(
                 if exchange_arr is None:
                     missing_pairs.append((shot_id, station, phase))
                     continue
-                tt_array[i] = exchange_arr[array_idx]
+                matched_stations.append(station)
+                tt_list.append(float(exchange_arr[array_idx]))
+
+            if not matched_stations:
+                continue
+
+            tt_array = np.array(tt_list, dtype=np.float64)
 
             # Apply noise
             noisy_tt = add_noise_to_traveltime(tt_array, noise_config, phase_lower, random_state)
 
-            # Write standard-format binary
+            # Write binary with only matched entries (shorter than full geometry count when stations are missing)
             output_file = output_dir / f"shot_{shot_id}_traveltime_{phase_lower}.bin"
             write_traveltime_binary(noisy_tt, output_file, output_dtype)
 
+            # Store physical tt (noisy - origin_time) for CSV building
+            origin_time_per_station = phase_gt_sorted.set_index('station')['origin_time_s'].to_dict()
+            for station, noisy_val in zip(matched_stations, noisy_tt):
+                ot = origin_time_per_station.get(station, phase_gt_sorted['origin_time_s'].iloc[0])
+                noisy_tt_map[(shot_id, station, phase)] = float(noisy_val) - ot
+
             stats["processed"] += 1
-            stats["total_samples"] += nr
+            stats["total_samples"] += len(matched_stations)
 
     # ------------------------------------------------------------------ #
     # 6. Summary                                                           #
@@ -705,24 +719,42 @@ def process_traveltime_directory_with_exchange(
     for shot_id in unique_shot_ids:
         if shot_id in removed_set:
             continue
-        shot_gt = df[df['shot_id'] == shot_id]
         for phase in phases_in_data:
             phase_lower = phase.lower()
             output_file = output_dir / f"shot_{shot_id}_traveltime_{phase_lower}.bin"
             if output_file.exists():
+                actual_nr = len(read_traveltime_binary(output_file, dtype=output_dtype))
                 summary_data.append({
                     "shot_id": shot_id,
                     "phase": phase_lower,
-                    "num_receivers": len(shot_gt[shot_gt['phase'] == phase]),
+                    "num_receivers": actual_nr,
                 })
     if summary_data:
         summary_csv = output_dir / "noise_statistics.csv"
         pd.DataFrame(summary_data).to_csv(summary_csv, index=False)
         logger.info(f"  Summary saved to: {summary_csv}")
 
-    # Create the noisy_traveltimes.csv (same post-step as standard mode)
+    # Build noisy_traveltimes.csv directly from in-memory map — only rows with a matching
+    # virtual binary are included; missing stations are dropped (not set to -50).
     logger.info("\nCreating noisy_traveltimes.csv with all metadata...")
-    create_noisy_traveltimes_csv(df, output_dir, output_dir, output_dtype)
+    if noisy_tt_map:
+        map_df = pd.DataFrame([
+            {'shot_id': k[0], 'station': k[1], 'phase_upper': k[2], 'synthetic_tt': v}
+            for k, v in noisy_tt_map.items()
+        ])
+        df_work = df.copy()
+        df_work['phase_upper'] = df_work['phase'].str.upper()
+        output_df = df_work.merge(map_df, on=['shot_id', 'station', 'phase_upper'], how='inner')
+        output_df = output_df.drop(columns=['phase_upper'])
+    else:
+        output_df = df.iloc[:0].copy()
+        output_df['synthetic_tt'] = pd.Series(dtype=float)
+    output_csv = output_dir / "noisy_traveltimes.csv"
+    output_df.to_csv(output_csv, index=False)
+    logger.info(f"Noisy traveltimes CSV saved to: {output_csv}")
+    removed_count = len(df) - len(output_df)
+    logger.info(f"  {len(output_df)}/{len(df)} rows have valid synthetic_tt values"
+                + (f" ({removed_count} removed — no matching virtual binary)" if removed_count else ""))
 
     return stats
 
