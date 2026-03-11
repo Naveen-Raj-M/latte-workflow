@@ -124,13 +124,24 @@ def analyze_velocity_models(config: Dict[str, Any]) -> Dict[str, Any]:
             'vs': compute_log_ratio_statistics(log_ratios['vs_log_ratio'])
         }
     
-    # Find extreme profiles and locations (for domain overview and slice heatmaps)
-    logger.info("Finding extreme velocity profiles")
-    extremes = find_extreme_velocity_profiles(df1, differences, config)
+    # Find extreme profiles only when needed by downstream plots
+    vel_cfg = config['velocity_analysis']
+    need_extremes = (
+        vel_cfg.get('enable_slice_analysis', True) or
+        vel_cfg.get('compute_geometric_mean_ratios', True) or
+        vel_cfg.get('enable_domain_overview', True)
+    )
+    need_ratio_extremes = vel_cfg.get('enable_profile_analysis', True)
 
-    # Find extreme ratio change profiles (for vertical profile comparison)
-    logger.info("Finding extreme ratio change profiles")
-    ratio_extremes = find_extreme_ratio_change_profiles(df1, df2, config)
+    extremes = None
+    if need_extremes:
+        logger.info("Finding extreme velocity profiles")
+        extremes = find_extreme_velocity_profiles(df1, differences, config)
+
+    ratio_extremes = None
+    if need_ratio_extremes:
+        logger.info("Finding extreme ratio change profiles")
+        ratio_extremes = find_extreme_ratio_change_profiles(df1, df2, config)
 
     # Create plots
     logger.info("Creating velocity comparison plots")
@@ -243,36 +254,40 @@ def create_all_velocity_plots(df1: pd.DataFrame, df2: pd.DataFrame,
 
     output_format = config['analysis'].get('output_format', 'png')
 
+    vel_cfg = config['velocity_analysis']
+
     # 1. Basic comparison plots (scatter + histograms)
-    logger.info("Creating basic comparison plots")
-    create_basic_comparison_plots(differences, plots_dir, output_format, config)
+    if vel_cfg.get('enable_basic_comparison_plots', True):
+        logger.info("Creating basic comparison plots")
+        create_basic_comparison_plots(differences, plots_dir, output_format, config)
 
     # 2. Spatial projection plots (RMS)
-    if config['velocity_analysis'].get('enable_spatial_projections', True):
+    if vel_cfg.get('enable_spatial_projections', True):
         logger.info("Creating spatial projection plots")
         create_spatial_projection_plots(df1, differences, plots_dir, output_format, config)
 
     # 3. Vertical profile plots (using ratio-based extremes)
-    if config['velocity_analysis'].get('enable_profile_analysis', True):
+    if vel_cfg.get('enable_profile_analysis', True):
         logger.info("Creating profile comparison plots")
         create_profile_comparison_plots(df1, df2, differences, ratio_extremes, plots_dir, output_format, config)
 
     # 4. Horizontal slice heatmaps (using difference-based extremes)
-    if config['velocity_analysis'].get('enable_slice_analysis', True):
+    if vel_cfg.get('enable_slice_analysis', True):
         logger.info("Creating slice heatmap plots")
         create_slice_heatmap_plots(df1, df2, differences, extremes, plots_dir, output_format, config)
 
     # 5. Ratio analysis plots (using difference-based extremes)
-    if config['velocity_analysis'].get('compute_geometric_mean_ratios', True):
+    if vel_cfg.get('compute_geometric_mean_ratios', True):
         logger.info("Creating ratio analysis plots")
         create_ratio_analysis_plots(df1, df2, differences, extremes, plots_dir, output_format, config)
 
     # 6. Domain overview (using difference-based extremes)
-    logger.info("Creating domain overview plot")
-    create_domain_overview_plot(df1, extremes, plots_dir, output_format, config)
+    if vel_cfg.get('enable_domain_overview', True):
+        logger.info("Creating domain overview plot")
+        create_domain_overview_plot(df1, extremes, plots_dir, output_format, config)
 
     # 7. Plane-specific ratio plots (optional)
-    if config['velocity_analysis'].get('enable_plane_ratio_plots', False):
+    if vel_cfg.get('enable_plane_ratio_plots', False):
         logger.info("Creating plane-specific ratio plots")
         create_plane_specific_ratio_plots(df1, df2, plots_dir, output_format, config)
 

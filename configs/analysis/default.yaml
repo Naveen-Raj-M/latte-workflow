@@ -100,10 +100,12 @@ velocity_analysis:
   custom_title2: "Model B"
   compute_log_ratios: true
   compute_geometric_mean_ratios: true
+  enable_basic_comparison_plots: true
   enable_spatial_projections: true
   enable_profile_analysis: true
   enable_slice_analysis: true
   enable_plane_ratio_plots: true
+  enable_domain_overview: true
   interpolation_method: "cubic"  # Options: linear, cubic, nearest
   grid_resolution: 100
   contour_levels: 20
