@@ -143,13 +143,28 @@ def find_nearest_grid_indices(query_coords: np.ndarray,
         indices: Integer indices (or -1 if no close match)
         is_exact: Boolean array indicating exact matches
     """
-    # Vectorized computation using broadcasting
-    # Shape: (N, M) where N = len(query_coords), M = len(grid_coords)
-    diffs = np.abs(query_coords[:, np.newaxis] - grid_coords[np.newaxis, :])
+    # Memory-efficient approach using searchsorted (O(N log M), no NxM matrix)
+    sorted_grid = np.sort(grid_coords)
+    sort_order = np.argsort(grid_coords)
 
-    # Find minimum distance indices for each query point
-    min_indices = np.argmin(diffs, axis=1)
-    min_diffs = diffs[np.arange(len(query_coords)), min_indices]
+    # Find insertion points in sorted grid
+    insert_pos = np.searchsorted(sorted_grid, query_coords)
+    insert_pos = np.clip(insert_pos, 0, len(sorted_grid) - 1)
+
+    # Check both neighbors (left and right of insertion point)
+    left_pos = np.maximum(insert_pos - 1, 0)
+    right_pos = insert_pos
+
+    left_diff = np.abs(query_coords - sorted_grid[left_pos])
+    right_diff = np.abs(query_coords - sorted_grid[right_pos])
+
+    # Pick the closer neighbor
+    use_right = right_diff <= left_diff
+    best_sorted_idx = np.where(use_right, right_pos, left_pos)
+    min_diffs = np.where(use_right, right_diff, left_diff)
+
+    # Map back to original (unsorted) grid indices
+    min_indices = sort_order[best_sorted_idx]
 
     # Check if within tolerance
     is_exact = min_diffs < tolerance
