@@ -612,6 +612,7 @@ def parse_picks_with_cartesian(events_df: pd.DataFrame,
                     'second': data['second'],
                     'coords': data['coords'],
                     'original_coords': data['original_coords'],
+                    'magnitude': data.get('magnitude', None),
                     'p_picks': [data['p_picks'][stn] for stn in common_stations],
                     's_picks': [data['s_picks'][stn] for stn in common_stations]
                 }
@@ -630,6 +631,7 @@ def parse_picks_with_cartesian(events_df: pd.DataFrame,
                     'second': data['second'],
                     'coords': data['coords'],
                     'original_coords': data['original_coords'],
+                    'magnitude': data.get('magnitude', None),
                     'p_picks': [data['p_picks'][stn] for stn in p_stations],
                     's_picks': []
                 }
@@ -648,6 +650,7 @@ def parse_picks_with_cartesian(events_df: pd.DataFrame,
                     'second': data['second'],
                     'coords': data['coords'],
                     'original_coords': data['original_coords'],
+                    'magnitude': data.get('magnitude', None),
                     'p_picks': [],
                     's_picks': [data['s_picks'][stn] for stn in s_stations]
                 }
