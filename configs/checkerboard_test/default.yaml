@@ -147,6 +147,16 @@ traveltime_noise:
 
   output_precision: "single"  # "single" (float32) or "double" (float64)
 
+  # SNR-based per-pick noise derived from event magnitude and hypocentral distance.
+  magnitude_distance_noise:
+    enabled: false            # Set to true to activate
+    S0: 0.2                   # Reference SNR amplitude
+    gamma: 1.0                # Geometric spreading exponent
+    kappa: 0.003              # Attenuation coefficient (1/km)
+    snr_max: 50.0             # SNR cap (prevents unrealistically small sigma_t)
+    p_wave_frequency: 10.0   # Hz — used in sigma_t = 1/(2*pi*f*SNR) for P picks
+    s_wave_frequency: 5.0    # Hz — used for S picks
+
 # Model conversion configuration
 model_conversion:
   # Enable conversion of inverted model to CSV

@@ -108,6 +108,55 @@ def generate_uniform_noise(
     return noise
 
 
+def compute_snr_sigma(
+    distance_m: float,
+    magnitude: float,
+    phase: str,
+    snr_config: Dict,
+) -> float:
+    """
+    Compute per-pick traveltime uncertainty (std dev) from an SNR-based model.
+
+    SNR(M, r) = S0 * (10^M / r^gamma) * exp(-kappa * r)
+    SNR       = min(SNR, snr_max)
+    sigma_t   = 1 / (2 * pi * f * SNR)
+
+    ``distance_m`` is converted to km internally; ``kappa`` therefore has
+    units of 1/km.  Returns 0.0 when SNR <= 0 or distance <= 0.
+
+    Args:
+        distance_m: Hypocentral distance in metres (from the ``distance_m``
+                    column of the ground-truth CSV).
+        magnitude:  Event magnitude.
+        phase:      "p" or "s".
+        snr_config: Sub-config dict/DictConfig with keys S0, gamma, kappa,
+                    snr_max, p_wave_frequency, s_wave_frequency.
+
+    Returns:
+        sigma_t in seconds.
+    """
+    S0 = float(snr_config.get("S0", 0.2))
+    gamma = float(snr_config.get("gamma", 1.0))
+    kappa = float(snr_config.get("kappa", 0.003))
+    snr_max = float(snr_config.get("snr_max", 50.0))
+
+    if phase.lower() == "p":
+        f = float(snr_config.get("p_wave_frequency", 10.0))
+    else:
+        f = float(snr_config.get("s_wave_frequency", 5.0))
+
+    r_km = distance_m / 1000.0
+    if r_km <= 0:
+        return 0.0
+
+    snr = S0 * (10.0 ** magnitude / r_km ** gamma) * np.exp(-kappa * r_km)
+    if snr <= 0:
+        return 0.0
+
+    snr = min(snr, snr_max)
+    return 1.0 / (2.0 * np.pi * f * snr)
+
+
 def add_noise_to_traveltime(
     traveltime: np.ndarray,
     noise_config: Dict,
@@ -203,6 +252,50 @@ def process_traveltime_directory(
     output_precision = noise_config.get("output_precision", "single")
     output_dtype = np.float32 if output_precision == "single" else np.float64
 
+    # ------------------------------------------------------------------ #
+    # Magnitude-distance (SNR-based) noise setup                          #
+    # ------------------------------------------------------------------ #
+    md_noise_cfg = noise_config.get("magnitude_distance_noise", None) or {}
+    md_noise_enabled = bool(md_noise_cfg.get("enabled", False)) if md_noise_cfg else False
+    has_md_columns = False
+    noise_tt_by_index: Optional[Dict[int, float]] = None  # df-index -> noise added
+
+    if md_noise_enabled:
+        missing_cols = [c for c in ("distance_m", "magnitude") if c not in df.columns]
+        if missing_cols:
+            msg = (
+                f"WARNING: magnitude_distance_noise is enabled but column(s) "
+                f"{missing_cols} not found in ground truth CSV. "
+                f"Setting noise std to 0 and continuing workflow."
+            )
+            print(msg)
+            logger.warning(msg)
+            md_noise_enabled = False  # fall through to zero-noise path
+        else:
+            has_md_columns = True
+            noise_tt_by_index = {}
+
+            # Pre-compute all sigmas to report statistics
+            all_sigmas = np.array([
+                compute_snr_sigma(
+                    float(r["distance_m"]), float(r["magnitude"]),
+                    r["phase"].lower(), md_noise_cfg
+                )
+                for _, r in df.iterrows()
+            ])
+            stat_msg = (
+                f"Magnitude-distance noise sigma_t: "
+                f"min={all_sigmas.min():.6f} s, max={all_sigmas.max():.6f} s"
+            )
+            print(stat_msg)
+            logger.info(stat_msg)
+
+            # Build a fast lookup: (shot_id, phase_lower) -> group DataFrame
+            groups_by_shot_phase: Dict[tuple, pd.DataFrame] = {
+                (int(sid), ph.lower()): grp
+                for (sid, ph), grp in df.groupby(["shot_id", "phase"])
+            }
+
     # Process each combination
     stats = {"processed": 0, "skipped": 0, "total_samples": 0}
 
@@ -235,9 +328,39 @@ def process_traveltime_directory(
             )
 
         # Add noise
-        noisy_traveltime = add_noise_to_traveltime(
-            traveltime, noise_config, phase, random_state
-        )
+        if md_noise_enabled and has_md_columns:
+            group = groups_by_shot_phase.get((shot_id, phase))
+            if group is not None and len(group) == len(traveltime):
+                sigmas = np.array([
+                    compute_snr_sigma(
+                        float(r["distance_m"]), float(r["magnitude"]),
+                        phase, md_noise_cfg
+                    )
+                    for _, r in group.iterrows()
+                ])
+                noise = np.array([
+                    random_state.normal(0.0, s) if s > 0 else 0.0
+                    for s in sigmas
+                ])
+                noisy_traveltime = traveltime + noise
+                for idx, nv in zip(group.index, noise):
+                    noise_tt_by_index[idx] = float(nv)
+            else:
+                logger.warning(
+                    f"Group size mismatch for shot {shot_id} phase {phase} "
+                    f"(group={len(group) if group is not None else 'None'}, "
+                    f"binary={len(traveltime)}); falling back to standard noise."
+                )
+                noisy_traveltime = add_noise_to_traveltime(
+                    traveltime, noise_config, phase, random_state
+                )
+        elif md_noise_enabled and not has_md_columns:
+            # Columns were missing — zero noise, copy original
+            noisy_traveltime = traveltime.copy()
+        else:
+            noisy_traveltime = add_noise_to_traveltime(
+                traveltime, noise_config, phase, random_state
+            )
 
         # Output file path
         output_file = output_dir / f"shot_{shot_id}_traveltime_{phase}.bin"
@@ -292,9 +415,21 @@ def process_traveltime_directory(
         logger.info(f"  Std: {summary_df['noise_std'].mean():.6f} s")
         logger.info(f"  RMS: {summary_df['noise_rms'].mean():.6f} s")
 
+    # Build extra_columns DataFrame for magnitude-distance noise picks
+    extra_columns: Optional[pd.DataFrame] = None
+    if noise_tt_by_index:
+        idx_list = list(noise_tt_by_index.keys())
+        extra_columns = pd.DataFrame(
+            {
+                "magnitude": df.loc[idx_list, "magnitude"].values,
+                "noise_tt": [noise_tt_by_index[i] for i in idx_list],
+            },
+            index=idx_list,
+        )
+
     # Create a comprehensive CSV with all ground truth columns + synthetic_tt
     logger.info("\nCreating noisy_traveltimes.csv with all metadata...")
-    create_noisy_traveltimes_csv(df, output_dir, output_dir, output_dtype)
+    create_noisy_traveltimes_csv(df, output_dir, output_dir, output_dtype, extra_columns=extra_columns)
 
     return stats
 
@@ -304,6 +439,7 @@ def create_noisy_traveltimes_csv(
     noisy_traveltime_dir: Path,
     output_dir: Path,
     dtype: np.dtype = np.float32,
+    extra_columns: Optional[pd.DataFrame] = None,
 ) -> None:
     """
     Create a CSV file with all ground truth columns plus synthetic_tt from noisy binaries.
@@ -313,6 +449,10 @@ def create_noisy_traveltimes_csv(
         noisy_traveltime_dir: Directory containing noisy traveltime binary files
         output_dir: Output directory for CSV
         dtype: Data type of binary files
+        extra_columns: Optional DataFrame (same index as ground_truth_df) with
+                       additional columns to append (e.g. ``magnitude``,
+                       ``noise_tt`` from magnitude-distance noise mode).
+                       Only columns present in this DataFrame are added.
     """
     # Create a copy of ground truth dataframe to preserve all columns
     output_df = ground_truth_df.copy()
@@ -357,6 +497,11 @@ def create_noisy_traveltimes_csv(
                 logger.error(f"Error reading {binary_file}: {e}")
         else:
             logger.warning(f"Binary file not found: {binary_file}")
+
+    # Attach per-pick extra columns (e.g. magnitude, noise_tt) when provided
+    if extra_columns is not None and not extra_columns.empty:
+        for col in extra_columns.columns:
+            output_df[col] = extra_columns[col]
 
     # Save to CSV
     output_csv = output_dir / "noisy_traveltimes.csv"
@@ -580,6 +725,41 @@ def process_traveltime_directory_with_exchange(
     logger.info(f"  Phases: {phases_in_data}")
 
     # ------------------------------------------------------------------ #
+    # 1b. Magnitude-distance (SNR-based) noise setup                      #
+    # ------------------------------------------------------------------ #
+    md_noise_cfg = noise_config.get("magnitude_distance_noise", None) or {}
+    md_noise_enabled = bool(md_noise_cfg.get("enabled", False)) if md_noise_cfg else False
+    has_md_columns = False
+    md_noise_extra: Dict[Tuple[int, str, str], Tuple[float, float]] = {}  # (shot_id, station, phase_upper) -> (noise_tt, magnitude)
+
+    if md_noise_enabled:
+        missing_cols = [c for c in ("distance_m", "magnitude") if c not in df.columns]
+        if missing_cols:
+            msg = (
+                f"WARNING: magnitude_distance_noise is enabled but column(s) "
+                f"{missing_cols} not found in ground truth CSV. "
+                f"Setting noise std to 0 and continuing workflow."
+            )
+            print(msg)
+            logger.warning(msg)
+            md_noise_enabled = False
+        else:
+            has_md_columns = True
+            all_sigmas = np.array([
+                compute_snr_sigma(
+                    float(r["distance_m"]), float(r["magnitude"]),
+                    r["phase"].lower(), md_noise_cfg
+                )
+                for _, r in df.iterrows()
+            ])
+            stat_msg = (
+                f"Magnitude-distance noise sigma_t: "
+                f"min={all_sigmas.min():.6f} s, max={all_sigmas.max():.6f} s"
+            )
+            print(stat_msg)
+            logger.info(stat_msg)
+
+    # ------------------------------------------------------------------ #
     # 2. Array-index ↔ shot_id mapping (accounts for removed shots)       #
     # ------------------------------------------------------------------ #
     if removed_set:
@@ -704,7 +884,27 @@ def process_traveltime_directory_with_exchange(
             tt_array = np.array(tt_list, dtype=np.float64)
 
             # Apply noise
-            noisy_tt = add_noise_to_traveltime(tt_array, noise_config, phase_lower, random_state)
+            if md_noise_enabled and has_md_columns:
+                gt_by_station = phase_gt_sorted.set_index('station')
+                sigmas = np.array([
+                    compute_snr_sigma(
+                        float(gt_by_station.loc[st, 'distance_m']),
+                        float(gt_by_station.loc[st, 'magnitude']),
+                        phase_lower, md_noise_cfg
+                    )
+                    for st in matched_stations
+                ])
+                noise_vals = np.array([
+                    random_state.normal(0.0, s) if s > 0 else 0.0
+                    for s in sigmas
+                ])
+                noisy_tt = tt_array + noise_vals
+            elif md_noise_enabled and not has_md_columns:
+                noisy_tt = tt_array.copy()
+                noise_vals = np.zeros(len(tt_array))
+            else:
+                noisy_tt = add_noise_to_traveltime(tt_array, noise_config, phase_lower, random_state)
+                noise_vals = None
 
             # Write binary with only matched entries (shorter than full geometry count when stations are missing)
             output_file = output_dir / f"shot_{shot_id}_traveltime_{phase_lower}.bin"
@@ -712,9 +912,15 @@ def process_traveltime_directory_with_exchange(
 
             # Store physical tt (noisy - origin_time) for CSV building
             origin_time_per_station = phase_gt_sorted.set_index('station')['origin_time_s'].to_dict()
-            for station, noisy_val in zip(matched_stations, noisy_tt):
+            gt_by_station_mag = phase_gt_sorted.set_index('station')['magnitude'].to_dict() if has_md_columns else {}
+            for i, (station, noisy_val) in enumerate(zip(matched_stations, noisy_tt)):
                 ot = origin_time_per_station.get(station, phase_gt_sorted['origin_time_s'].iloc[0])
                 noisy_tt_map[(shot_id, station, phase)] = float(noisy_val) - ot
+                if noise_vals is not None and has_md_columns:
+                    md_noise_extra[(shot_id, station, phase)] = (
+                        float(noise_vals[i]),
+                        float(gt_by_station_mag.get(station, float('nan'))),
+                    )
 
             stats["processed"] += 1
             stats["total_samples"] += len(matched_stations)
@@ -753,10 +959,22 @@ def process_traveltime_directory_with_exchange(
     # virtual binary are included; missing stations are dropped (not set to -50).
     logger.info("\nCreating noisy_traveltimes.csv with all metadata...")
     if noisy_tt_map:
-        map_df = pd.DataFrame([
+        map_records = [
             {'shot_id': k[0], 'station': k[1], 'phase_upper': k[2], 'synthetic_tt': v}
             for k, v in noisy_tt_map.items()
-        ])
+        ]
+        map_df = pd.DataFrame(map_records)
+
+        # Attach magnitude-distance noise extra columns when available
+        if md_noise_extra:
+            extra_records = [
+                {'shot_id': k[0], 'station': k[1], 'phase_upper': k[2],
+                 'noise_tt': v[0], 'magnitude': v[1]}
+                for k, v in md_noise_extra.items()
+            ]
+            extra_df = pd.DataFrame(extra_records)
+            map_df = map_df.merge(extra_df, on=['shot_id', 'station', 'phase_upper'], how='left')
+
         df_work = df.copy()
         df_work['phase_upper'] = df_work['phase'].str.upper()
         output_df = df_work.merge(map_df, on=['shot_id', 'station', 'phase_upper'], how='inner')
