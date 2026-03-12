@@ -111,6 +111,7 @@ geometry_traveltime:
   # CSV output for debugging/inspection
   generate_travel_time_csv: true
   csv_output_dir: "${data.output_base_dir}/geometry_csv"
+  include_magnitude_in_csv: false  # If true, adds event magnitude as a column in the travel time CSV
   # Source binary generation
   generate_source_binaries: true
   source_binary_format: "travel_time"  # Options: travel_time, fortran

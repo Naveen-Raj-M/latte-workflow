@@ -361,6 +361,7 @@ def _process_single_event(event_id, event_picks, event_lookup, station_lookup,
         event_data['second'] = origin_dt.second + origin_dt.microsecond * 1e-6
         event_data['coords'] = (event_info['x'], event_info['y'], event_info['z'])
         event_data['original_coords'] = (event_info['lon'], event_info['lat'], event_info['depth'])
+        event_data['magnitude'] = event_info.get('magnitude', None)
 
     except Exception as e:
         logger.warning(f"Could not parse origin time for {event_id}: {e}")
@@ -518,7 +519,8 @@ def parse_picks_with_cartesian(events_df: pd.DataFrame,
             'origin_time': row['origin_time'],
             'lon': row.get('longitude', row.get('lon', 0.0)),
             'lat': row.get('latitude', row.get('lat', 0.0)),
-            'depth': row.get('depth', 0.0)
+            'depth': row.get('depth', 0.0),
+            'magnitude': row.get('magnitude', None)
         }
 
     # Create lookup dictionaries for station coordinates
@@ -879,6 +881,7 @@ def write_travel_time_csv(events: Dict, config: DictConfig) -> None:
 
     ensure_directory_exists(Path(geom_config.csv_output_dir))
     phase_type = geom_config.get('phase_type', 'both').lower()
+    include_magnitude = geom_config.get('include_magnitude_in_csv', False)
 
     logger.info(f"Writing comprehensive travel time CSV to: {geom_config.csv_output_dir}")
     logger.info(f"Phase type filter: {phase_type}")
@@ -898,6 +901,7 @@ def write_travel_time_csv(events: Dict, config: DictConfig) -> None:
 
         # Get event metadata
         origin_time_s = data.get('origin_time_s', 0.0)
+        event_magnitude = data.get('magnitude', None)
 
         # Get P-wave and S-wave picks
         p_picks = data['p_picks']
@@ -924,7 +928,7 @@ def write_travel_time_csv(events: Dict, config: DictConfig) -> None:
                                    (ey_transformed - sy_transformed)**2 +
                                    (ez_transformed - sz_transformed)**2)
 
-                csv_data.append({
+                row = {
                     # Identifiers
                     'shot_id': shot_id,
                     'event_id': eid,
@@ -956,7 +960,12 @@ def write_travel_time_csv(events: Dict, config: DictConfig) -> None:
                     'distance_m': distance_m,
                     'origin_time_s': origin_time_s,
                     'weighted_rms': 0.0  # Not available in new format
-                })
+                }
+
+                if include_magnitude:
+                    row['magnitude'] = event_magnitude
+
+                csv_data.append(row)
 
     # Convert to DataFrame and save
     if csv_data:
