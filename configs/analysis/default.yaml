@@ -277,6 +277,10 @@ raypath_analysis:
   max_rays: null  # Maximum rays to load (null for all)
   subsample_fraction: 1.0  # Fraction of rays to plot (0.0-1.0)
 
+  # Optional: filter to a specific subset of rays defined by a CSV file.
+  filter_csv: null  # Path to filter CSV, or null to disable
+  filter_match_tolerance_km: 0.5  # Receiver coordinate match tolerance (km)
+
   # Vectorization optimization
   num_samples_per_ray: 500  # Resample all rays to this many points for vectorized operations (faster plotting)
   use_vectorized_loading: true  # Use vectorized ray loading (recommended for large datasets)

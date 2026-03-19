@@ -16,7 +16,10 @@ import logging
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
+import pandas as pd
+
 import numpy as np
+from scipy.spatial import KDTree
 from tqdm import tqdm
 
 from .raypath_data import (
@@ -160,6 +163,44 @@ def analyze_ray_paths(config_dict: Dict[str, Any]) -> Dict[str, Any]:
         except Exception as e:
             logger.warning(f"Failed to load event ID list: {e}, ignoring filter")
 
+    # Receiver-coordinate filter from an explicit CSV
+    # (produced e.g. by checkerboard_perturbation_analysis.py export_anomalous_cat1)
+    receiver_filter_tree = None
+    filter_match_tolerance_km = float(config.get('filter_match_tolerance_km', 0.5))
+    filter_csv = config.get('filter_csv', None)
+    if filter_csv and filter_csv not in ('null', '~', ''):
+        try:
+            fdf = pd.read_csv(filter_csv)
+            logger.info(f"Loaded filter CSV: {filter_csv}  ({len(fdf):,} rows)")
+
+            # Pre-filter shots if shot_id column is present
+            if 'shot_id' in fdf.columns and filter_shot_ids is None:
+                csv_shot_ids = fdf['shot_id'].dropna().astype(str).unique().tolist()
+                try:
+                    filter_shot_ids = [int(s) for s in csv_shot_ids if s.isdigit()]
+                    logger.info(f"Pre-filtering to {len(filter_shot_ids)} shots from filter CSV")
+                except ValueError:
+                    logger.warning("shot_id column in filter_csv contains non-integer values; "
+                                   "shot-level pre-filtering skipped")
+
+            # Build KDTree over receiver coordinates for per-ray filtering
+            recv_coord_cols = [
+                'station_x_transformed', 'station_y_transformed', 'station_z_transformed'
+            ]
+            if all(c in fdf.columns for c in recv_coord_cols):
+                # ground_truth_csv stores coords in metres; divide by 1000 → km
+                recv_coords_km = fdf[recv_coord_cols].dropna().values / 1000.0
+                receiver_filter_tree = KDTree(recv_coords_km)
+                logger.info(f"Built receiver KDTree from {len(recv_coords_km):,} unique positions "
+                            f"(tolerance {filter_match_tolerance_km} km)")
+            else:
+                logger.warning(
+                    "filter_csv does not contain station_x/y/z_transformed columns; "
+                    "only shot-level pre-filtering will be applied."
+                )
+        except Exception as e:
+            logger.warning(f"Failed to load filter_csv '{filter_csv}': {e} — filter ignored")
+
     # Add subsampling to plot config
     plot_config['subsample_fraction'] = subsample_fraction
     plot_config['max_rays'] = max_rays
@@ -201,7 +242,9 @@ def analyze_ray_paths(config_dict: Dict[str, Any]) -> Dict[str, Any]:
                 phase=phase,
                 max_rays=max_rays,
                 shot_ids=filter_shot_ids,
-                num_samples_per_ray=num_samples_per_ray
+                num_samples_per_ray=num_samples_per_ray,
+                receiver_filter_tree=receiver_filter_tree,
+                receiver_filter_tolerance=filter_match_tolerance_km,
             )
         else:
             logger.info("Loading ray paths from cache (standard)...")
@@ -209,7 +252,9 @@ def analyze_ray_paths(config_dict: Dict[str, Any]) -> Dict[str, Any]:
                 cache_path,
                 phase=phase,
                 max_rays=max_rays,
-                shot_ids=filter_shot_ids
+                shot_ids=filter_shot_ids,
+                receiver_filter_tree=receiver_filter_tree,
+                receiver_filter_tolerance=filter_match_tolerance_km,
             )
 
         if phase not in ray_data or len(ray_data[phase]['ray_paths']) == 0:

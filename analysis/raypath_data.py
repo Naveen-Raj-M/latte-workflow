@@ -61,7 +61,9 @@ def load_ray_paths_from_cache_vectorized(
     phase: str = None,
     max_rays: Optional[int] = None,
     shot_ids: Optional[List[int]] = None,
-    num_samples_per_ray: int = 500
+    num_samples_per_ray: int = 500,
+    receiver_filter_tree=None,
+    receiver_filter_tolerance: float = 0.5,
 ) -> Dict[str, Any]:
     """
     Load ray paths from HDF5 cache file with vectorized resampling for optimized processing.
@@ -164,6 +166,13 @@ def load_ray_paths_from_cache_vectorized(
                         break
 
                     if length > 0:
+                        # Optional receiver-coordinate filter
+                        if receiver_filter_tree is not None:
+                            _dist, _ = receiver_filter_tree.query(recv_array[i])
+                            if _dist > receiver_filter_tolerance:
+                                offset += length
+                                continue
+
                         # Extract ray path
                         ray_path = data[offset:offset + length]
 
@@ -289,7 +298,9 @@ def load_ray_paths_from_cache(
     cache_path: str,
     phase: str = None,
     max_rays: Optional[int] = None,
-    shot_ids: Optional[List[int]] = None
+    shot_ids: Optional[List[int]] = None,
+    receiver_filter_tree=None,
+    receiver_filter_tolerance: float = 0.5,
 ) -> Dict[str, Any]:
     """
     Load ray paths from HDF5 cache file.
@@ -385,6 +396,13 @@ def load_ray_paths_from_cache(
                         break
 
                     if length > 0:
+                        # Optional receiver-coordinate filter
+                        if receiver_filter_tree is not None:
+                            _dist, _ = receiver_filter_tree.query(recv_array[i])
+                            if _dist > receiver_filter_tolerance:
+                                offset += length
+                                continue
+
                         ray_path = data[offset:offset + length].copy()
                         ray_paths.append(ray_path)
                         sources.append(source)
