@@ -62,7 +62,7 @@ def load_ray_paths_from_cache_vectorized(
     max_rays: Optional[int] = None,
     shot_ids: Optional[List[int]] = None,
     num_samples_per_ray: int = 500,
-    receiver_filter_tree=None,
+    receiver_filter_by_shot: Optional[Dict[str, Any]] = None,
     receiver_filter_tolerance: float = 0.5,
 ) -> Dict[str, Any]:
     """
@@ -130,6 +130,14 @@ def load_ray_paths_from_cache_vectorized(
                 if shot_key not in shots_group:
                     continue
 
+                # Resolve the per-shot receiver KDTree (if filter is active).
+                # Skip this shot entirely if it has no allowed receivers.
+                _shot_recv_tree = None
+                if receiver_filter_by_shot is not None:
+                    _shot_recv_tree = receiver_filter_by_shot.get(shot_key)
+                    if _shot_recv_tree is None:
+                        continue  # shot not in filter — skip without reading HDF5 data
+
                 try:
                     shot_grp = shots_group[shot_key]
 
@@ -166,25 +174,27 @@ def load_ray_paths_from_cache_vectorized(
                         break
 
                     if length > 0:
-                        # Optional receiver-coordinate filter
-                        if receiver_filter_tree is not None:
-                            _dist, _ = receiver_filter_tree.query(recv_array[i])
+                        # Per-shot receiver-coordinate filter: only include rays
+                        # whose receiver matches an allowed position for this shot.
+                        _include = True
+                        if _shot_recv_tree is not None:
+                            _dist, _ = _shot_recv_tree.query(recv_array[i])
                             if _dist > receiver_filter_tolerance:
-                                offset += length
-                                continue
+                                _include = False
 
-                        # Extract ray path
-                        ray_path = data[offset:offset + length]
+                        if _include:
+                            # Extract ray path
+                            ray_path = data[offset:offset + length]
 
-                        # Resample to fixed size
-                        resampled_ray = _resample_ray_path(ray_path, num_samples_per_ray)
+                            # Resample to fixed size
+                            resampled_ray = _resample_ray_path(ray_path, num_samples_per_ray)
 
-                        ray_paths_list.append(resampled_ray)
-                        sources_list.append(source)
-                        receivers_list.append(recv_array[i])
-                        shot_ids_list.append(int(shot_key))
-                        weights_list.append(wts_array[i])
-                        total_loaded += 1
+                            ray_paths_list.append(resampled_ray)
+                            sources_list.append(source)
+                            receivers_list.append(recv_array[i])
+                            shot_ids_list.append(int(shot_key))
+                            weights_list.append(wts_array[i])
+                            total_loaded += 1
 
                     offset += length
 
@@ -299,7 +309,7 @@ def load_ray_paths_from_cache(
     phase: str = None,
     max_rays: Optional[int] = None,
     shot_ids: Optional[List[int]] = None,
-    receiver_filter_tree=None,
+    receiver_filter_by_shot: Optional[Dict[str, Any]] = None,
     receiver_filter_tolerance: float = 0.5,
 ) -> Dict[str, Any]:
     """
@@ -360,6 +370,14 @@ def load_ray_paths_from_cache(
                 if shot_key not in shots_group:
                     continue
 
+                # Resolve the per-shot receiver KDTree (if filter is active).
+                # Skip this shot entirely if it has no allowed receivers.
+                _shot_recv_tree = None
+                if receiver_filter_by_shot is not None:
+                    _shot_recv_tree = receiver_filter_by_shot.get(shot_key)
+                    if _shot_recv_tree is None:
+                        continue  # shot not in filter — skip without reading HDF5 data
+
                 try:
                     shot_grp = shots_group[shot_key]
 
@@ -396,20 +414,22 @@ def load_ray_paths_from_cache(
                         break
 
                     if length > 0:
-                        # Optional receiver-coordinate filter
-                        if receiver_filter_tree is not None:
-                            _dist, _ = receiver_filter_tree.query(recv_array[i])
+                        # Per-shot receiver-coordinate filter: only include rays
+                        # whose receiver matches an allowed position for this shot.
+                        _include = True
+                        if _shot_recv_tree is not None:
+                            _dist, _ = _shot_recv_tree.query(recv_array[i])
                             if _dist > receiver_filter_tolerance:
-                                offset += length
-                                continue
+                                _include = False
 
-                        ray_path = data[offset:offset + length].copy()
-                        ray_paths.append(ray_path)
-                        sources.append(source)
-                        receivers.append(tuple(recv_array[i]))
-                        shot_ids_list.append(int(shot_key))
-                        weights.append(wts_array[i])
-                        total_loaded += 1
+                        if _include:
+                            ray_path = data[offset:offset + length].copy()
+                            ray_paths.append(ray_path)
+                            sources.append(source)
+                            receivers.append(tuple(recv_array[i]))
+                            shot_ids_list.append(int(shot_key))
+                            weights.append(wts_array[i])
+                            total_loaded += 1
 
                     offset += length
 

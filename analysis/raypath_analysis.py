@@ -165,7 +165,9 @@ def analyze_ray_paths(config_dict: Dict[str, Any]) -> Dict[str, Any]:
 
     # Receiver-coordinate filter from an explicit CSV
     # (produced e.g. by checkerboard_perturbation_analysis.py export_anomalous_cat1)
-    receiver_filter_tree = None
+    # A per-shot KDTree is built so that only the specific (shot, receiver) pairs
+    # listed in the CSV are loaded, preventing cross-shot station leakage.
+    receiver_filter_by_shot = None
     filter_match_tolerance_km = float(config.get('filter_match_tolerance_km', 0.5))
     filter_csv = config.get('filter_csv', None)
     if filter_csv and filter_csv not in ('null', '~', ''):
@@ -183,19 +185,30 @@ def analyze_ray_paths(config_dict: Dict[str, Any]) -> Dict[str, Any]:
                     logger.warning("shot_id column in filter_csv contains non-integer values; "
                                    "shot-level pre-filtering skipped")
 
-            # Build KDTree over receiver coordinates for per-ray filtering
+            # Build per-shot KDTrees over allowed receiver coordinates.
+            # Using per-shot trees prevents cross-shot station leakage: a station
+            # that appears in shot A's allowed set must not accidentally match a
+            # ray in shot B that travels to the same station for a different event.
             recv_coord_cols = [
                 'station_x_transformed', 'station_y_transformed', 'station_z_transformed'
             ]
-            if all(c in fdf.columns for c in recv_coord_cols):
-                # ground_truth_csv stores coords in metres; divide by 1000 → km
-                recv_coords_km = fdf[recv_coord_cols].dropna().values / 1000.0
-                receiver_filter_tree = KDTree(recv_coords_km)
-                logger.info(f"Built receiver KDTree from {len(recv_coords_km):,} unique positions "
-                            f"(tolerance {filter_match_tolerance_km} km)")
+            if 'shot_id' in fdf.columns and all(c in fdf.columns for c in recv_coord_cols):
+                receiver_filter_by_shot = {}
+                for shot_id_str, grp in fdf.groupby(fdf['shot_id'].astype(str)):
+                    # ground_truth_csv stores coords in metres; divide by 1000 → km
+                    coords_km = grp[recv_coord_cols].dropna().values / 1000.0
+                    if len(coords_km) > 0:
+                        receiver_filter_by_shot[shot_id_str] = KDTree(coords_km)
+                n_shots_with_filter = len(receiver_filter_by_shot)
+                n_recv_total = sum(t.data.shape[0] for t in receiver_filter_by_shot.values())
+                logger.info(
+                    f"Built per-shot receiver KDTrees: {n_shots_with_filter} shots, "
+                    f"{n_recv_total:,} allowed receiver positions "
+                    f"(tolerance {filter_match_tolerance_km} km)"
+                )
             else:
                 logger.warning(
-                    "filter_csv does not contain station_x/y/z_transformed columns; "
+                    "filter_csv missing shot_id or station_x/y/z_transformed columns; "
                     "only shot-level pre-filtering will be applied."
                 )
         except Exception as e:
@@ -243,7 +256,7 @@ def analyze_ray_paths(config_dict: Dict[str, Any]) -> Dict[str, Any]:
                 max_rays=max_rays,
                 shot_ids=filter_shot_ids,
                 num_samples_per_ray=num_samples_per_ray,
-                receiver_filter_tree=receiver_filter_tree,
+                receiver_filter_by_shot=receiver_filter_by_shot,
                 receiver_filter_tolerance=filter_match_tolerance_km,
             )
         else:
@@ -253,7 +266,7 @@ def analyze_ray_paths(config_dict: Dict[str, Any]) -> Dict[str, Any]:
                 phase=phase,
                 max_rays=max_rays,
                 shot_ids=filter_shot_ids,
-                receiver_filter_tree=receiver_filter_tree,
+                receiver_filter_by_shot=receiver_filter_by_shot,
                 receiver_filter_tolerance=filter_match_tolerance_km,
             )
 
