@@ -86,9 +86,8 @@ def run_coordinate_transform(cfg: DictConfig, events_df, stations_df, picks_df):
 
         # Also save picks to coordinate_transform output directory for independent visualization
         if picks_df is not None and not picks_df.empty:
-            output_dir = Path(cfg.coordinate_transform.output_dir)
-            ensure_directory_exists(output_dir)
-            picks_csv = output_dir / 'picks_cartesian.csv'
+            picks_csv = Path(cfg.coordinate_transform.picks_cartesian_csv)
+            ensure_directory_exists(picks_csv.parent)
             picks_df.to_csv(picks_csv, index=False)
             print(f"  Picks: {len(picks_df)} saved to {picks_csv}")
 
@@ -198,11 +197,11 @@ def load_existing_data_for_visualization(cfg: DictConfig) -> Tuple[Optional[pd.D
     logger = logging.getLogger(__name__)
 
     # Define paths - only fully-filtered data is written
-    events_geo_path = Path(cfg.data.output_base_dir) / "events_geodetic.csv"
-    stations_geo_path = Path(cfg.data.output_base_dir) / "stations_geodetic.csv"
-    events_cart_path = Path(cfg.coordinate_transform.output_dir) / "events_cartesian.csv"
-    stations_cart_path = Path(cfg.coordinate_transform.output_dir) / "stations_cartesian.csv"
-    picks_path = Path(cfg.coordinate_transform.output_dir) / "picks_cartesian.csv"
+    events_geo_path = Path(cfg.coordinate_transform.events_geodetic_csv)
+    stations_geo_path = Path(cfg.coordinate_transform.stations_geodetic_csv)
+    events_cart_path = Path(cfg.coordinate_transform.events_cartesian_csv)
+    stations_cart_path = Path(cfg.coordinate_transform.stations_cartesian_csv)
+    picks_path = Path(cfg.coordinate_transform.picks_cartesian_csv)
 
     events_df = None
     stations_df = None
@@ -462,13 +461,14 @@ def run_preprocessing_pipeline(config: DictConfig) -> None:
 
         # Save fully-filtered data to CSV
         if filtered_events_cart is not None and len(filtered_events_cart) > 0:
-            output_dir = Path(config.coordinate_transform.output_dir)
-            ensure_directory_exists(output_dir)
-
             # Save filtered Cartesian data
-            filtered_events_cart.to_csv(output_dir / 'events_cartesian.csv', index=False)
-            filtered_stations_cart.to_csv(output_dir / 'stations_cartesian.csv', index=False)
-            filtered_picks.to_csv(output_dir / 'picks_cartesian.csv', index=False)
+            coord_cfg = config.coordinate_transform
+            events_cart_csv = Path(coord_cfg.events_cartesian_csv)
+            stations_cart_csv = Path(coord_cfg.stations_cartesian_csv)
+            picks_cart_csv = Path(coord_cfg.picks_cartesian_csv)
+            filtered_events_cart.to_csv(events_cart_csv, index=False)
+            filtered_stations_cart.to_csv(stations_cart_csv, index=False)
+            filtered_picks.to_csv(picks_cart_csv, index=False)
 
             # Also save filtered geodetic data
             filtered_event_ids = set(filtered_events_cart['event_id'].unique())
@@ -476,17 +476,19 @@ def run_preprocessing_pipeline(config: DictConfig) -> None:
             events_df_filtered = events_df[events_df['event_id'].isin(filtered_event_ids)]
             stations_df_filtered = stations_df[stations_df['station_id'].isin(filtered_station_ids)]
 
-            geo_output_dir = Path(config.data.output_base_dir)
-            ensure_directory_exists(geo_output_dir)
-            events_df_filtered.to_csv(geo_output_dir / 'events_geodetic.csv', index=False)
-            stations_df_filtered.to_csv(geo_output_dir / 'stations_geodetic.csv', index=False)
+            events_geo_csv = Path(coord_cfg.events_geodetic_csv)
+            stations_geo_csv = Path(coord_cfg.stations_geodetic_csv)
+            ensure_directory_exists(events_geo_csv.parent)
+            ensure_directory_exists(stations_geo_csv.parent)
+            events_df_filtered.to_csv(events_geo_csv, index=False)
+            stations_df_filtered.to_csv(stations_geo_csv, index=False)
 
             print(f"\nFiltered data saved:")
-            print(f"  {output_dir / 'events_cartesian.csv'}")
-            print(f"  {output_dir / 'stations_cartesian.csv'}")
-            print(f"  {output_dir / 'picks_cartesian.csv'}")
-            print(f"  {geo_output_dir / 'events_geodetic.csv'}")
-            print(f"  {geo_output_dir / 'stations_geodetic.csv'}")
+            print(f"  {events_cart_csv}")
+            print(f"  {stations_cart_csv}")
+            print(f"  {picks_cart_csv}")
+            print(f"  {events_geo_csv}")
+            print(f"  {stations_geo_csv}")
 
         # Step 5: Visualizations
         # Use filtered data if available (from geometry processing), otherwise use original data

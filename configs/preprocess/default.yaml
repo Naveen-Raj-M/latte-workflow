@@ -83,6 +83,13 @@ coordinate_transform:
   # Output directory for transformed coordinates
   output_dir: "${data.output_base_dir}/coordinate_transform"
 
+  # Output CSV files
+  events_cartesian_csv: "${coordinate_transform.output_dir}/events_cartesian.csv"
+  stations_cartesian_csv: "${coordinate_transform.output_dir}/stations_cartesian.csv"
+  picks_cartesian_csv: "${coordinate_transform.output_dir}/picks_cartesian.csv"
+  events_geodetic_csv: "${data.output_base_dir}/events_geodetic.csv"
+  stations_geodetic_csv: "${data.output_base_dir}/stations_geodetic.csv"
+
   # Basin boundaries transformation (optional)
   # When enabled, transforms basin boundaries from geographic (lon/lat) to Cartesian (x/y km) coordinates
   # Output: ${coordinate_transform.output_dir}/basin_boundaries/ (use this path in analysis module)
@@ -103,8 +110,8 @@ geometry_traveltime:
   enabled: true
   
   # Input files (from coordinate transformation)
-  events_csv: "${coordinate_transform.output_dir}/events_cartesian.csv"
-  stations_csv: "${coordinate_transform.output_dir}/stations_cartesian.csv"
+  events_csv: "${coordinate_transform.events_cartesian_csv}"
+  stations_csv: "${coordinate_transform.stations_cartesian_csv}"
   
   # Output directories
   geometry_dir: "${data.output_base_dir}/geometry"
