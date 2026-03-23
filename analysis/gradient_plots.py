@@ -13,6 +13,7 @@ from typing import Dict, Any, List
 import logging
 
 from utils.plot_utils import save_figure, create_multi_panel_figure, get_color_scheme
+from .basin_boundaries import load_basin_boundaries, plot_basin_boundaries
 
 logger = logging.getLogger(__name__)
 
@@ -346,7 +347,10 @@ def create_velocity_spatial_gradient_plots(df: pd.DataFrame,
     """Create spatial distribution plots for velocity gradients."""
     if 'X_grid_km' not in df.columns or 'Y_grid_km' not in df.columns:
         return
-    
+
+    basin_config = config.get('basin_boundaries', {})
+    basin_data = load_basin_boundaries(basin_config) if config['gradient_analysis'].get('plot_basin_boundaries', False) else {}
+
     # Create XY projection plots for each gradient
     for grad_field in available_fields['gradients']:
         param = grad_field.replace('grad_', '')
@@ -372,7 +376,10 @@ def create_velocity_spatial_gradient_plots(df: pd.DataFrame,
         ax.set_title(f'{param.upper()} Gradient Spatial Distribution (XY Projection)')
         ax.set_aspect('equal', adjustable='box')
         ax.grid(True, alpha=0.3)
-        
+
+        if basin_data:
+            plot_basin_boundaries(ax, basin_data, basin_config)
+
         plt.tight_layout()
         save_figure(fig, plots_dir / f'velocity_gradient_{param}_xy_projection', output_format)
 
@@ -382,6 +389,9 @@ def create_source_spatial_gradient_plots(df: pd.DataFrame,
                                         colors: Dict[str, str], plots_dir: Path,
                                         output_format: str, config: Dict[str, Any]) -> None:
     """Create spatial/geographic plots for source parameter gradients."""
+    basin_config = config.get('basin_boundaries', {})
+    basin_data = load_basin_boundaries(basin_config) if config['gradient_analysis'].get('plot_basin_boundaries', False) else {}
+
     # Plot horizontal gradient magnitude if available
     if 'grad_sx' in available_fields['gradients'] and 'grad_sy' in available_fields['gradients']:
         valid_mask = df['grad_sx'].notna() & df['grad_sy'].notna()
@@ -404,7 +414,10 @@ def create_source_spatial_gradient_plots(df: pd.DataFrame,
             ax.set_title('Source Horizontal Gradient Magnitude')
             ax.set_aspect('equal', adjustable='box')
             ax.grid(True, alpha=0.3)
-            
+
+            if basin_data:
+                plot_basin_boundaries(ax, basin_data, basin_config)
+
             plt.tight_layout()
             save_figure(fig, plots_dir / 'source_horizontal_gradient_magnitude', output_format)
 

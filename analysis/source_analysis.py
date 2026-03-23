@@ -17,6 +17,7 @@ from datetime import datetime
 from utils.io_utils import read_csv_file, write_text_file, ensure_directory_exists
 from utils.plot_utils import setup_plot_style, get_color_scheme, save_figure
 from utils.origin_time_utils import load_origin_time_metadata
+from .basin_boundaries import load_basin_boundaries
 
 logger = logging.getLogger(__name__)
 
@@ -404,7 +405,11 @@ def create_source_plots(df: pd.DataFrame, stats: Dict[str, Any],
     colors = get_color_scheme(config['analysis'])
     output_format = config['analysis'].get('output_format', 'png')
     use_log = config['source_analysis'].get('use_log_scale', False)
-    
+
+    # Load basin boundaries if configured (global basin_boundaries section)
+    basin_config = config.get('basin_boundaries', {})
+    basin_data = load_basin_boundaries(basin_config) if config['source_analysis'].get('plot_basin_boundaries', False) else {}
+
     # Import plotting functions
     from .source_plots import (
         create_correction_histograms,
@@ -414,11 +419,12 @@ def create_source_plots(df: pd.DataFrame, stats: Dict[str, Any],
         create_correction_summary,
         create_temporal_corrections
     )
-    
+
     # Create all plots
     create_correction_histograms(df, colors, plots_dir, output_format, use_log, config, comparison_mode)
     create_scatter_relationships(df, colors, plots_dir, output_format, use_log, config, comparison_mode)
-    create_geographic_map(df, colors, plots_dir, output_format, config, comparison_mode)
+    create_geographic_map(df, colors, plots_dir, output_format, config, comparison_mode,
+                          basin_data=basin_data, basin_config=basin_config)
     create_depth_analysis(df, colors, plots_dir, output_format, use_log, config, comparison_mode)
     create_correction_summary(df, colors, plots_dir, output_format, use_log, config, comparison_mode)
     

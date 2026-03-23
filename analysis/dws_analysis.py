@@ -30,6 +30,7 @@ from .dws_plots import (
     plot_coverage_map
 )
 from .dws_reports import generate_dws_report
+from .basin_boundaries import load_basin_boundaries
 from utils.io_utils import ensure_directory_exists
 
 logger = logging.getLogger(__name__)
@@ -41,7 +42,9 @@ def process_single_horizontal_slice(
     output_dir: str,
     plot_config: Dict[str, Any],
     log_scale: bool,
-    prefix: str = ""
+    prefix: str = "",
+    basin_data: Optional[Dict] = None,
+    basin_config: Optional[Dict] = None,
 ) -> Dict[str, Any]:
     """
     Process a single horizontal slice (wrapper for parallel processing).
@@ -65,7 +68,7 @@ def process_single_horizontal_slice(
         )
         plot_horizontal_slice(
             df, depth_km, output_file_linear, plot_config,
-            log_scale=False
+            log_scale=False, basin_data=basin_data, basin_config=basin_config
         )
 
         # Log scale plot (if requested)
@@ -76,7 +79,7 @@ def process_single_horizontal_slice(
             )
             plot_horizontal_slice(
                 df, depth_km, output_file_log, plot_config,
-                log_scale=True
+                log_scale=True, basin_data=basin_data, basin_config=basin_config
             )
 
         return {
@@ -231,6 +234,10 @@ def analyze_dws(config_dict: Dict[str, Any]) -> Dict[str, Any]:
     # Add unit settings to plot_config
     plot_config['use_m2_units'] = use_m2_units
 
+    # Load basin boundaries if configured (global basin_boundaries section)
+    basin_config = config_dict.get('basin_boundaries', {})
+    basin_data = load_basin_boundaries(basin_config) if config.get('plot_basin_boundaries', False) else {}
+
     # Parallel processing settings from performance config
     performance_config = config_dict.get('performance', {})
     use_parallel = performance_config.get('parallel_processing', False)
@@ -256,7 +263,8 @@ def analyze_dws(config_dict: Dict[str, Any]) -> Dict[str, Any]:
             logger.info(f"Using parallel processing with {n_jobs if n_jobs > 0 else 'all'} jobs")
             slice_results = Parallel(n_jobs=n_jobs)(
                 delayed(process_single_horizontal_slice)(
-                    df, depth, str(output_dir / 'plots'), plot_config, enable_log_scale
+                    df, depth, str(output_dir / 'plots'), plot_config, enable_log_scale,
+                    basin_data=basin_data, basin_config=basin_config
                 )
                 for depth in tqdm(depths_km, desc="Processing horizontal slices")
             )
@@ -265,7 +273,8 @@ def analyze_dws(config_dict: Dict[str, Any]) -> Dict[str, Any]:
             slice_results = []
             for depth in tqdm(depths_km, desc="Processing horizontal slices"):
                 result = process_single_horizontal_slice(
-                    df, depth, str(output_dir / 'plots'), plot_config, enable_log_scale
+                    df, depth, str(output_dir / 'plots'), plot_config, enable_log_scale,
+                    basin_data=basin_data, basin_config=basin_config
                 )
                 slice_results.append(result)
 
@@ -285,7 +294,8 @@ def analyze_dws(config_dict: Dict[str, Any]) -> Dict[str, Any]:
                 output_file = output_dir / 'plots' / f'dws_coverage_depth_{depth:.2f}km.png'
                 plot_coverage_map(
                     df, depth, str(output_file), plot_config,
-                    threshold=coverage_threshold
+                    threshold=coverage_threshold,
+                    basin_data=basin_data, basin_config=basin_config
                 )
                 results['plots']['coverage_maps'].append({
                     'depth_km': depth,

@@ -8,6 +8,27 @@ hydra:
     root:
       handlers: []                        # disables Hydra's default console handler; setup_logging manages output
 
+# Basin boundary overlays for XY plane plots across all analysis modules
+# Provide the Cartesian-transformed boundary files produced by the preprocess module
+basin_boundaries:
+  data_dir: "/path/to/preprocessed/coordinate_transform/basin_boundaries"
+  basins:
+    - file: "CentralBasin_Verticies_WGS84.csv"
+      label: "Central Basin"
+    - file: "DelawareBasin_Verticies_WGS84.csv"
+      label: "Delaware Basin"
+    - file: "MidlandBasin_Verticies_WGS84.csv"
+      label: "Midland Basin"
+  line_color: "darkgreen"
+  line_width: 2
+  line_style: "-"                      # - | -- | : | -.
+  line_alpha: 0.8                      # transparency (0 = transparent, 1 = opaque)
+  show_labels: true
+  label_fontsize: 12
+  label_fontweight: "bold"             # normal | bold
+  label_offset_x: 0.0                 # km offset from basin centroid
+  label_offset_y: 0.0                 # km offset from basin centroid
+
 # Global settings shared across all analysis modules
 analysis:
   log_level: "DEBUG"                      # DEBUG | INFO | WARNING | ERROR
@@ -67,6 +88,7 @@ gradient_analysis:
   create_alignment_plots: true
   create_spatial_plots: true
   create_depth_profiles: true
+  plot_basin_boundaries: false            # true = overlay basin boundaries on XY spatial plots
 
 # Travel time residual analysis
 travel_time_analysis:
@@ -132,6 +154,7 @@ velocity_analysis:
   enable_slice_analysis: true
   enable_plane_ratio_plots: true
   enable_domain_overview: true
+  plot_basin_boundaries: false            # true = overlay basin boundaries on all XY plane plots
 
   interpolation_method: "cubic"           # linear | cubic | nearest
   grid_resolution: 100
@@ -264,6 +287,7 @@ source_analysis:
 
   generate_summary_report: true
   save_corrected_data: true               # true = write source_corrections_with_deltas.csv
+  plot_basin_boundaries: false            # true = overlay basin boundaries on XY geographic map
 
 # Derivative weight sum (DWS) model coverage analysis
 dws_analysis:
@@ -305,6 +329,7 @@ dws_analysis:
     position_tolerance: 0.01             # km; tolerance for vertical slice position matching
 
   generate_report: true
+  plot_basin_boundaries: false            # true = overlay basin boundaries on horizontal slice and coverage map plots
 
 # Ray path projection visualization
 raypath_analysis:
@@ -327,28 +352,7 @@ raypath_analysis:
   filter_match_tolerance_km: 0.5        # km; receiver coordinate match tolerance
 
   generate_report: true
-
-  # Basin boundary overlays shown on XY projection only
-  # Provide the Cartesian-transformed boundary directory produced by preprocess
-  basin_boundaries:
-    enabled: false
-    data_dir: "/path/to/preprocessed/coordinate_transform/basin_boundaries"
-    basins:
-      - file: "CentralBasin_Verticies_WGS84.csv"
-        label: "Central Basin"
-      - file: "DelawareBasin_Verticies_WGS84.csv"
-        label: "Delaware Basin"
-      - file: "MidlandBasin_Verticies_WGS84.csv"
-        label: "Midland Basin"
-    line_color: "darkgreen"
-    line_width: 2
-    line_style: "-"                      # - | -- | : | -.
-    line_alpha: 0.8                      # transparency (0 = transparent, 1 = opaque)
-    show_labels: true
-    label_fontsize: 12
-    label_fontweight: "bold"             # normal | bold
-    label_offset_x: 0.0                 # km offset from basin centroid
-    label_offset_y: 0.0                 # km offset from basin centroid
+  plot_basin_boundaries: false            # true = overlay basin boundaries on XY projection plot
 
   # Ray path plot settings (font sizes and dpi inherited from analysis.plot_style)
   plot:
@@ -417,27 +421,7 @@ ray_density_analysis:
   # Depth levels for horizontal slice plots (km)
   depth_slices: [5.0, 10.0, 15.0, 20.0, 30.0, 40.0, 50.0]
 
-  # Basin boundary overlays shown on XY projection only
-  # Provide the Cartesian-transformed boundary directory produced by preprocess
-  basin_boundaries:
-    enabled: false
-    data_dir: "/path/to/preprocessed/coordinate_transform/basin_boundaries"
-    basins:
-      - file: "CentralBasin_Verticies_WGS84.csv"
-        label: "Central Basin"
-      - file: "DelawareBasin_Verticies_WGS84.csv"
-        label: "Delaware Basin"
-      - file: "MidlandBasin_Verticies_WGS84.csv"
-        label: "Midland Basin"
-    line_color: "darkgreen"
-    line_width: 2
-    line_style: "-"                     # - | -- | : | -.
-    line_alpha: 0.8                     # transparency (0 = transparent, 1 = opaque)
-    show_labels: true
-    label_fontsize: 12
-    label_fontweight: "bold"            # normal | bold
-    label_offset_x: 0.0               # km offset from basin centroid
-    label_offset_y: 0.0               # km offset from basin centroid
+  plot_basin_boundaries: false            # true = overlay basin boundaries on XY projection and depth slice plots
 
   # Plot settings (font sizes and dpi inherited from analysis.plot_style)
   figure_width: 12

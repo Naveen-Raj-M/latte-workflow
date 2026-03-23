@@ -16,6 +16,7 @@ from typing import Dict, Any, Optional, List, Tuple
 import logging
 
 from .dws_data import extract_horizontal_slice, extract_vertical_slice
+from .basin_boundaries import plot_basin_boundaries
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,9 @@ def plot_horizontal_slice(
     log_scale: bool = False,
     vmin: Optional[float] = None,
     vmax: Optional[float] = None,
-    title: Optional[str] = None
+    title: Optional[str] = None,
+    basin_data: Optional[Dict] = None,
+    basin_config: Optional[Dict] = None,
 ) -> None:
     """
     Plot horizontal slice of DWS at specified depth.
@@ -128,6 +131,9 @@ def plot_horizontal_slice(
 
     ax.set_aspect('equal' if config.get('equal_aspect', True) else 'auto')
     ax.grid(config.get('grid', True), alpha=0.3)
+
+    if basin_data:
+        plot_basin_boundaries(ax, basin_data, basin_config or {})
 
     # Save
     plt.tight_layout()
@@ -335,7 +341,9 @@ def plot_coverage_map(
     output_file: str,
     config: Dict[str, Any],
     threshold: float = 0.0,
-    title: Optional[str] = None
+    title: Optional[str] = None,
+    basin_data: Optional[Dict] = None,
+    basin_config: Optional[Dict] = None,
 ) -> None:
     """
     Plot binary coverage map (covered vs uncovered cells).
@@ -401,6 +409,9 @@ def plot_coverage_map(
 
     ax.set_aspect('equal' if config.get('equal_aspect', True) else 'auto')
     ax.grid(config.get('grid', True), alpha=0.3)
+
+    if basin_data:
+        plot_basin_boundaries(ax, basin_data, basin_config or {})
 
     # Compute and display coverage percentage
     coverage_pct = 100 * np.nansum(coverage_grid) / np.sum(~np.isnan(coverage_grid))

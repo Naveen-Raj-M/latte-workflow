@@ -16,13 +16,14 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from matplotlib.colors import Normalize
 from pathlib import Path
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, Optional
 from scipy.interpolate import griddata
 import logging
 
 from utils.plot_utils import save_figure, get_color_scheme
 from utils.velocity_io import read_velocity_file
 from .velocity_spatial import find_max_min_ratio_change_depths, find_extreme_ratio_change_profiles
+from .basin_boundaries import load_basin_boundaries, plot_basin_boundaries
 
 logger = logging.getLogger(__name__)
 
@@ -181,23 +182,30 @@ def create_spatial_projection_plots(df: pd.DataFrame, differences: Dict[str, np.
     fig, axes = plt.subplots(2, 4, figsize=(25, 14))
     axes = axes.flatten()
 
+    basin_config = config.get('basin_boundaries', {})
+    basin_data = load_basin_boundaries(basin_config) if config['velocity_analysis'].get('plot_basin_boundaries', False) else {}
+
     # Vp projections
-    _create_velocity_spatial_projection(df_temp, 'vp_diff', 'Vp', axes[0:4], 
-                                       grid_resolution, interpolation_method, difference_label)
-    
-    # Vs projections  
-    _create_velocity_spatial_projection(df_temp, 'vs_diff', 'Vs', axes[4:8], 
-                                       grid_resolution, interpolation_method, difference_label)
-    
+    _create_velocity_spatial_projection(df_temp, 'vp_diff', 'Vp', axes[0:4],
+                                       grid_resolution, interpolation_method, difference_label,
+                                       basin_data=basin_data, basin_config=basin_config)
+
+    # Vs projections
+    _create_velocity_spatial_projection(df_temp, 'vs_diff', 'Vs', axes[4:8],
+                                       grid_resolution, interpolation_method, difference_label,
+                                       basin_data=basin_data, basin_config=basin_config)
+
     plt.suptitle(f'Velocity Changes: RMS Spatial Projections\n{difference_label}', fontsize=20)
     plt.tight_layout()
     save_figure(fig, plots_dir / 'spatial_velocity_projections', output_format)
 
 
-def _create_velocity_spatial_projection(df_temp: pd.DataFrame, diff_col: str, 
+def _create_velocity_spatial_projection(df_temp: pd.DataFrame, diff_col: str,
                                        velocity_type: str, axes: list,
                                        grid_resolution: int, interpolation_method: str,
-                                       difference_label: str) -> None:
+                                       difference_label: str,
+                                       basin_data: Optional[Dict] = None,
+                                       basin_config: Optional[Dict] = None) -> None:
     """
     Create spatial projection for a single velocity type.
     
@@ -241,12 +249,14 @@ def _create_velocity_spatial_projection(df_temp: pd.DataFrame, diff_col: str,
     
     vmax = max(xy_rms[diff_col].max(), xz_rms[diff_col].max(), yz_rms[diff_col].max())
     
-    im1 = axes[0].imshow(xy_interp, extent=[xi.min(), xi.max(), yi.min(), yi.max()], 
+    im1 = axes[0].imshow(xy_interp, extent=[xi.min(), xi.max(), yi.min(), yi.max()],
                         cmap='Reds', vmin=0, vmax=vmax, origin='lower', aspect='auto')
     axes[0].set_xlabel('X (km)')
     axes[0].set_ylabel('Y (km)')
     axes[0].set_title(f'{velocity_type} RMS Changes - XY Projection')
     plt.colorbar(im1, ax=axes[0], label=f'{velocity_type} RMS (km/s)')
+    if basin_data:
+        plot_basin_boundaries(axes[0], basin_data, basin_config or {})
     
     # XZ projection
     Xi_xz, Zi = np.meshgrid(xi, zi)
@@ -453,26 +463,33 @@ def create_slice_heatmap_plots(df1: pd.DataFrame, df2: pd.DataFrame,
     y_unique = np.sort(df1['Y_grid_km'].unique())
     X, Y = np.meshgrid(x_unique, y_unique)
     
+    basin_config = config.get('basin_boundaries', {})
+    basin_data = load_basin_boundaries(basin_config) if config['velocity_analysis'].get('plot_basin_boundaries', False) else {}
+
     # Create difference plot
     fig, axes = plt.subplots(2, 4, figsize=(24, 12))
-    
+
     _plot_depth_slice_row(axes[0, :], max_depth_data1, max_depth_data2, X, Y,
                          extremes['max_diff_depth'], model1_name, model2_name,
-                         difference_label, "Max Diff")
-    
+                         difference_label, "Max Diff",
+                         basin_data=basin_data, basin_config=basin_config)
+
     _plot_depth_slice_row(axes[1, :], min_depth_data1, min_depth_data2, X, Y,
                          extremes['min_diff_depth'], model1_name, model2_name,
-                         difference_label, "Min Diff")
+                         difference_label, "Min Diff",
+                         basin_data=basin_data, basin_config=basin_config)
     
     plt.suptitle(f'Depth Slice Heatmaps: {difference_label}', fontsize=20)
     plt.subplots_adjust(left=0.05, right=0.92, top=0.85, bottom=0.08, wspace=0.3, hspace=0.35)
     save_figure(fig, plots_dir / 'depth_slice_heatmaps', output_format)
 
 
-def _plot_depth_slice_row(axes: np.ndarray, depth_data1: pd.DataFrame, 
+def _plot_depth_slice_row(axes: np.ndarray, depth_data1: pd.DataFrame,
                           depth_data2: pd.DataFrame, X: np.ndarray, Y: np.ndarray,
                           depth: float, model1_name: str, model2_name: str,
-                          difference_label: str, slice_label: str) -> None:
+                          difference_label: str, slice_label: str,
+                          basin_data: Optional[Dict] = None,
+                          basin_config: Optional[Dict] = None) -> None:
     """
     Plot a single row of depth slice comparisons.
     
@@ -533,7 +550,7 @@ def _plot_depth_slice_row(axes: np.ndarray, depth_data1: pd.DataFrame,
     axes[2].set_xlabel('X (km)')
     axes[2].set_ylabel('Y (km)')
     plt.colorbar(im3, ax=axes[2], label='Vp Diff (km/s)')
-    
+
     # Plot Vs Difference
     Z_diff_vs = Z2_vs - Z1_vs
     vmax_vs = np.nanmax(np.abs(Z_diff_vs))
@@ -544,6 +561,10 @@ def _plot_depth_slice_row(axes: np.ndarray, depth_data1: pd.DataFrame,
     axes[3].set_xlabel('X (km)')
     axes[3].set_ylabel('Y (km)')
     plt.colorbar(im4, ax=axes[3], label='Vs Diff (km/s)')
+
+    if basin_data:
+        for ax in axes:
+            plot_basin_boundaries(ax, basin_data, basin_config or {})
 
 
 def create_domain_overview_plot(df: pd.DataFrame, extremes: Dict[str, Any],
@@ -579,6 +600,12 @@ def create_domain_overview_plot(df: pd.DataFrame, extremes: Dict[str, Any],
     axes[0].set_title('Domain Overview - Map View')
     axes[0].legend(loc='upper right')
     axes[0].grid(True, alpha=0.3)
+
+    basin_config = config.get('basin_boundaries', {})
+    if config['velocity_analysis'].get('plot_basin_boundaries', False):
+        basin_data = load_basin_boundaries(basin_config)
+        if basin_data:
+            plot_basin_boundaries(axes[0], basin_data, basin_config)
     
     # Cross section view (X-Z)
     axes[1].scatter(x_coords, z_coords, c='lightgray', s=2, alpha=0.5)
@@ -630,16 +657,23 @@ def create_ratio_analysis_plots(df1: pd.DataFrame, df2: pd.DataFrame,
         output_format: Output format
         config: Configuration dictionary
     """
+    basin_config = config.get('basin_boundaries', {})
+    basin_data = load_basin_boundaries(basin_config) if config['velocity_analysis'].get('plot_basin_boundaries', False) else {}
+
     # Create geometric mean ratio projections
-    _create_geometric_ratio_projections(df1, df2, plots_dir, output_format, config)
-    
+    _create_geometric_ratio_projections(df1, df2, plots_dir, output_format, config,
+                                        basin_data=basin_data, basin_config=basin_config)
+
     # Create ratio heatmaps at extreme depths
-    _create_ratio_heatmaps(df1, df2, plots_dir, output_format, config)
+    _create_ratio_heatmaps(df1, df2, plots_dir, output_format, config,
+                           basin_data=basin_data, basin_config=basin_config)
 
 
 def _create_geometric_ratio_projections(df1: pd.DataFrame, df2: pd.DataFrame,
                                        plots_dir: Path, output_format: str,
-                                       config: Dict[str, Any]) -> None:
+                                       config: Dict[str, Any],
+                                       basin_data: Optional[Dict] = None,
+                                       basin_config: Optional[Dict] = None) -> None:
     """
     Create spatial distribution plots of geometric mean ratios with XY, XZ, YZ projections.
     
@@ -673,14 +707,16 @@ def _create_geometric_ratio_projections(df1: pd.DataFrame, df2: pd.DataFrame,
     axes = axes.flatten()
     
     # Vp ratio projections
-    _create_ratio_spatial_projection(df_temp, 'vp_ratio', 'Vp', axes[0:4], 
+    _create_ratio_spatial_projection(df_temp, 'vp_ratio', 'Vp', axes[0:4],
                                     x_coords, y_coords, z_coords,
-                                    grid_resolution, interpolation_method)
-    
+                                    grid_resolution, interpolation_method,
+                                    basin_data=basin_data, basin_config=basin_config)
+
     # Vs ratio projections
-    _create_ratio_spatial_projection(df_temp, 'vs_ratio', 'Vs', axes[4:8], 
+    _create_ratio_spatial_projection(df_temp, 'vs_ratio', 'Vs', axes[4:8],
                                     x_coords, y_coords, z_coords,
-                                    grid_resolution, interpolation_method)
+                                    grid_resolution, interpolation_method,
+                                    basin_data=basin_data, basin_config=basin_config)
     
     plt.suptitle(f'Geometric Mean Ratio Spatial Projections\n{difference_label}', fontsize=20)
     plt.tight_layout()
@@ -689,9 +725,11 @@ def _create_geometric_ratio_projections(df1: pd.DataFrame, df2: pd.DataFrame,
 
 def _create_ratio_spatial_projection(df_temp: pd.DataFrame, ratio_col: str,
                                     velocity_type: str, axes: list,
-                                    x_coords: np.ndarray, y_coords: np.ndarray, 
+                                    x_coords: np.ndarray, y_coords: np.ndarray,
                                     z_coords: np.ndarray,
-                                    grid_resolution: int, interpolation_method: str) -> None:
+                                    grid_resolution: int, interpolation_method: str,
+                                    basin_data: Optional[Dict] = None,
+                                    basin_config: Optional[Dict] = None) -> None:
     """
     Create spatial projection for velocity ratios.
     
@@ -737,13 +775,15 @@ def _create_ratio_spatial_projection(df_temp: pd.DataFrame, ratio_col: str,
     geomean_xy_interp = griddata((xy_geomean['X_grid_km'], xy_geomean['Y_grid_km']), 
                                  xy_geomean[ratio_col], (Xi, Yi), method=interpolation_method)
     
-    im1 = axes[0].imshow(geomean_xy_interp, extent=[xi.min(), xi.max(), yi.min(), yi.max()], 
+    im1 = axes[0].imshow(geomean_xy_interp, extent=[xi.min(), xi.max(), yi.min(), yi.max()],
                         cmap='RdBu_r', vmin=vmin, vmax=vmax, origin='lower', aspect='auto')
     axes[0].set_xlabel('X (km)')
     axes[0].set_ylabel('Y (km)')
     axes[0].set_title(f'{velocity_type} Geometric Mean Ratio - XY Projection')
     cbar1 = plt.colorbar(im1, ax=axes[0], label=f'{velocity_type} Ratio')
     cbar1.ax.axhline(y=1.0, color='black', linestyle='-', linewidth=1)
+    if basin_data:
+        plot_basin_boundaries(axes[0], basin_data, basin_config or {})
     
     # XZ projection
     Xi_xz, Zi = np.meshgrid(xi, zi)
@@ -783,7 +823,9 @@ def _create_ratio_spatial_projection(df_temp: pd.DataFrame, ratio_col: str,
 
 def _create_ratio_heatmaps(df1: pd.DataFrame, df2: pd.DataFrame,
                           plots_dir: Path, output_format: str,
-                          config: Dict[str, Any]) -> None:
+                          config: Dict[str, Any],
+                          basin_data: Optional[Dict] = None,
+                          basin_config: Optional[Dict] = None) -> None:
     """
     Create ratio heatmap plots at extreme ratio change depths.
     
@@ -816,14 +858,16 @@ def _create_ratio_heatmaps(df1: pd.DataFrame, df2: pd.DataFrame,
                                         min_ratio_depth_data1, min_ratio_depth_data2,
                                         X, Y, ratio_info, 'vp', 'Vp', 'viridis',
                                         model1_name, model2_name, difference_label,
-                                        plots_dir, output_format)
-    
+                                        plots_dir, output_format,
+                                        basin_data=basin_data, basin_config=basin_config)
+
     # Create Vs ratio analysis figure
     _create_single_velocity_ratio_figure(max_ratio_depth_data1, max_ratio_depth_data2,
                                         min_ratio_depth_data1, min_ratio_depth_data2,
                                         X, Y, ratio_info, 'vs', 'Vs', 'plasma',
                                         model1_name, model2_name, difference_label,
-                                        plots_dir, output_format)
+                                        plots_dir, output_format,
+                                        basin_data=basin_data, basin_config=basin_config)
 
 
 def _create_single_velocity_ratio_figure(max_data1: pd.DataFrame, max_data2: pd.DataFrame,
@@ -831,7 +875,9 @@ def _create_single_velocity_ratio_figure(max_data1: pd.DataFrame, max_data2: pd.
                                          X: np.ndarray, Y: np.ndarray, ratio_info: Dict[str, Any],
                                          vel_col: str, vel_label: str, vel_cmap: str,
                                          model1_name: str, model2_name: str, difference_label: str,
-                                         plots_dir: Path, output_format: str) -> None:
+                                         plots_dir: Path, output_format: str,
+                                         basin_data: Optional[Dict] = None,
+                                         basin_config: Optional[Dict] = None) -> None:
     """
     Create a single velocity ratio analysis figure (Vp or Vs).
     
@@ -853,12 +899,14 @@ def _create_single_velocity_ratio_figure(max_data1: pd.DataFrame, max_data2: pd.
     # TOP ROW: Maximum average ratio change depth slice
     _plot_ratio_row(axes[0, :], max_data1, max_data2, X, Y, ratio_info['max_change_depth'],
                    vel_col, vel_label, vel_cmap, model1_name, model2_name, difference_label,
-                   f"Avg change: {ratio_info[f'max_{vel_col}_avg_change']:.4f}", "Max Avg Ratio Change")
-    
+                   f"Avg change: {ratio_info[f'max_{vel_col}_avg_change']:.4f}", "Max Avg Ratio Change",
+                   basin_data=basin_data, basin_config=basin_config)
+
     # BOTTOM ROW: Minimum average ratio change depth slice
     _plot_ratio_row(axes[1, :], min_data1, min_data2, X, Y, ratio_info['min_change_depth'],
                    vel_col, vel_label, vel_cmap, model1_name, model2_name, difference_label,
-                   f"Avg change: {ratio_info[f'min_{vel_col}_avg_change']:.4f}", "Min Avg Ratio Change")
+                   f"Avg change: {ratio_info[f'min_{vel_col}_avg_change']:.4f}", "Min Avg Ratio Change",
+                   basin_data=basin_data, basin_config=basin_config)
     
     plt.suptitle(f'{vel_label} Ratio Analysis: {difference_label}', fontsize=20)
     plt.subplots_adjust(left=0.05, right=0.92, top=0.85, bottom=0.08, wspace=0.3, hspace=0.35)
@@ -869,7 +917,9 @@ def _plot_ratio_row(axes: np.ndarray, depth_data1: pd.DataFrame, depth_data2: pd
                    X: np.ndarray, Y: np.ndarray, depth: float,
                    vel_col: str, vel_label: str, vel_cmap: str,
                    model1_name: str, model2_name: str, difference_label: str,
-                   avg_change_text: str, slice_label: str) -> None:
+                   avg_change_text: str, slice_label: str,
+                   basin_data: Optional[Dict] = None,
+                   basin_config: Optional[Dict] = None) -> None:
     """
     Plot a single row of ratio analysis.
 
@@ -943,6 +993,10 @@ def _plot_ratio_row(axes: np.ndarray, depth_data1: pd.DataFrame, depth_data2: pd
     plt.colorbar(im4, ax=axes[3], label=f'{vel_label} Ratio')
     axes[3].contour(X, Y, Z_ratio, levels=[1.0], colors='black', linewidths=2, linestyles='--')
 
+    if basin_data:
+        for ax in axes:
+            plot_basin_boundaries(ax, basin_data, basin_config or {})
+
 
 def create_plane_specific_ratio_plots(df1: pd.DataFrame, df2: pd.DataFrame,
                                       plots_dir: Path, output_format: str,
@@ -963,6 +1017,9 @@ def create_plane_specific_ratio_plots(df1: pd.DataFrame, df2: pd.DataFrame,
 
     plane_config = config['velocity_analysis'].get('plane_ratio_plots', {})
     planes = plane_config.get('planes', [])
+
+    basin_config = config.get('basin_boundaries', {})
+    basin_data = load_basin_boundaries(basin_config) if config['velocity_analysis'].get('plot_basin_boundaries', False) else {}
 
     # Get unique coordinates for validation
     x_unique = np.sort(df1['X_grid_km'].unique())
@@ -995,7 +1052,8 @@ def create_plane_specific_ratio_plots(df1: pd.DataFrame, df2: pd.DataFrame,
                 # Horizontal slice at specified Z depth
                 _create_xy_plane_ratio_plot(df1, df2, coord, z_unique,
                                            model1_name, model2_name, label,
-                                           plots_dir, output_format)
+                                           plots_dir, output_format,
+                                           basin_data=basin_data, basin_config=basin_config)
             elif plane_type == 'xz':
                 # Vertical slice at specified Y coordinate
                 _create_xz_plane_ratio_plot(df1, df2, coord, y_unique,
@@ -1013,7 +1071,9 @@ def create_plane_specific_ratio_plots(df1: pd.DataFrame, df2: pd.DataFrame,
 def _create_xy_plane_ratio_plot(df1: pd.DataFrame, df2: pd.DataFrame,
                                 z_coord: float, z_unique: np.ndarray,
                                 model1_name: str, model2_name: str, label: str,
-                                plots_dir: Path, output_format: str) -> None:
+                                plots_dir: Path, output_format: str,
+                                basin_data: Optional[Dict] = None,
+                                basin_config: Optional[Dict] = None) -> None:
     """Create XY plane (horizontal slice) ratio plot at specified Z coordinate."""
     # Find nearest Z coordinate
     nearest_z = z_unique[np.argmin(np.abs(z_unique - z_coord))]
@@ -1046,6 +1106,10 @@ def _create_xy_plane_ratio_plot(df1: pd.DataFrame, df2: pd.DataFrame,
     _plot_plane_full_comparison_row(axes[1, :], data1, data2, X, Y, 'vs', 'Vs', 'plasma',
                                     model1_name, model2_name, nearest_z, label,
                                     'X (km)', 'Y (km)')
+
+    if basin_data:
+        for ax in axes.flatten():
+            plot_basin_boundaries(ax, basin_data, basin_config or {})
 
     plt.suptitle(f'XY Plane Analysis at Z={int(nearest_z)} km: {label}', fontsize=20)
     plt.subplots_adjust(left=0.05, right=0.92, top=0.85, bottom=0.08, wspace=0.3, hspace=0.35)

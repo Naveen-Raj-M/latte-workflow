@@ -9,10 +9,11 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import logging
 
 from utils.plot_utils import save_figure, create_multi_panel_figure
+from .basin_boundaries import plot_basin_boundaries
 
 logger = logging.getLogger(__name__)
 
@@ -202,7 +203,9 @@ def _single_geographic_plot(df: pd.DataFrame, colors: Dict[str, str],
                          plots_dir: Path, output_format: str,
                          plane: str,
                          config: Dict[str, Any],
-                         comparison_mode: str = 'ground_truth') -> None:
+                         comparison_mode: str = 'ground_truth',
+                         basin_data: Optional[Dict] = None,
+                         basin_config: Optional[Dict] = None) -> None:
     """
     Create geographic map showing correction vectors.
     
@@ -243,12 +246,14 @@ def _single_geographic_plot(df: pd.DataFrame, colors: Dict[str, str],
     
     ax.set_xlabel('X (km)', fontsize=11)
     ax.set_ylabel('Y (km)', fontsize=11)
-    ax.set_title(f'Geographic Distribution of Source {labels["difference"]}s\n{labels["title_suffix"]}', 
+    ax.set_title(f'Geographic Distribution of Source {labels["difference"]}s\n{labels["title_suffix"]}',
                 fontsize=12, fontweight='bold')
     ax.legend(frameon=True, fancybox=False, edgecolor='black')
     ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
     if plane == 'xy':
         ax.set_aspect('equal', adjustable='box')
+        if basin_data:
+            plot_basin_boundaries(ax, basin_data, basin_config or {})
     else:
         ax.invert_yaxis()
     
@@ -259,10 +264,12 @@ def _single_geographic_plot(df: pd.DataFrame, colors: Dict[str, str],
 def create_geographic_map(df: pd.DataFrame, colors: Dict[str, str],
                          plots_dir: Path, output_format: str,
                          config: Dict[str, Any],
-                         comparison_mode: str = 'ground_truth') -> None:
+                         comparison_mode: str = 'ground_truth',
+                         basin_data: Optional[Dict] = None,
+                         basin_config: Optional[Dict] = None) -> None:
     """
     Create geographic map showing correction vectors.
-    
+
     Args:
         df: Dataframe with corrections
         colors: Color scheme dictionary
@@ -270,8 +277,11 @@ def create_geographic_map(df: pd.DataFrame, colors: Dict[str, str],
         output_format: Output format (png, pdf, svg)
         config: Configuration dictionary
         comparison_mode: 'ground_truth' or 'method_comparison'
+        basin_data: Basin boundary data loaded from load_basin_boundaries()
+        basin_config: Basin boundary configuration for styling
     """
-    _single_geographic_plot(df, colors, plots_dir, output_format, 'xy', config, comparison_mode)
+    _single_geographic_plot(df, colors, plots_dir, output_format, 'xy', config, comparison_mode,
+                            basin_data=basin_data, basin_config=basin_config)
     _single_geographic_plot(df, colors, plots_dir, output_format, 'yz', config, comparison_mode)
     _single_geographic_plot(df, colors, plots_dir, output_format, 'xz', config, comparison_mode)
 

@@ -100,10 +100,10 @@ def analyze_ray_density(config_dict: Dict[str, Any]) -> Dict[str, Any]:
         'colormap': config.get('colormap', 'hot'),
     }
 
-    # Load basin boundaries if configured
+    # Load basin boundaries if configured (global basin_boundaries section)
     basin_data = {}
-    basin_config = config.get('basin_boundaries', {})
-    if basin_config.get('enabled', False):
+    basin_config = config_dict.get('basin_boundaries', {})
+    if config.get('plot_basin_boundaries', False):
         basin_data = load_basin_boundaries(basin_config)
         if basin_data:
             logger.info(f"Loaded {len(basin_data)} basin boundaries for XY plane plots")
