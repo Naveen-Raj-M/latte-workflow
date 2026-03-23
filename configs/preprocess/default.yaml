@@ -26,7 +26,7 @@ data:
 
   # QuakeML processing options
   max_files: null  # null = process all files, or set a number for testing
-  years: null  # null = all years, or list like [2020, 2021, 2022]
+  years: null  # null = auto-detect year subdirectories and files directly in quakeml_dir; or list like [2020, 2021, 2022]
   use_preferred_origin: true
   use_preferred_magnitude: true
   save_all_picks: false  # If false, only picks associated with selected origin

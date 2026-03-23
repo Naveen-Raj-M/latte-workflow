@@ -5,6 +5,7 @@ or pre-processed HDF5 files, with support for parallel processing and filtering.
 """
 
 import glob
+import logging
 import os
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
@@ -251,8 +252,13 @@ def load_from_hdf5(h5_file: str, config: DictConfig = None) -> Tuple[pd.DataFram
 
 
 def get_qml_files(data_dir: str, years: Optional[List[int]] = None,
-                  max_files: Optional[int] = None) -> List[str]:
+                  max_files: Optional[int] = None) -> Tuple[List[str], Dict]:
     """Get list of QuakeML files, optionally filtered by year.
+
+    When *years* is None the function auto-detects:
+      1. Year-named subdirectories (4-digit numeric names, e.g. 2020/) and
+         collects all .qml files inside them.
+      2. .qml files sitting directly in *data_dir* (not inside any subdirectory).
 
     Args:
         data_dir: Base directory containing QuakeML files.
@@ -260,33 +266,66 @@ def get_qml_files(data_dir: str, years: Optional[List[int]] = None,
         max_files: Optional maximum number of files to process.
 
     Returns:
-        Sorted list of QuakeML file paths.
+        Tuple of (sorted list of QuakeML file paths, detection_info dict).
+        detection_info keys:
+          - 'years_found'       : list of detected year directories (auto-detect only)
+          - 'files_per_year'    : dict mapping year -> file count (auto-detect only)
+          - 'direct_files_count': number of .qml files found directly in data_dir
+          - 'mode'              : 'auto' or 'specified'
     """
+    logger = logging.getLogger(__name__)
     qml_files = []
+    detection_info: Dict = {
+        'years_found': [],
+        'files_per_year': {},
+        'direct_files_count': 0,
+        'mode': 'auto' if years is None else 'specified',
+    }
+
+    data_path = Path(data_dir)
 
     if years is None:
-        # Get all QML files recursively
-        qml_files = glob.glob(
-            os.path.join(data_dir, '**', '*.qml'),
-            recursive=True
-        )
+        # --- 1. Detect year-named subdirectories ---
+        year_dirs = sorted([
+            d for d in data_path.iterdir()
+            if d.is_dir() and d.name.isdigit() and len(d.name) == 4
+        ], key=lambda d: d.name)
+
+        for year_dir in year_dirs:
+            year_files = sorted(year_dir.rglob('*.qml'))
+            year_files_str = [str(f) for f in year_files]
+            qml_files.extend(year_files_str)
+            detection_info['years_found'].append(year_dir.name)
+            detection_info['files_per_year'][year_dir.name] = len(year_files_str)
+            logger.info(f"Year {year_dir.name}: found {len(year_files_str)} QML file(s)")
+
+        # --- 2. Detect .qml files directly in data_dir ---
+        direct_files = sorted([
+            str(f) for f in data_path.glob('*.qml')
+        ])
+        if direct_files:
+            qml_files.extend(direct_files)
+            detection_info['direct_files_count'] = len(direct_files)
+            logger.info(f"Direct files in quakeml_dir: found {len(direct_files)} QML file(s)")
+
     else:
         # Get QML files only from specified years
         for year in years:
-            year_dir = os.path.join(data_dir, str(year))
-            if os.path.exists(year_dir):
-                year_files = glob.glob(
-                    os.path.join(year_dir, '**', '*.qml'),
-                    recursive=True
-                )
+            year_dir = data_path / str(year)
+            if year_dir.exists():
+                year_files = sorted([str(f) for f in year_dir.rglob('*.qml')])
                 qml_files.extend(year_files)
+                detection_info['files_per_year'][str(year)] = len(year_files)
+                logger.info(f"Year {year}: found {len(year_files)} QML file(s)")
+            else:
+                logger.warning(f"Year directory not found: {year_dir}")
 
     qml_files = sorted(qml_files)
 
     if max_files is not None:
         qml_files = qml_files[:max_files]
 
-    return qml_files
+    return qml_files, detection_info
 
 
 def calculate_distances(source_lat: float, source_lon: float,
@@ -654,18 +693,48 @@ def load_from_quakeml(config: DictConfig) -> Tuple[pd.DataFrame, pd.DataFrame,
     print(f"Loaded {len(set((v['lat'], v['lon'], v['elevation']) for v in station_inventory.values()))} stations (unique positions)")
 
     # Get QML files
+    logger = logging.getLogger(__name__)
     print(f"\nSearching for QML files in: {config.data.quakeml_dir}")
     if config.data.years:
-        print(f"Filtering for years: {config.data.years}")
+        print(f"Year filter: {config.data.years}")
+    else:
+        print("Year filter: none — auto-detecting year directories and direct files")
     if config.data.max_files:
         print(f"Processing max {config.data.max_files} files")
 
-    qml_files = get_qml_files(
+    qml_files, detection_info = get_qml_files(
         config.data.quakeml_dir,
         config.data.years,
         config.data.max_files
     )
-    print(f"Found {len(qml_files)} QML files to process")
+
+    if detection_info['mode'] == 'auto':
+        years_found = detection_info['years_found']
+        files_per_year = detection_info['files_per_year']
+        direct_count = detection_info['direct_files_count']
+
+        if years_found:
+            print(f"Detected {len(years_found)} year director{'y' if len(years_found) == 1 else 'ies'}: {', '.join(years_found)}")
+            logger.info(f"Auto-detected year directories: {years_found}")
+            for yr, cnt in files_per_year.items():
+                print(f"  {yr}/: {cnt} QML file(s)")
+                logger.info(f"  Year {yr}: {cnt} QML file(s)")
+        else:
+            print("No year-named subdirectories detected.")
+            logger.info("No year-named subdirectories found in quakeml_dir")
+
+        if direct_count > 0:
+            print(f"Direct files in quakeml_dir: {direct_count} QML file(s)")
+            logger.info(f"Direct QML files in quakeml_dir: {direct_count}")
+        else:
+            print("No QML files found directly in quakeml_dir.")
+            logger.info("No QML files found directly in quakeml_dir")
+    else:
+        for yr, cnt in detection_info['files_per_year'].items():
+            print(f"  {yr}/: {cnt} QML file(s)")
+
+    print(f"Total: {len(qml_files)} QML file(s) to process")
+    logger.info(f"Total QML files to process: {len(qml_files)}")
 
     if len(qml_files) == 0:
         print("No QML files found.")
