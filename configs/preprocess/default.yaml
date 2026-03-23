@@ -259,8 +259,8 @@ visualization:
     # Report generation
     generate_report: true  # Generate ray_path_density_report.txt with statistics
     # Master control for ray density plots (summed projections)
-    plot_ray_density: true  # Set to false to disable all xy/xz/yz projection plots
-    # Which planes to plot (summed projections) - only used if plot_ray_density is true
+    plot_overall_ray_density: true  # Set to false to disable all xy/xz/yz projection plots
+    # Which planes to plot (summed projections) - only used if plot_overall_ray_density is true
     plot_xy: true  # Map view (summed over depth)
     plot_xz: true  # Vertical cross-section (summed over Y)
     plot_yz: true  # Vertical cross-section (summed over X)

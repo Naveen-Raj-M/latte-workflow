@@ -794,8 +794,8 @@ def create_ray_density_visualization(config: DictConfig,
         vis_config.fontsize = config.visualization.station_event_vis.fontsize
 
     # Create plots for each plane (summed projections)
-    # Only create these plots if plot_ray_density is enabled
-    plot_density = ray_density_config.get('plot_ray_density', True)
+    # Only create these plots if plot_overall_ray_density is enabled
+    plot_density = ray_density_config.get('plot_overall_ray_density', True)
 
     if plot_density:
         if ray_density_config.get('plot_xy', True):
