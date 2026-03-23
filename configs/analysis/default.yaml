@@ -3,6 +3,9 @@
 hydra:
   run:
     dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}_analysis_${hydra:job.config_name}
+  job_logging:
+    root:
+      handlers: []
 
 analysis:
   log_level: "DEBUG"  # Options: DEBUG, INFO, WARNING, ERROR
@@ -273,20 +276,13 @@ raypath_analysis:
 
   # Event filtering/subsampling (priority: event_id_list_file > max_rays > subsample_fraction)
   event_id_list_file: null  # Path to text file with event IDs (one per line), or null
-  shot_map_file: null  # Path to shot map TSV (required if using event_id_list_file), or null to use paths.shot_map_file
+  shot_map_file: null  # Path to shot map CSV (required if using event_id_list_file), or null to use paths.shot_map_file
   max_rays: null  # Maximum rays to load (null for all)
   subsample_fraction: 1.0  # Fraction of rays to plot (0.0-1.0)
 
   # Optional: filter to a specific subset of rays defined by a CSV file.
   filter_csv: null  # Path to filter CSV, or null to disable
   filter_match_tolerance_km: 0.5  # Receiver coordinate match tolerance (km)
-
-  # Vectorization optimization
-  num_samples_per_ray: 500  # Resample all rays to this many points for vectorized operations (faster plotting)
-  use_vectorized_loading: true  # Use vectorized ray loading (recommended for large datasets)
-
-  # 3D plot (disabled by default due to performance)
-  enable_3d_plot: false
 
   # Report generation
   generate_report: true

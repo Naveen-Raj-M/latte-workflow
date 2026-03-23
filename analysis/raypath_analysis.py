@@ -14,27 +14,22 @@ import os
 import json
 import logging
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any
 
 import pandas as pd
 
-import numpy as np
 from scipy.spatial import KDTree
 from tqdm import tqdm
 
 from .raypath_data import (
     load_ray_paths_from_cache,
-    load_ray_paths_from_cache_vectorized,
     get_ray_path_metadata,
     get_ray_path_statistics,
-    get_unique_sources,
-    get_unique_receivers,
     load_event_ids_from_file,
     convert_event_ids_to_shot_ids
 )
 from .raypath_plots import (
     plot_ray_paths_projection,
-    plot_ray_paths_3d,
     create_ray_path_summary_plot
 )
 from .basin_boundaries import load_basin_boundaries
@@ -135,10 +130,6 @@ def analyze_ray_paths(config_dict: Dict[str, Any]) -> Dict[str, Any]:
     planes = config.get('plot', {}).get('planes', ['xy', 'xz', 'yz'])
     output_format = config.get('plot', {}).get('format', 'png')
 
-    # Vectorization settings
-    use_vectorized = config.get('use_vectorized_loading', True)
-    num_samples_per_ray = config.get('num_samples_per_ray', 500)
-
     # Event filtering/subsampling (priority: event_id_list_file > max_rays > subsample_fraction)
     event_id_list_file = config.get('event_id_list_file', None)
     max_rays = config.get('max_rays', None)
@@ -231,7 +222,6 @@ def analyze_ray_paths(config_dict: Dict[str, Any]) -> Dict[str, Any]:
         'metadata': metadata,
         'plots': {
             'projections': [],
-            '3d': [],
             'summary': []
         }
     }
@@ -247,28 +237,16 @@ def analyze_ray_paths(config_dict: Dict[str, Any]) -> Dict[str, Any]:
         logger.info(f"Processing {phase.upper()}-wave ray paths")
         logger.info(f"{'='*60}")
 
-        # Load ray paths (vectorized or standard)
-        if use_vectorized:
-            logger.info(f"Loading ray paths from cache (vectorized, {num_samples_per_ray} samples/ray)...")
-            ray_data = load_ray_paths_from_cache_vectorized(
-                cache_path,
-                phase=phase,
-                max_rays=max_rays,
-                shot_ids=filter_shot_ids,
-                num_samples_per_ray=num_samples_per_ray,
-                receiver_filter_by_shot=receiver_filter_by_shot,
-                receiver_filter_tolerance=filter_match_tolerance_km,
-            )
-        else:
-            logger.info("Loading ray paths from cache (standard)...")
-            ray_data = load_ray_paths_from_cache(
-                cache_path,
-                phase=phase,
-                max_rays=max_rays,
-                shot_ids=filter_shot_ids,
-                receiver_filter_by_shot=receiver_filter_by_shot,
-                receiver_filter_tolerance=filter_match_tolerance_km,
-            )
+        # Load ray paths
+        logger.info("Loading ray paths from cache...")
+        ray_data = load_ray_paths_from_cache(
+            cache_path,
+            phase=phase,
+            max_rays=max_rays,
+            shot_ids=filter_shot_ids,
+            receiver_filter_by_shot=receiver_filter_by_shot,
+            receiver_filter_tolerance=filter_match_tolerance_km,
+        )
 
         if phase not in ray_data or len(ray_data[phase]['ray_paths']) == 0:
             logger.warning(f"No {phase.upper()}-wave ray paths loaded")
@@ -282,15 +260,8 @@ def analyze_ray_paths(config_dict: Dict[str, Any]) -> Dict[str, Any]:
         logger.info(f"Loaded {len(ray_paths)} ray paths")
 
         # Get unique sources and receivers for plotting
-        if use_vectorized:
-            # For vectorized data, sources and receivers are already numpy arrays
-            # Convert to tuples for set operations
-            unique_sources = [tuple(s) for s in np.unique(sources, axis=0)]
-            unique_receivers = [tuple(r) for r in np.unique(receivers, axis=0)]
-        else:
-            # For standard data, sources and receivers are lists of tuples
-            unique_sources = list(set(sources))
-            unique_receivers = list(set(receivers))
+        unique_sources = list(set(sources))
+        unique_receivers = list(set(receivers))
 
         logger.info(f"Unique sources: {len(unique_sources)}")
         logger.info(f"Unique receivers: {len(unique_receivers)}")
@@ -322,32 +293,6 @@ def analyze_ray_paths(config_dict: Dict[str, Any]) -> Dict[str, Any]:
                 results['plots']['projections'].append({
                     'phase': phase,
                     'plane': plane,
-                    'status': 'failed',
-                    'error': str(e)
-                })
-
-        # Create 3D plot if enabled
-        if config.get('enable_3d_plot', False):
-            logger.info("Creating 3D plot...")
-            output_file_3d = str(output_dir / 'plots' / f'ray_paths_{phase}_wave_3d.{output_format}')
-
-            try:
-                plot_ray_paths_3d(
-                    ray_paths,
-                    unique_sources,
-                    unique_receivers,
-                    output_file_3d,
-                    plot_config
-                )
-                results['plots']['3d'].append({
-                    'phase': phase,
-                    'output_file': output_file_3d,
-                    'status': 'success'
-                })
-            except Exception as e:
-                logger.error(f"Error creating 3D plot: {e}")
-                results['plots']['3d'].append({
-                    'phase': phase,
                     'status': 'failed',
                     'error': str(e)
                 })
