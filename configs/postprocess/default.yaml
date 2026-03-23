@@ -1,64 +1,68 @@
 # configs/postprocess/default.yaml
+# Post-processing configuration for LATTE tomography outputs
 
 hydra:
   run:
     dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}_postprocess_${hydra:job.config_name}
 
 general:
-  strict_mode: true
-  log_level: INFO  # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
-
-# Global performance settings for parallel processing
-performance:
-  parallel_processing: true  # Enable parallel processing across modules
-  n_jobs: -1  # Number of parallel workers (-1 = use all available cores, 1 = sequential)
-  backend: "multiprocessing"  # Options: loky, multiprocessing, threading
-  batch_size: "auto"  # Batch size for chunking tasks. Options: "auto", integer, or null
-  pre_dispatch: "2*n_jobs"  # Number of tasks to pre-dispatch
-  show_progress: true  # Show progress bars during processing
+  strict_mode: true                       # true = stop on first error; false = continue
+  log_level: INFO                         # DEBUG | INFO | WARNING | ERROR | CRITICAL
 
 data:
   base_dir: "/path/to/latte/output"
   analysis_output_dir: "/path/to/analysis/output"
 
+# Global parallel processing settings
+performance:
+  parallel_processing: true              # true = enable parallel processing across modules
+  n_jobs: -1                             # -1 = all cores, 1 = serial, N = N cores
+  backend: "multiprocessing"             # loky | multiprocessing | threading
+  batch_size: "auto"                     # auto | integer | null
+  pre_dispatch: "2*n_jobs"
+  show_progress: true
+
 velocity_processing:
   enabled: false
-  phase_type: "both"  # Options: both, p, s
-  # Input velocity file (auto-detects format from extension: .csv, .h5, .hdf5)
+  phase_type: "both"                     # both | p | s
+  # Input velocity file; format auto-detected from extension (.csv, .h5, .hdf5)
   reference_velocity_file: "/full/path/to/velocity_cartesian_final.csv"
   vp_binary: "${data.base_dir}/model/updated_vp.bin"
   vs_binary: "${data.base_dir}/model/updated_vs.bin"
+
   fine_grid:
     nx: 401
     ny: 361
     nz: 43
-    dx: 0.5
-    dy: 0.5
-    dz: 0.5
-    origin_x: 0.0
-    origin_y: 0.0
-    origin_z: 0.0
-  interpolation_mode: "sample_at_coarse"  # Options: sample_at_coarse, expand_to_fine
-  # Output format: csv, hdf5, or both
-  velocity_output_format: "csv"  # Default to csv for backward compatibility
+    dx: 0.5                              # km
+    dy: 0.5                              # km
+    dz: 0.5                              # km
+    origin_x: 0.0                        # km
+    origin_y: 0.0                        # km
+    origin_z: 0.0                        # km
+
+  interpolation_mode: "sample_at_coarse" # sample_at_coarse | expand_to_fine
+  velocity_output_format: "csv"          # csv | hdf5 | both
   velocity_output_csv: "${data.analysis_output_dir}/velocity_cartesian_latte_output.csv"
   velocity_output_hdf5: "${data.analysis_output_dir}/velocity_cartesian_latte_output.h5"
-  # HDF5-specific options (uses global performance settings)
+
+  # HDF5 output options; used when velocity_output_format is 'hdf5' or 'both'
   hdf5_options:
-    compression: "gzip"
-    compression_level: 4
-    use_coarse_dataset: false  # If true, read from coarse dataset for faster processing
-    # Coarse grid subsampling for output
-    create_coarse_dataset: false  # Create coarse dataset INSIDE HDF5 file
-    write_coarse_csv: false  # Write SEPARATE CSV file with coarse data
+    compression: "gzip"                  # gzip | lzf | null
+    compression_level: 4                 # 0–9 for gzip; 4 is balanced
+    use_coarse_dataset: false            # true = read from coarse dataset for faster processing
+    create_coarse_dataset: false         # true = write coarse dataset inside the HDF5 file
+    write_coarse_csv: false              # true = write a separate coarse CSV file
     output_coarse_csv: "${data.analysis_output_dir}/velocity_cartesian_latte_output_coarse.csv"
     coarse_grid:
-      dx: 2.0
-      dy: 2.0
-      dz: 2.0
-  process_gradient: false  # Load and output gradient fields (grad_vp, grad_vs)
-  process_search: false    # Load and output search direction fields (srch_vp, srch_vs)
-  parameters_to_process: ["vp", "vs"]  # Options: vp, vs
+      dx: 2.0                            # km; must be an integer multiple of fine dx
+      dy: 2.0                            # km; must be an integer multiple of fine dy
+      dz: 2.0                            # km; must be an integer multiple of fine dz
+
+  # Gradient and search direction outputs; requires process_gradient or process_search to be true
+  process_gradient: false                # true = load and output gradient fields (grad_vp, grad_vs)
+  process_search: false                  # true = load and output search direction fields (srch_vp, srch_vs)
+  parameters_to_process: ["vp", "vs"]   # vp | vs
   grad_vp_binary: "${data.base_dir}/model/grad_vp.bin"
   grad_vs_binary: "${data.base_dir}/model/grad_vs.bin"
   srch_vp_binary: "${data.base_dir}/model/srch_vp.bin"
@@ -66,17 +70,20 @@ velocity_processing:
 
 travel_time_processing:
   enabled: false
-  phase_type: "both"  # Options: both, p, s
+  phase_type: "both"                     # both | p | s
   ground_truth_csv: "/full/path/to/ground_truth_travel_times_corrected.csv"
   synthetic_tt_dir: "${data.base_dir}/synthetic_traveltimes"
   shot_map_file: "/full/path/to/shot_to_source_id_map.txt"
+  synthetic_tt_output_csv: "${data.analysis_output_dir}/synthetic_travel_times_latte_output.csv"
+
+  # Source-receiver exchange (reciprocity-based inversion)
   source_receiver_exchange: false
   exchange_mapping_file: ${data.base_dir}/exchange_mapping.txt
   exchange_geometry_file: ${data.base_dir}/exchange_geometry.txt
   virtual_shot_mapping_file: ${data.base_dir}/shot_mapping.txt
+
   source_correction: false
   source_correction_file: ${data.base_dir}/model/updated_st0.bin
-  synthetic_tt_output_csv: "${data.analysis_output_dir}/synthetic_travel_times_latte_output.csv"
 
 source_processing:
   enabled: false
@@ -86,9 +93,11 @@ source_processing:
   st0_file: "${data.base_dir}/model/updated_st0.bin"
   n_sources: 4495
   output_csv: "${data.analysis_output_dir}/source_parameters_latte_output.csv"
-  process_gradient: false  # Load and output gradient fields (grad_sx, grad_sy, grad_sz, grad_st0)
-  process_search: false    # Load and output search direction fields (srch_sx, srch_sy, srch_sz, srch_st0)
-  parameters_to_process: ["sx", "sy", "sz", "st0"]  # Options: sx, sy, sz, st0
+
+  # Gradient and search direction outputs; requires process_gradient or process_search to be true
+  process_gradient: false                # true = load and output gradient fields (grad_sx, …, grad_st0)
+  process_search: false                  # true = load and output search direction fields (srch_sx, …, srch_st0)
+  parameters_to_process: ["sx", "sy", "sz", "st0"]  # sx | sy | sz | st0
   grad_sx_file: "${data.base_dir}/model/grad_sx.bin"
   grad_sy_file: "${data.base_dir}/model/grad_sy.bin"
   grad_sz_file: "${data.base_dir}/model/grad_sz.bin"
@@ -98,57 +107,49 @@ source_processing:
   srch_sz_file: "${data.base_dir}/model/srch_sz.bin"
   srch_st0_file: "${data.base_dir}/model/srch_st0.bin"
 
-# Ray path diagnosis configuration (generates ray path cache and DWS files)
+# Reads pre-computed ray path binaries from LATTE forward solver; builds HDF5 cache and optionally computes DWS
 ray_path_diagnosis:
   enabled: false
-
-  # Input: pre-computed ray path binary files from LATTE forward solver
-  raypath_binary_dir: null  # Required: path to directory containing shot_*_raypath_*.bin files
-
-  # Common input files
+  # Path to directory containing shot_*_raypath_*.bin files
+  raypath_binary_dir: null
   ground_truth_csv: "${travel_time_processing.synthetic_tt_output_csv}"
   shot_map_file: "${travel_time_processing.shot_map_file}"
-
-  # Output files (HDF5 format)
   ray_path_output_file: "${data.analysis_output_dir}/ray_paths/ray_paths.h5"
   dws_output_file: "${data.analysis_output_dir}/dws_values.h5"
 
-  # Common grid dimensions (must match the model grid used for eikonal solver)
   grid:
     nx: 401
     ny: 361
     nz: 43
-    dx: 0.5  # km
-    dy: 0.5  # km
-    dz: 0.5  # km
-    origin_x: 0.0  # km
-    origin_y: 0.0  # km
-    origin_z: 0.0  # km
+    dx: 0.5                              # km
+    dy: 0.5                              # km
+    dz: 0.5                              # km
+    origin_x: 0.0                        # km
+    origin_y: 0.0                        # km
+    origin_z: 0.0                        # km
 
-  # Common processing parameters
-  phase_type: "both"  # Options: both, p, s
+  phase_type: "both"                     # both | p | s
+  compute_dws: true                      # true = compute and write Derivative Weight Sum
 
-  # Event filtering/subsampling (only when compute_dws=false for faster computation)
-  event_id_list_file: null  # Path to text file with event IDs (one per line), or null
-  subsample_fraction: 1.0  # Fraction of rays to compute (0.0-1.0), only when event_id_list_file=null
+  # Event filtering; applied only when compute_dws is false (cache-only optimization)
+  # null = use all events; or path to a text file with one event ID per line
+  event_id_list_file: null
+  # Fraction of events to sample when event_id_list_file is null; 1.0 = all events
+  subsample_fraction: 1.0
 
-  # Cache behavior settings
-  force_recompute: false           # Force recompute even if cache exists (deletes existing cache)
-  fix_corrupted_shots: true        # Detect and recompute only corrupted shots in cache
-  compression: "gzip"              # Compression: gzip, lzf, or none
-  compression_level: 4             # Compression level (1-9 for gzip)
+  force_recompute: false                 # true = recompute all shots even if cache exists
+  fix_corrupted_shots: true             # true = detect and recompute only corrupted shots
+  compression: "gzip"                   # gzip | lzf | null
+  compression_level: 4                  # 0–9 for gzip; 4 is balanced
 
-  # What to compute/output
-  compute_dws: true  # Compute Derivative Weight Sum
-
-  # DWS-specific parameters (only used if compute_dws=true)
+  # DWS options; used only when compute_dws is true
   dws:
-    weight_column: 'weight'  # Weight column in CSV (uses 1.0 if not found)
+    weight_column: "weight"             # column name in CSV; uses 1.0 if not found
 
-# Ray path simplification (RDP algorithm to reduce memory usage in analysis)
+# RDP algorithm to reduce ray path memory footprint for downstream analysis
 ray_path_simplification:
   enabled: false
   input_cache_path: "${data.analysis_output_dir}/ray_paths/ray_paths.h5"
   output_cache_path: "${data.analysis_output_dir}/ray_paths/ray_paths_simplified.h5"
-  epsilon: 0.05  # RDP distance threshold in km (0.01=gentle, 0.05=moderate, 0.10=aggressive)
-  phase_type: "both"  # Options: both, p, s
+  epsilon: 0.05                         # km; 0.01 = gentle, 0.05 = moderate, 0.10 = aggressive
+  phase_type: "both"                    # both | p | s
