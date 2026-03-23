@@ -1,15 +1,13 @@
 """
-Shared ray path computation module for LATTE post-processing.
+Shared ray path cache management module for LATTE post-processing.
 
-This module computes ray paths from gradient fields and caches them to HDF5 files
-for efficient storage and retrieval. The cache supports:
+Provides HDF5 cache management for ray paths read from pre-computed binary files.
+The cache supports:
 - Incremental computation (resume from where you left off)
-- Config validation (recompute if tracing parameters change)
+- Config validation (recompute if grid parameters change)
 - Batch-wise saving with immediate memory cleanup
-- Subsample fraction handling (add more rays to existing cache)
 """
 
-import gc
 import os
 import hashlib
 import json
@@ -19,20 +17,7 @@ from typing import Dict, List, Tuple, Optional, Set
 import h5py
 import numpy as np
 import pandas as pd
-from omegaconf import DictConfig, OmegaConf
-from tqdm import tqdm
-from joblib import Parallel, delayed
-
-from postprocess.postprocess_raypath import (
-    process_single_ray,
-    get_performance_setting,
-    get_tracing_setting,
-    load_shot_mapping,
-    read_gradient_metadata,
-    read_gradient_binaries,
-    reshape_gradients,
-    trace_ray_path
-)
+from omegaconf import DictConfig
 
 
 # =============================================================================
@@ -51,32 +36,15 @@ def compute_config_hash(config: DictConfig) -> str:
     Returns:
         MD5 hash string of the critical parameters
     """
-    # Get tracing parameters
-    max_steps = get_tracing_setting(config, 'max_steps', 10000)
-    step_size = get_tracing_setting(config, 'step_size', 0.1)
-    tolerance = get_tracing_setting(config, 'tolerance', 0.5)
-    interpolation = get_tracing_setting(config, 'interpolation_method', 'nearest')
-
-    # Get precision
-    precision = getattr(config, 'precision', 'single')
-
-    # Get grid parameters
     grid = config.grid
-
     params = {
-        'max_steps': max_steps,
-        'step_size': step_size,
-        'tolerance': tolerance,
-        'interpolation': interpolation,
-        'precision': precision,
         'grid': {
             'nx': grid.nx, 'ny': grid.ny, 'nz': grid.nz,
             'dx': grid.dx, 'dy': grid.dy, 'dz': grid.dz,
             'origin_x': grid.origin_x, 'origin_y': grid.origin_y, 'origin_z': grid.origin_z
-        }
+        },
+        'raypath_binary_dir': getattr(config, 'raypath_binary_dir', None)
     }
-
-    # Create a deterministic string representation
     params_str = json.dumps(params, sort_keys=True)
     return hashlib.md5(params_str.encode()).hexdigest()
 
@@ -143,13 +111,6 @@ def initialize_cache(cache_path: str, config: DictConfig) -> None:
         meta.attrs['config_hash'] = compute_config_hash(config)
         meta.attrs['created'] = datetime.now().isoformat()
         meta.attrs['ground_truth_csv'] = config.ground_truth_csv
-
-        # Store tracing parameters
-        tracing = meta.create_group('tracing')
-        tracing.attrs['max_steps'] = get_tracing_setting(config, 'max_steps', 10000)
-        tracing.attrs['step_size'] = get_tracing_setting(config, 'step_size', 0.1)
-        tracing.attrs['tolerance'] = get_tracing_setting(config, 'tolerance', 0.5)
-        tracing.attrs['interpolation'] = get_tracing_setting(config, 'interpolation_method', 'nearest')
 
         # Store grid parameters
         grid_grp = meta.create_group('grid')
@@ -517,332 +478,31 @@ def get_cache_stats(cache_path: str) -> Dict:
 
 
 # =============================================================================
-# RAY TRACING HELPER FUNCTIONS
+# UTILITY FUNCTIONS
 # =============================================================================
 
-def process_shot_with_preloaded_gradients(
-    shot_id: int,
-    shot_receivers: List[Tuple[Tuple[float, float, float], float]],
-    source_pos: Tuple[float, float, float],
-    grad_x: np.ndarray,
-    grad_y: Optional[np.ndarray],
-    grad_z: np.ndarray,
-    local_grid_dims: Dict,
-    tracing_params: Dict,
-    interpolation_method: str = 'nearest',
-    advanced_params: Optional[Dict] = None
-) -> List[Tuple[Optional[np.ndarray], Tuple[float, float, float], int, float]]:
-    """
-    Process all receivers for a single shot using pre-loaded gradient data.
-
-    This function is designed for batch processing where gradients are
-    pre-loaded into memory before parallel processing begins.
-
-    Args:
-        shot_id: Shot ID
-        shot_receivers: List of (receiver_pos, weight) tuples for this shot
-        source_pos: Source position (x, y, z) in km
-        grad_x, grad_y, grad_z: Pre-loaded and reshaped gradient arrays
-        local_grid_dims: Grid dimensions dictionary
-        tracing_params: Ray tracing parameters dictionary
-        interpolation_method: 'nearest' or 'trilinear' interpolation method
-        advanced_params: Optional dictionary with advanced ray tracing parameters
-
-    Returns:
-        List of (ray_path, receiver_pos, shot_id, weight) tuples for each receiver
-    """
-    # Default advanced parameters if not provided
-    if advanced_params is None:
-        advanced_params = {}
-
-    results = []
-    for receiver_pos, weight in shot_receivers:
-        try:
-            ray_path = trace_ray_path(
-                source_pos,
-                receiver_pos,
-                grad_x, grad_y, grad_z,
-                local_grid_dims,
-                max_steps=tracing_params['max_steps'],
-                step_size=tracing_params['step_size'],
-                tolerance=tracing_params['tolerance'],
-                interpolation_method=interpolation_method,
-                **advanced_params  # Pass all advanced parameters
-            )
-
-            if len(ray_path) > 1:
-                results.append((ray_path, receiver_pos, shot_id, weight))
-            else:
-                results.append((None, receiver_pos, shot_id, weight))
-        except Exception:
-            results.append((None, receiver_pos, shot_id, weight))
-
-    return results
+def get_performance_setting(config: DictConfig, key: str, default):
+    """Get performance setting from global performance config."""
+    if hasattr(config, '_parent') and hasattr(config._parent, 'performance'):
+        perf_config = config._parent.performance
+        if hasattr(perf_config, key):
+            return getattr(perf_config, key)
+    elif hasattr(config, 'performance'):
+        perf_config = config.performance
+        if hasattr(perf_config, key):
+            return getattr(perf_config, key)
+    return default
 
 
-# Global metadata cache to avoid redundant reads
-# All shots typically have the same grid dimensions
-_METADATA_CACHE: Dict[str, Dict] = {}
+def load_shot_mapping(shot_map_file: str) -> Dict[int, str]:
+    """Load shot ID to event ID mapping."""
+    shot_map = {}
+    df = pd.read_csv(shot_map_file, sep='\t')
+    for _, row in df.iterrows():
+        shot_map[int(row['Shot_ID'])] = str(row['Original_Event_ID'])
+    return shot_map
 
 
-def _get_cached_metadata(gradient_dir: str, shot_id: int) -> Dict:
-    """
-    Get metadata from cache or load it once.
-
-    Since all shots typically share the same grid parameters,
-    we cache the metadata after the first read.
-    """
-    cache_key = gradient_dir
-
-    if cache_key not in _METADATA_CACHE:
-        # First time: read metadata from this shot
-        metadata = read_gradient_metadata(gradient_dir, shot_id)
-        _METADATA_CACHE[cache_key] = {
-            'nx': metadata['nx'],
-            'ny': metadata['ny'],
-            'nz': metadata['nz'],
-            'dx': metadata['dx'],
-            'dy': metadata['dy'],
-            'dz': metadata['dz'],
-            'origin_x': metadata['origin_x'],
-            'origin_y': metadata['origin_y'],
-            'origin_z': metadata['origin_z']
-        }
-
-    return _METADATA_CACHE[cache_key]
-
-
-def _load_single_shot_gradients_fast(
-    shot_id: int,
-    gradient_dir: str,
-    phase: str,
-    precision: str,
-    grid_dims: Dict
-) -> Optional[Tuple[int, Dict]]:
-    """
-    Load gradient files for a single shot using pre-cached metadata.
-
-    Optimizations:
-    - Uses pre-cached grid dimensions (no metadata file read)
-    - No os.path.exists() checks (uses try/except)
-    - Direct file reads with minimal overhead
-
-    Returns:
-        Tuple of (shot_id, gradient_dict) or None if loading failed
-    """
-    dtype = np.float64 if precision == 'double' else np.float32
-    nx, ny, nz = grid_dims['nx'], grid_dims['ny'], grid_dims['nz']
-
-    # Build file paths
-    grad_px_file = f"{gradient_dir}/shot_{shot_id}_gradient_{phase}x.bin"
-    grad_py_file = f"{gradient_dir}/shot_{shot_id}_gradient_{phase}y.bin"
-    grad_pz_file = f"{gradient_dir}/shot_{shot_id}_gradient_{phase}z.bin"
-
-    try:
-        # Read all gradient files (no existence checks - faster on network FS)
-        grad_x = np.fromfile(grad_px_file, dtype=dtype)
-        grad_z = np.fromfile(grad_pz_file, dtype=dtype)
-
-        # Try Y component (may not exist for 2D)
-        try:
-            grad_y = np.fromfile(grad_py_file, dtype=dtype)
-        except FileNotFoundError:
-            grad_y = None
-
-        # Reshape using cached dimensions
-        if grad_y is not None:
-            grad_x = grad_x.reshape((nz, ny, nx), order='F')
-            grad_y = grad_y.reshape((nz, ny, nx), order='F')
-            grad_z = grad_z.reshape((nz, ny, nx), order='F')
-        else:
-            grad_x = grad_x.reshape((nz, nx), order='F')
-            grad_z = grad_z.reshape((nz, nx), order='F')
-
-        return (shot_id, {
-            'grad_x': grad_x,
-            'grad_y': grad_y,
-            'grad_z': grad_z,
-            'grid_dims': grid_dims
-        })
-    except Exception:
-        return None
-
-
-def _load_single_shot_gradients(
-    shot_id: int,
-    gradient_dir: str,
-    phase: str,
-    precision: str
-) -> Optional[Tuple[int, Dict]]:
-    """
-    Load gradient files for a single shot. Helper for parallel loading.
-
-    NOTE: This is the legacy function. Use _load_single_shot_gradients_fast
-    with preload_gradients_for_batch_optimized for better performance.
-
-    Returns:
-        Tuple of (shot_id, gradient_dict) or None if loading failed
-    """
-    try:
-        metadata = read_gradient_metadata(gradient_dir, shot_id)
-
-        local_grid_dims = {
-            'nx': metadata['nx'],
-            'ny': metadata['ny'],
-            'nz': metadata['nz'],
-            'dx': metadata['dx'],
-            'dy': metadata['dy'],
-            'dz': metadata['dz'],
-            'origin_x': metadata['origin_x'],
-            'origin_y': metadata['origin_y'],
-            'origin_z': metadata['origin_z']
-        }
-
-        grad_x, grad_y, grad_z = read_gradient_binaries(
-            gradient_dir, shot_id, phase, precision
-        )
-
-        grad_x, grad_y, grad_z = reshape_gradients(
-            grad_x, grad_y, grad_z, local_grid_dims
-        )
-
-        return (shot_id, {
-            'grad_x': grad_x,
-            'grad_y': grad_y,
-            'grad_z': grad_z,
-            'grid_dims': local_grid_dims
-        })
-    except Exception:
-        return None
-
-
-def preload_gradients_for_batch(
-    shot_ids: List[int],
-    gradient_dir: str,
-    phase: str,
-    precision: str,
-    n_jobs: int = -1,
-    use_optimized: bool = True
-) -> Dict[int, Dict]:
-    """
-    Pre-load gradient files for a batch of shots into memory using parallel I/O.
-
-    Args:
-        shot_ids: List of shot IDs to load
-        gradient_dir: Directory containing gradient files
-        phase: Wave phase ('p' or 's')
-        precision: Numerical precision ('single' or 'double')
-        n_jobs: Number of parallel loaders (-1 = all cores)
-        use_optimized: Use optimized loading (cached metadata, no existence checks)
-
-    Returns:
-        Dictionary mapping shot_id to {'grad_x', 'grad_y', 'grad_z', 'grid_dims'}
-    """
-    if not shot_ids:
-        return {}
-
-    # For parallel filesystems (Lustre, GPFS), higher concurrency is beneficial
-    # Cap at 48 to avoid overwhelming the metadata server
-    io_jobs = min(48, n_jobs if n_jobs > 0 else 48)
-
-    if use_optimized:
-        # Get cached metadata (read once, reuse for all shots)
-        try:
-            grid_dims = _get_cached_metadata(gradient_dir, shot_ids[0])
-        except Exception:
-            # Fallback to non-optimized if metadata read fails
-            use_optimized = False
-
-    if use_optimized:
-        # Optimized path: use cached metadata, no existence checks
-        results = Parallel(
-            n_jobs=io_jobs,
-            backend='threading',
-            verbose=0
-        )(
-            delayed(_load_single_shot_gradients_fast)(
-                shot_id, gradient_dir, phase, precision, grid_dims
-            )
-            for shot_id in shot_ids
-        )
-    else:
-        # Legacy path: read metadata per shot
-        results = Parallel(
-            n_jobs=io_jobs,
-            backend='threading',
-            verbose=0
-        )(
-            delayed(_load_single_shot_gradients)(
-                shot_id, gradient_dir, phase, precision
-            )
-            for shot_id in shot_ids
-        )
-
-    # Build cache from successful loads
-    gradient_cache = {}
-    for result in results:
-        if result is not None:
-            shot_id, grad_data = result
-            gradient_cache[shot_id] = grad_data
-
-    return gradient_cache
-
-
-def preload_gradients_for_batch_async(
-    shot_ids: List[int],
-    gradient_dir: str,
-    phase: str,
-    precision: str,
-    max_workers: int = 48
-) -> Dict[int, Dict]:
-    """
-    Pre-load gradient files using concurrent.futures ThreadPoolExecutor.
-
-    This can be faster than joblib for pure I/O workloads as it has
-    lower overhead and better handles the GIL for I/O-bound tasks.
-
-    Args:
-        shot_ids: List of shot IDs to load
-        gradient_dir: Directory containing gradient files
-        phase: Wave phase ('p' or 's')
-        precision: Numerical precision ('single' or 'double')
-        max_workers: Maximum number of concurrent I/O threads
-
-    Returns:
-        Dictionary mapping shot_id to {'grad_x', 'grad_y', 'grad_z', 'grid_dims'}
-    """
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-
-    if not shot_ids:
-        return {}
-
-    # Get cached metadata
-    try:
-        grid_dims = _get_cached_metadata(gradient_dir, shot_ids[0])
-    except Exception as e:
-        print(f"    Warning: Failed to read metadata: {e}")
-        return {}
-
-    gradient_cache = {}
-
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        # Submit all tasks
-        future_to_shot = {
-            executor.submit(
-                _load_single_shot_gradients_fast,
-                shot_id, gradient_dir, phase, precision, grid_dims
-            ): shot_id
-            for shot_id in shot_ids
-        }
-
-        # Collect results as they complete
-        for future in as_completed(future_to_shot):
-            result = future.result()
-            if result is not None:
-                shot_id, grad_data = result
-                gradient_cache[shot_id] = grad_data
-
-    return gradient_cache
 
 
 def load_event_id_list_and_convert_to_shot_ids(
@@ -913,501 +573,21 @@ def compute_all_ray_paths(
     filter_shot_ids: Optional[set] = None
 ) -> Dict[str, Dict]:
     """
-    Compute all ray paths for configured phase types (P and/or S waves).
-
-    This function computes ray paths in batches, saves each batch to an HDF5 cache,
-    and clears memory after each batch. This allows processing large datasets
-    without running out of memory.
-
-    The function supports incremental computation - if the cache already contains
-    some shots, only the missing shots will be computed.
+    Read ray paths from pre-computed binary files and cache to HDF5.
 
     Args:
         config: Ray path diagnosis configuration object
-        subsample_during_computation: If True, apply subsampling before ray tracing.
+        subsample_during_computation: If True, apply subsampling.
         filter_shot_ids: Optional set of shot IDs to filter by.
 
     Returns:
         Dictionary with phase as keys ('p', 's') and values containing:
-            {
-                'ray_paths': List of ray path arrays
-                'sources': List of source positions
-                'receivers': List of receiver positions
-                'shot_ids': List of shot IDs
-                'weights': List of observation weights
-            }
+            {'ray_paths', 'sources', 'receivers', 'shot_ids', 'weights'}
     """
-    # Dispatcher: Check if we should read from binary files or compute from gradients
-    raypath_source = getattr(config, 'raypath_source', 'gradients')
-
-    if raypath_source == 'binary':
-        # Use binary raypath reader
-        from postprocess.read_raypath_binary import compute_all_ray_paths_from_binary
-        return compute_all_ray_paths_from_binary(
-            config, subsample_during_computation, filter_shot_ids
-        )
-    elif raypath_source != 'gradients':
-        raise ValueError(
-            f"Invalid raypath_source='{raypath_source}'. Must be 'gradients' or 'binary'"
-        )
-
-    # Default: gradient-based ray tracing (original implementation)
-    print("\n" + "="*80)
-    print("COMPUTING RAY PATHS (WITH CACHE)")
-    print("="*80)
-
-    # Get cache settings (caching is always enabled)
-    force_recompute = getattr(config, 'force_recompute', False)
-    cache_path = get_cache_path(config)
-
-    print(f"\nCache settings:")
-    print(f"  Cache file: {cache_path}")
-    print(f"  Force recompute: {force_recompute}")
-
-    # Check cache validity
-    if not force_recompute and is_cache_valid(cache_path, config):
-        print(f"  Cache is VALID (config hash matches)")
-        cache_stats = get_cache_stats(cache_path)
-        print(f"  Existing cache: {cache_stats['p_wave_rays']} P-wave rays, "
-              f"{cache_stats['s_wave_rays']} S-wave rays ({cache_stats['file_size_mb']:.1f} MB)")
-    else:
-        if force_recompute:
-            print(f"  Force recompute requested - will create new cache")
-        else:
-            print(f"  Cache invalid or doesn't exist - will create new cache")
-
-        # Initialize new cache
-        initialize_cache(cache_path, config)
-
-    # Load ground truth data
-    print(f"\nLoading ground truth data: {config.ground_truth_csv}")
-    df_gt = pd.read_csv(config.ground_truth_csv)
-
-    # Convert coordinates from meters to kilometers
-    coordinate_columns = [
-        'event_x_transformed', 'event_y_transformed', 'event_z_transformed',
-        'station_x_transformed', 'station_y_transformed', 'station_z_transformed'
-    ]
-    for col in coordinate_columns:
-        if col in df_gt.columns:
-            df_gt[col] = df_gt[col] / 1000.0
-    print("  Converted coordinates from meters to kilometers")
-    print(f"  Total source-receiver pairs: {len(df_gt)}")
-
-    # Determine phase types to process
-    phase_type = getattr(config, 'phase_type', 'both')
-    phase_types = []
-    if phase_type in ['both', 'p']:
-        phase_types.append('p')
-    if phase_type in ['both', 's']:
-        phase_types.append('s')
-
-    result = {}
-
-    # Get performance settings from global config
-    parallel_processing = get_performance_setting(config, 'parallel_processing', True)
-    n_jobs = get_performance_setting(config, 'n_jobs', 1) if parallel_processing else 1
-    backend = get_performance_setting(config, 'backend', 'loky')
-    batch_size = get_performance_setting(config, 'batch_size', 'auto')
-    pre_dispatch = get_performance_setting(config, 'pre_dispatch', '2*n_jobs')
-
-    # Get tracing parameters from global config
-    tracing_params = {
-        'max_steps': get_tracing_setting(config, 'max_steps', 10000),
-        'step_size': get_tracing_setting(config, 'step_size', 0.1),
-        'tolerance': get_tracing_setting(config, 'tolerance', 0.5)
-    }
-    interpolation_method = get_tracing_setting(config, 'interpolation_method', 'nearest')
-
-    # Get advanced ray tracing parameters (from RAY_PATH_ISSUES.md improvements)
-    advanced_params = {
-        # Priority 1 improvements
-        'adaptive_step_size': get_tracing_setting(config, 'adaptive_step_size', False),
-        'min_step_size': get_tracing_setting(config, 'min_step_size', 0.01),
-        'max_step_size': get_tracing_setting(config, 'max_step_size', 1.0),
-        'step_size_scaling': get_tracing_setting(config, 'step_size_scaling', 'inverse'),
-        'min_gradient_magnitude': get_tracing_setting(config, 'min_gradient_magnitude', 1e-6),
-        'use_direct_fallback': get_tracing_setting(config, 'use_direct_fallback', False),
-        'enable_convergence_check': get_tracing_setting(config, 'enable_convergence_check', False),
-        'max_oscillations': get_tracing_setting(config, 'max_oscillations', 100),
-        'oscillation_tolerance': get_tracing_setting(config, 'oscillation_tolerance', 1e-3),
-
-        # Priority 2 improvements
-        'hybrid_mode': get_tracing_setting(config, 'hybrid_mode', False),
-        'hybrid_alpha': get_tracing_setting(config, 'hybrid_alpha', 0.7),
-        'hybrid_adaptive_alpha': get_tracing_setting(config, 'hybrid_adaptive_alpha', False),
-        'hybrid_distance_threshold': get_tracing_setting(config, 'hybrid_distance_threshold', 100.0),
-        'momentum_mode': get_tracing_setting(config, 'momentum_mode', False),
-        'momentum_beta': get_tracing_setting(config, 'momentum_beta', 0.9),
-        'momentum_learning_rate': get_tracing_setting(config, 'momentum_learning_rate', 0.1),
-        'diagnostic_mode': get_tracing_setting(config, 'diagnostic_mode', False)
-    }
-
-    # Get common parameters
-    gradient_dir = config.gradient_dir
-    precision = getattr(config, 'precision', 'single')
-    max_shots = getattr(config, 'max_shots', 0)
-
-    # Get weight column (for DWS)
-    weight_column = None
-    if hasattr(config, 'dws') and hasattr(config.dws, 'weight_column'):
-        weight_column = config.dws.weight_column
-
-    # Get parallel mode setting
-    parallel_mode = getattr(config, 'parallel_mode', 'by_pairs')
-
-    print(f"\nGlobal settings:")
-    print(f"  Parallel processing: {parallel_processing} (n_jobs={n_jobs}, backend={backend})")
-    print(f"  Parallel mode: {parallel_mode}")
-    print(f"  Ray tracing: max_steps={tracing_params['max_steps']}, step_size={tracing_params['step_size']}, interpolation={interpolation_method}")
-    print(f"  Grid: {config.grid.nx}x{config.grid.ny}x{config.grid.nz}, spacing={config.grid.dx}x{config.grid.dy}x{config.grid.dz} km")
-
-    # Print advanced ray tracing improvements status
-    improvements_enabled = []
-    if advanced_params['adaptive_step_size']:
-        improvements_enabled.append(f"adaptive_step_size ({advanced_params['step_size_scaling']})")
-    if advanced_params['use_direct_fallback']:
-        improvements_enabled.append(f"direct_fallback (min_grad={advanced_params['min_gradient_magnitude']:.1e})")
-    if advanced_params['enable_convergence_check']:
-        improvements_enabled.append(f"convergence_check (max_osc={advanced_params['max_oscillations']})")
-    if advanced_params['hybrid_mode']:
-        alpha_str = "adaptive" if advanced_params['hybrid_adaptive_alpha'] else f"{advanced_params['hybrid_alpha']:.2f}"
-        improvements_enabled.append(f"hybrid_mode (alpha={alpha_str})")
-    if advanced_params['momentum_mode']:
-        improvements_enabled.append(f"momentum (beta={advanced_params['momentum_beta']:.2f})")
-    if advanced_params['diagnostic_mode']:
-        improvements_enabled.append("diagnostics")
-
-    if improvements_enabled:
-        print(f"\n  Advanced ray tracing improvements (from RAY_PATH_ISSUES.md):")
-        for imp in improvements_enabled:
-            print(f"    - {imp}")
-    else:
-        print(f"\n  Advanced improvements: DISABLED (using standard gradient descent)")
-
-    for phase in phase_types:
-        print(f"\n{'='*80}")
-        print(f"Computing {phase.upper()}-wave ray paths")
-        print(f"{'='*80}")
-
-        # Get already computed shots from cache
-        computed_shots = get_computed_shots(cache_path, phase) if not force_recompute else set()
-        if computed_shots:
-            print(f"  Found {len(computed_shots)} shots already in cache")
-
-        # Check for corrupted shots if requested
-        corrupted_shots = set()
-        fix_corrupted = getattr(config, 'fix_corrupted_shots', False)
-        if fix_corrupted and not force_recompute and computed_shots:
-            print(f"  Scanning for corrupted shots...")
-            corrupted_shots = set(find_corrupted_shots(cache_path, phase))
-            if corrupted_shots:
-                print(f"  Found {len(corrupted_shots)} corrupted shots: {sorted(list(corrupted_shots))}")
-                print(f"  These will be recomputed")
-            else:
-                print(f"  No corrupted shots found")
-
-        # Filter by phase if column exists
-        if 'phase' in df_gt.columns:
-            df_phase = df_gt[df_gt['phase'].str.upper() == phase.upper()].copy()
-        else:
-            df_phase = df_gt.copy()
-
-        # Get unique shots
-        unique_shots = df_phase['shot_id'].unique()
-
-        # Apply event filtering if provided and we're in visualization-only mode
-        if filter_shot_ids is not None and subsample_during_computation:
-            n_shots_before = len(unique_shots)
-            unique_shots = np.array([s for s in unique_shots if s in filter_shot_ids])
-            print(f"  EVENT FILTER: Selected {len(unique_shots)}/{n_shots_before} shots from event ID list")
-
-        # Limit number of shots if specified (applied after event filtering)
-        if max_shots > 0:
-            unique_shots = unique_shots[:max_shots]
-            print(f"  Limited to {max_shots} shots")
-
-        # Filter out already computed shots (but include corrupted ones)
-        shots_to_compute = [s for s in unique_shots if (s not in computed_shots) or (s in corrupted_shots)]
-
-        if len(shots_to_compute) < len(unique_shots):
-            n_skipped = len(unique_shots) - len(shots_to_compute)
-            n_corrupted = len([s for s in shots_to_compute if s in corrupted_shots])
-            print(f"  Skipping {n_skipped} already computed shots")
-            if n_corrupted > 0:
-                print(f"  Will recompute {n_corrupted} corrupted shots")
-            print(f"  Will compute {len(shots_to_compute)} total shots ({len(shots_to_compute) - n_corrupted} new + {n_corrupted} recomputed)")
-
-        # Get weight column if it exists
-        has_weights = weight_column is not None and weight_column in df_phase.columns
-        if has_weights:
-            print(f"  Using weight column: '{weight_column}'")
-        else:
-            print(f"  No weights found, using uniform weights (1.0)")
-
-        # Build shot tasks for shots to compute
-        shot_tasks = {}
-        for shot_id in shots_to_compute:
-            shot_data = df_phase[df_phase['shot_id'] == shot_id]
-            if len(shot_data) == 0:
-                continue
-
-            source_row = shot_data.iloc[0]
-            source_pos = (
-                source_row['event_x_transformed'],
-                source_row['event_y_transformed'],
-                source_row['event_z_transformed']
-            )
-
-            receivers = []
-            for _, row in shot_data.iterrows():
-                receiver_pos = (
-                    row['station_x_transformed'],
-                    row['station_y_transformed'],
-                    row['station_z_transformed']
-                )
-                weight = row[weight_column] if has_weights else 1.0
-                receivers.append((receiver_pos, weight))
-
-            shot_tasks[shot_id] = {
-                'source_pos': source_pos,
-                'receivers': receivers
-            }
-
-        total_receivers = sum(len(st['receivers']) for st in shot_tasks.values())
-        print(f"  Total ray tracing tasks: {total_receivers} receivers across {len(shot_tasks)} shots")
-
-        # Apply subsampling if requested
-        if subsample_during_computation and shot_tasks:
-            subsample_fraction = getattr(config, 'subsample_fraction', 1.0)
-            if subsample_fraction < 1.0:
-                n_shots_original = len(shot_tasks)
-                n_shots_to_compute = max(1, int(n_shots_original * subsample_fraction))
-
-                # Random subsample of shots
-                shot_ids_sampled = np.random.choice(
-                    list(shot_tasks.keys()),
-                    n_shots_to_compute,
-                    replace=False
-                )
-                shot_tasks = {sid: shot_tasks[sid] for sid in shot_ids_sampled}
-
-                print(f"  SUBSAMPLE: Selected {len(shot_tasks)}/{n_shots_original} shots ({subsample_fraction*100:.1f}%)")
-
-        # Process in batches
-        if shot_tasks:
-            # Calculate batch size
-            if batch_size == 'auto' or batch_size is None:
-                try:
-                    import psutil
-                    available_mem_gb = psutil.virtual_memory().available / (1024**3)
-                    shots_per_batch = max(100, int((available_mem_gb * 0.5 * 1024) / 160))
-                except ImportError:
-                    shots_per_batch = 500
-            else:
-                shots_per_batch = int(batch_size)
-
-            # Sort shot IDs for better disk locality on parallel filesystems
-            shot_ids_to_process = sorted(shot_tasks.keys())
-            n_shots = len(shot_ids_to_process)
-            n_batches = (n_shots + shots_per_batch - 1) // shots_per_batch
-
-            print(f"\n  Processing {n_shots} shots in {n_batches} batches ({shots_per_batch} shots/batch)")
-            print(f"  Each batch will be saved to cache and memory cleared")
-
-            total_rays_computed = 0
-            total_failed = 0
-
-            # Get I/O optimization settings
-            io_max_threads = 48
-            io_use_async = True
-            io_cache_metadata = True
-
-            if hasattr(config, '_parent') and hasattr(config._parent, 'performance'):
-                perf = config._parent.performance
-                if hasattr(perf, 'io'):
-                    io_max_threads = getattr(perf.io, 'max_threads', 48)
-                    io_use_async = getattr(perf.io, 'use_async', True)
-                    io_cache_metadata = getattr(perf.io, 'cache_metadata', True)
-            elif hasattr(config, 'performance') and hasattr(config.performance, 'io'):
-                perf_io = config.performance.io
-                io_max_threads = getattr(perf_io, 'max_threads', 48)
-                io_use_async = getattr(perf_io, 'use_async', True)
-                io_cache_metadata = getattr(perf_io, 'cache_metadata', True)
-
-            print(f"  I/O settings: max_threads={io_max_threads}, async={io_use_async}, cache_metadata={io_cache_metadata}")
-
-            for batch_idx in range(n_batches):
-                batch_start = batch_idx * shots_per_batch
-                batch_end = min(batch_start + shots_per_batch, n_shots)
-                batch_shot_ids = shot_ids_to_process[batch_start:batch_end]
-
-                print(f"\n  Batch {batch_idx + 1}/{n_batches}: Processing {len(batch_shot_ids)} shots...")
-
-                # Pre-load gradient files for this batch (parallel I/O)
-                import time
-                t_io_start = time.time()
-
-                if io_use_async:
-                    # Use concurrent.futures for async I/O (lower overhead)
-                    gradient_cache = preload_gradients_for_batch_async(
-                        batch_shot_ids,
-                        gradient_dir,
-                        phase,
-                        precision,
-                        max_workers=io_max_threads
-                    )
-                else:
-                    # Use joblib threading backend
-                    gradient_cache = preload_gradients_for_batch(
-                        batch_shot_ids,
-                        gradient_dir,
-                        phase,
-                        precision,
-                        n_jobs=io_max_threads,
-                        use_optimized=io_cache_metadata
-                    )
-
-                t_io_elapsed = time.time() - t_io_start
-                data_loaded_mb = len(gradient_cache) * 81  # ~81 MB per shot (3 x 27 MB)
-                throughput = data_loaded_mb / t_io_elapsed if t_io_elapsed > 0 else 0
-
-                print(f"    Loaded gradients for {len(gradient_cache)}/{len(batch_shot_ids)} shots "
-                      f"in {t_io_elapsed:.1f}s ({throughput:.0f} MB/s)")
-
-                # Filter to only shots that loaded successfully
-                valid_batch_shots = [sid for sid in batch_shot_ids if sid in gradient_cache]
-
-                if not valid_batch_shots:
-                    print(f"    WARNING: No valid gradient files in this batch, skipping...")
-                    del gradient_cache
-                    gc.collect()
-                    continue
-
-                # Process this batch in parallel
-                batch_results_raw = Parallel(
-                    n_jobs=n_jobs,
-                    backend=backend,
-                    pre_dispatch=pre_dispatch,
-                    verbose=0
-                )(
-                    delayed(process_shot_with_preloaded_gradients)(
-                        shot_id,
-                        shot_tasks[shot_id]['receivers'],
-                        shot_tasks[shot_id]['source_pos'],
-                        gradient_cache[shot_id]['grad_x'],
-                        gradient_cache[shot_id]['grad_y'],
-                        gradient_cache[shot_id]['grad_z'],
-                        gradient_cache[shot_id]['grid_dims'],
-                        tracing_params,
-                        interpolation_method,
-                        advanced_params
-                    )
-                    for shot_id in tqdm(valid_batch_shots, desc=f"Batch {batch_idx + 1}/{n_batches}")
-                )
-
-                # Clear gradient cache immediately
-                del gradient_cache
-                gc.collect()
-
-                # Format results for cache storage
-                batch_results_for_cache = {}
-                batch_rays = 0
-                batch_failed = 0
-
-                for shot_idx, shot_id in enumerate(valid_batch_shots):
-                    shot_result = batch_results_raw[shot_idx]
-
-                    valid_rays = []
-                    valid_receivers = []
-                    valid_weights = []
-
-                    for ray_path, receiver_pos, _, weight in shot_result:
-                        if ray_path is not None:
-                            valid_rays.append(ray_path)
-                            valid_receivers.append(receiver_pos)
-                            valid_weights.append(weight)
-                            batch_rays += 1
-                        else:
-                            batch_failed += 1
-
-                    if valid_rays:  # Only save if we have valid rays
-                        batch_results_for_cache[shot_id] = {
-                            'source': shot_tasks[shot_id]['source_pos'],
-                            'receivers': valid_receivers,
-                            'weights': valid_weights,
-                            'ray_paths': valid_rays
-                        }
-
-                # Clear raw results
-                del batch_results_raw
-                gc.collect()
-
-                # Save batch to cache
-                if batch_results_for_cache:
-                    saved = save_batch_to_cache(cache_path, phase, batch_results_for_cache)
-                    print(f"    Saved {saved} rays to cache")
-
-                total_rays_computed += batch_rays
-                total_failed += batch_failed
-
-                # Clear batch results
-                del batch_results_for_cache
-                gc.collect()
-
-                print(f"    Batch complete: {batch_rays} rays traced, {batch_failed} failed")
-                print(f"    Total so far: {total_rays_computed} rays")
-
-            print(f"\n  Computation complete: {total_rays_computed} rays traced, {total_failed} failed")
-
-        # Only load results from cache if needed for downstream use
-        load_for_downstream = getattr(config, 'load_cache_for_downstream', False)
-
-        if load_for_downstream:
-            print(f"\n  Loading all {phase.upper()}-wave rays from cache for downstream use...")
-            phase_result = load_rays_from_cache(cache_path, phase)
-            print(f"    Loaded {len(phase_result['ray_paths'])} rays")
-
-            # Handle event filtering for DWS mode
-            if filter_shot_ids is not None and not subsample_during_computation:
-                # Filter rays for visualization
-                viz_indices = [i for i, sid in enumerate(phase_result['shot_ids']) if sid in filter_shot_ids]
-                print(f"  EVENT FILTER: Will plot {len(viz_indices)}/{len(phase_result['ray_paths'])} rays")
-
-                phase_result['viz_ray_paths'] = [phase_result['ray_paths'][i] for i in viz_indices]
-                phase_result['viz_sources'] = [phase_result['sources'][i] for i in viz_indices]
-                phase_result['viz_receivers'] = [phase_result['receivers'][i] for i in viz_indices]
-                phase_result['viz_shot_ids'] = [phase_result['shot_ids'][i] for i in viz_indices]
-
-            result[phase] = phase_result
-        else:
-            print(f"\n  Skipping cache load (load_cache_for_downstream=false)")
-            print(f"  Ray paths are saved in cache: {cache_path}")
-            # Return empty result for this phase
-            result[phase] = {
-                'ray_paths': [],
-                'sources': [],
-                'receivers': [],
-                'shot_ids': [],
-                'weights': []
-            }
-
-    # Print cache stats
-    print(f"\n" + "="*80)
-    print("CACHE SUMMARY")
-    print("="*80)
-    cache_stats = get_cache_stats(cache_path)
-    print(f"  Cache file: {cache_path}")
-    print(f"  File size: {cache_stats['file_size_mb']:.2f} MB")
-    print(f"  P-wave: {cache_stats['p_wave_shots']} shots, {cache_stats['p_wave_rays']} rays")
-    print(f"  S-wave: {cache_stats['s_wave_shots']} shots, {cache_stats['s_wave_rays']} rays")
-
-    print("\n" + "="*80)
-    print("RAY PATH COMPUTATION COMPLETE")
-    print("="*80)
-
-    return result
-
+    from postprocess.read_raypath_binary import compute_all_ray_paths_from_binary
+    return compute_all_ray_paths_from_binary(
+        config, subsample_during_computation, filter_shot_ids
+    )
 
 # =============================================================================
 # CACHE-ONLY LOADING (FOR VISUALIZATION)

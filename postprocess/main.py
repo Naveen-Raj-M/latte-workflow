@@ -29,7 +29,6 @@ from .compute_ray_paths import (
     get_cache_path,
     get_cache_stats,
     is_cache_valid,
-    load_ray_paths_from_cache
 )
 from .simplify_ray_paths import simplify_ray_paths_main
 
@@ -66,7 +65,7 @@ def postprocess_latte_outputs(config: DictConfig) -> None:
             create_velocity_csv_from_binaries(config.velocity_processing, phase_type, max_depth_km)
         except Exception as e:
             print(f"Error in velocity processing: {e}")
-            if config.strict_mode:
+            if config.general.strict_mode:
                 raise
     else:
         print(f"\nVelocity processing: DISABLED")
@@ -78,16 +77,6 @@ def postprocess_latte_outputs(config: DictConfig) -> None:
         use_source_correction = config.travel_time_processing.get('source_correction', False)
         phase_type = config.general.get('phase_type', 'both')
         max_depth_km = config.general.get('max_depth_km', None)
-        removed_shots = config.travel_time_processing.get('removed_shots', [])
-
-        # Get st0 precision from config
-        st0_precision = 'single'  # default
-        if hasattr(config.general, 'precision') and hasattr(config.general.precision, 'st0'):
-            st0_precision = config.general.precision.st0
-
-        # Log removed shots if any
-        if removed_shots:
-            print(f"  Removed shots (filtered during geometry loading): {removed_shots}")
 
         try:
             tt_config_dict = {
@@ -96,7 +85,6 @@ def postprocess_latte_outputs(config: DictConfig) -> None:
                 'shot_map_file': config.travel_time_processing.shot_map_file,
                 'synthetic_tt_output_csv': config.travel_time_processing.synthetic_tt_output_csv,
                 'use_source_correction': use_source_correction,
-                'removed_shots': removed_shots
             }
             if use_source_correction:
                 tt_config_dict['source_correction_file'] = config.travel_time_processing.source_correction_file
@@ -106,14 +94,14 @@ def postprocess_latte_outputs(config: DictConfig) -> None:
                 tt_config_dict['exchange_mapping_file'] = config.travel_time_processing.exchange_mapping_file
                 tt_config_dict['virtual_shot_mapping_file'] = config.travel_time_processing.get('virtual_shot_mapping_file', None)
                 tt_config = OmegaConf.create(tt_config_dict)
-                create_synthetic_travel_time_csv_with_exchange(tt_config, phase_type, max_depth_km, st0_precision)
+                create_synthetic_travel_time_csv_with_exchange(tt_config, phase_type, max_depth_km)
             else:
                 print("Using STANDARD mode (no exchange)")
                 tt_config = OmegaConf.create(tt_config_dict)
-                create_synthetic_travel_time_csv(tt_config, phase_type, max_depth_km, st0_precision)
+                create_synthetic_travel_time_csv(tt_config, phase_type, max_depth_km)
         except Exception as e:
             print(f"Error in travel time processing: {e}")
-            if config.strict_mode:
+            if config.general.strict_mode:
                 raise
     else:
         print(f"\nTravel time processing: DISABLED")
@@ -156,7 +144,7 @@ def postprocess_latte_outputs(config: DictConfig) -> None:
             process_source_updates(source_cfg)
         except Exception as e:
             print(f"Error in source parameter processing: {e}")
-            if config.strict_mode:
+            if config.general.strict_mode:
                 raise
     else:
         print(f"\nSource parameter processing: DISABLED")
@@ -224,12 +212,10 @@ def postprocess_latte_outputs(config: DictConfig) -> None:
             if compute_dws or (not subsample_during_computation):
                 print(f"\n  Computing ALL ray paths for complete cache...")
 
-            # Auto-enable cache loading if DWS computation is requested
-            if compute_dws and not getattr(diag_config, 'load_cache_for_downstream', False):
-                print(f"  Note: Auto-enabling load_cache_for_downstream for DWS computation")
-                OmegaConf.set_struct(diag_config, False)
-                diag_config.load_cache_for_downstream = True
-                OmegaConf.set_struct(diag_config, True)
+            # Set load_cache_for_downstream automatically based on DWS requirement
+            OmegaConf.set_struct(diag_config, False)
+            diag_config.load_cache_for_downstream = compute_dws
+            OmegaConf.set_struct(diag_config, True)
 
             precomputed_rays = compute_all_ray_paths(
                 diag_config,
@@ -252,7 +238,7 @@ def postprocess_latte_outputs(config: DictConfig) -> None:
 
         except Exception as e:
             print(f"Error in ray path diagnosis: {e}")
-            if config.strict_mode:
+            if config.general.strict_mode:
                 raise
     else:
         print(f"\nRay path diagnosis: DISABLED")
@@ -264,7 +250,7 @@ def postprocess_latte_outputs(config: DictConfig) -> None:
             simplify_ray_paths_main(config)
         except Exception as e:
             print(f"Error in ray path simplification: {e}")
-            if config.strict_mode:
+            if config.general.strict_mode:
                 raise
     else:
         print(f"\nRay path simplification: DISABLED")

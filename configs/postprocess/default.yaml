@@ -8,9 +8,6 @@ general:
   strict_mode: true
   log_level: INFO  # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
   phase_type: "both"  # Options: both, p, s
-  precision:
-    default: "single"  # Options: single, double
-    st0: "single"  # Options: single, double
   max_depth_km: null
 
 # Global performance settings for parallel processing
@@ -22,56 +19,6 @@ performance:
   pre_dispatch: "2*n_jobs"  # Number of tasks to pre-dispatch
   show_progress: true  # Show progress bars during processing
 
-  # I/O optimization settings for gradient loading
-  # These settings can significantly speed up gradient file loading on parallel filesystems
-  io:
-    max_threads: 8           # Max threads for parallel file I/O (48 is good for Lustre/GPFS)
-    use_async: true           # Use async I/O (concurrent.futures) - faster for pure I/O
-    cache_metadata: true      # Cache grid metadata (all shots typically share same grid)
-
-# Global ray tracing settings (used by ray_path_visualization and dws_computation)
-tracing:
-  max_steps: 10000  # Maximum integration steps per ray
-  step_size: 0.1  # Integration step size in km (smaller = more accurate but slower)
-  tolerance: 0.5  # Distance tolerance to source in km (stop when within this distance)
-  interpolation_method: "trilinear"  # Options: nearest, trilinear
-
-  # Advanced ray tracing improvements (from RAY_PATH_ISSUES.md)
-  # These settings address numerical precision issues and convergence failures
-
-  # Adaptive step sizing (Priority 1)
-  adaptive_step_size: true  # Enable adaptive step sizing based on gradient magnitude
-  min_step_size: 0.01  # Minimum step size in km (for large gradients)
-  max_step_size: 1.0  # Maximum step size in km (for small gradients/flat regions)
-  step_size_scaling: "inverse"  # Options: inverse, sqrt_inverse, fixed
-
-  # Gradient magnitude thresholding (Priority 1)
-  min_gradient_magnitude: 1.0e-6  # Minimum reliable gradient magnitude (s/km)
-  use_direct_fallback: true  # Fall back to direct source direction if gradient too small
-
-  # Convergence monitoring (Priority 1)
-  enable_convergence_check: true  # Monitor distance to source and detect oscillations
-  max_oscillations: 100  # Maximum consecutive non-improving steps before termination
-  oscillation_tolerance: 1.0e-3  # Distance change threshold for oscillation detection (km)
-
-  # Hybrid ray tracing (Priority 2)
-  hybrid_mode: false  # Blend gradient direction with direct source direction
-  hybrid_alpha: 0.7  # Weight for gradient direction (0=direct, 1=pure gradient)
-  hybrid_adaptive_alpha: true  # Reduce alpha when far from source or gradient is weak
-  hybrid_distance_threshold: 100.0  # Distance (km) above which alpha is reduced
-
-  # Momentum-based tracing (Priority 2)
-  momentum_mode: false  # Use momentum to smooth out oscillations
-  momentum_beta: 0.9  # Momentum coefficient (0=no momentum, 1=full momentum)
-  momentum_learning_rate: 0.1  # Learning rate for momentum updates
-
-  # Diagnostic output (Priority 2)
-  diagnostic_mode: false  # Enable detailed diagnostic logging for failed rays
-  diagnostic_output_dir: "${data.analysis_output_dir}/ray_diagnostics"  # Output directory
-  diagnostic_max_rays: 100  # Maximum number of failed rays to log in detail
-  log_gradient_magnitudes: false  # Log gradient magnitude along ray path
-  log_distance_to_source: false  # Log distance to source at each step
-  
 data:
   base_dir: "/path/to/latte/output"
   analysis_output_dir: "/path/to/analysis/output"
@@ -111,8 +58,6 @@ velocity_processing:
       dx: 2.0
       dy: 2.0
       dz: 2.0
-  use_chapman_inverse: false
-  earth_radius_km: 6371.0
   parameters_to_process: ["vp", "vs"]  # Options: vp, vs
   grad_vp_binary: "${data.base_dir}/model/grad_vp.bin"
   grad_vs_binary: "${data.base_dir}/model/grad_vs.bin"
@@ -130,7 +75,6 @@ travel_time_processing:
   virtual_shot_mapping_file: ${data.base_dir}/shot_mapping.txt
   source_correction: false
   source_correction_file: ${data.base_dir}/model/updated_st0.bin
-  removed_shots: []
   synthetic_tt_output_csv: "${data.analysis_output_dir}/synthetic_travel_times_latte_output.csv"
 
 source_processing:
@@ -155,13 +99,11 @@ source_processing:
 ray_path_diagnosis:
   enabled: false
 
-  # Ray path source: "gradients" (compute from gradient fields) or "binary" (read pre-computed from .bin files)
-  raypath_source: "gradients"  # Options: "gradients", "binary"
-  raypath_binary_dir: null  # Required when raypath_source="binary", path to directory containing shot_*_raypath_*.bin files
+  # Input: pre-computed ray path binary files from LATTE forward solver
+  raypath_binary_dir: null  # Required: path to directory containing shot_*_raypath_*.bin files
 
   # Common input files
   ground_truth_csv: "${travel_time_processing.synthetic_tt_output_csv}"
-  gradient_dir: "${data.base_dir}/gradient"  # Used when raypath_source="gradients"
   shot_map_file: "${travel_time_processing.shot_map_file}"
 
   # Output files (HDF5 format)
@@ -171,7 +113,6 @@ ray_path_diagnosis:
   # Cache behavior settings
   force_recompute: false           # Force recompute even if cache exists (deletes existing cache)
   fix_corrupted_shots: true        # Detect and recompute only corrupted shots in cache
-  load_cache_for_downstream: false # Load all rays into memory after computation (only needed for immediate use)
   compression: "gzip"              # Compression: gzip, lzf, or none
   compression_level: 4             # Compression level (1-9 for gzip)
 
@@ -189,9 +130,6 @@ ray_path_diagnosis:
 
   # Common processing parameters
   phase_type: "both"  # Options: both, p, s
-  precision: "single"  # Options: single, double (must match gradient file precision)
-  max_shots: 0  # Maximum number of shots to process (0 = all)
-  parallel_mode: "by_pairs"  # Options: by_shots, by_pairs (affects ray path computation)
 
   # What to compute/output
   compute_dws: true  # Compute Derivative Weight Sum
@@ -211,5 +149,3 @@ ray_path_simplification:
   output_cache_path: "${data.analysis_output_dir}/ray_paths/ray_paths_simplified.h5"
   epsilon: 0.05  # RDP distance threshold in km (0.01=gentle, 0.05=moderate, 0.10=aggressive)
   phase_type: "both"  # Options: both, p, s
-
-strict_mode: true

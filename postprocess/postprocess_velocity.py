@@ -179,20 +179,16 @@ def sample_fine_grid_at_coarse_points(df_coarse: pd.DataFrame,
                                        fine_grid: GridParameters,
                                        vp_fine: np.ndarray,
                                        vs_fine: np.ndarray,
-                                       auxiliary_fields: Dict,
-                                       use_chapman: bool,
-                                       earth_radius: float) -> pd.DataFrame:
+                                       auxiliary_fields: Dict) -> pd.DataFrame:
     """
     Sample fine grid at coarse grid points using coordinate matching.
-    
+
     Args:
         df_coarse: Coarse grid CSV DataFrame
         fine_grid: Fine grid parameters
         vp_fine, vs_fine: Fine grid velocity arrays (nz, ny, nx)
         auxiliary_fields: Dict of optional gradient/search arrays
-        use_chapman: Apply Chapman inverse transform
-        earth_radius: Earth radius for Chapman transform
-    
+
     Returns:
         Updated DataFrame with sampled values
     """
@@ -250,11 +246,6 @@ def sample_fine_grid_at_coarse_points(df_coarse: pd.DataFrame,
             vp_vals = vp_fine[k_exact, j_exact, i_exact]
             valid_vp = vp_vals > 0
 
-            if use_chapman:
-                depths = df_output.loc[exact_indices, 'depth'].values
-                chapman_factors = np.exp(-np.maximum(depths, 0.001) / earth_radius)
-                vp_vals = vp_vals * chapman_factors
-
             # Update DataFrame using vectorized assignment
             df_output.loc[exact_indices[valid_vp], 'vp'] = vp_vals[valid_vp]
             vp_updated += np.sum(valid_vp)
@@ -270,11 +261,6 @@ def sample_fine_grid_at_coarse_points(df_coarse: pd.DataFrame,
         if vs_fine is not None:
             vs_vals = vs_fine[k_exact, j_exact, i_exact]
             valid_vs = vs_vals > 0
-
-            if use_chapman:
-                depths = df_output.loc[exact_indices, 'depth'].values
-                chapman_factors = np.exp(-np.maximum(depths, 0.001) / earth_radius)
-                vs_vals = vs_vals * chapman_factors
 
             # Update DataFrame using vectorized assignment
             df_output.loc[exact_indices[valid_vs], 'vs'] = vs_vals[valid_vs]
@@ -355,11 +341,6 @@ def sample_fine_grid_at_coarse_points(df_coarse: pd.DataFrame,
         if interp_vp is not None:
             valid_vp = vp_interp > 0
 
-            if use_chapman:
-                depths = df_output.loc[interp_indices, 'depth'].values
-                chapman_factors = np.exp(-np.maximum(depths, 0.001) / earth_radius)
-                vp_interp = vp_interp * chapman_factors
-
             df_output.loc[interp_indices[valid_vp], 'vp'] = vp_interp[valid_vp]
             vp_updated += np.sum(valid_vp)
 
@@ -371,11 +352,6 @@ def sample_fine_grid_at_coarse_points(df_coarse: pd.DataFrame,
         # Update Vs (vectorized)
         if interp_vs is not None:
             valid_vs = vs_interp > 0
-
-            if use_chapman:
-                depths = df_output.loc[interp_indices, 'depth'].values
-                chapman_factors = np.exp(-np.maximum(depths, 0.001) / earth_radius)
-                vs_interp = vs_interp * chapman_factors
 
             df_output.loc[interp_indices[valid_vs], 'vs'] = vs_interp[valid_vs]
             vs_updated += np.sum(valid_vs)
@@ -396,9 +372,7 @@ def expand_to_fine_grid(df_coarse: pd.DataFrame,
                         fine_grid: GridParameters,
                         vp_fine: np.ndarray,
                         vs_fine: np.ndarray,
-                        auxiliary_fields: Dict,
-                        use_chapman: bool,
-                        earth_radius: float) -> pd.DataFrame:
+                        auxiliary_fields: Dict) -> pd.DataFrame:
     """
     Expand coarse CSV to fine grid with interpolation.
     
@@ -496,11 +470,6 @@ def expand_to_fine_grid(df_coarse: pd.DataFrame,
     # Update Vp (vectorized)
     valid_vp = vp_vals > 0
 
-    if use_chapman:
-        depths = df_fine['depth'].values
-        chapman_factors = np.exp(-np.maximum(depths, 0.001) / earth_radius)
-        vp_vals = vp_vals * chapman_factors
-
     df_fine.loc[valid_vp, 'vp'] = vp_vals[valid_vp]
     vp_updated = np.sum(valid_vp)
 
@@ -514,11 +483,6 @@ def expand_to_fine_grid(df_coarse: pd.DataFrame,
 
     # Update Vs (vectorized)
     valid_vs = vs_vals > 0
-
-    if use_chapman:
-        depths = df_fine['depth'].values
-        chapman_factors = np.exp(-np.maximum(depths, 0.001) / earth_radius)
-        vs_vals = vs_vals * chapman_factors
 
     df_fine.loc[valid_vs, 'vs'] = vs_vals[valid_vs]
     vs_updated = np.sum(valid_vs)
@@ -673,21 +637,16 @@ def create_velocity_csv_from_binaries(config: DictConfig, phase_type: str = "bot
     mode = config.get('interpolation_mode', 'sample_at_coarse')
     print(f"\nProcessing mode: {mode}")
     
-    use_chapman = config.get('use_chapman_inverse', False)
-    earth_radius = config.get('earth_radius_km', 6371.0)
-    
     # Process based on mode
     if mode == 'expand_to_fine':
         df_output = expand_to_fine_grid(
             df_original, coarse_grid, fine_grid,
             vp_fine, vs_fine, auxiliary_fields,
-            use_chapman, earth_radius
         )
     else:  # sample_at_coarse
         df_output = sample_fine_grid_at_coarse_points(
             df_original, fine_grid,
             vp_fine, vs_fine, auxiliary_fields,
-            use_chapman, earth_radius
         )
     
     # Apply depth filtering if specified
@@ -709,8 +668,6 @@ def create_velocity_csv_from_binaries(config: DictConfig, phase_type: str = "bot
         'grid_dimensions': {'nx': fine_grid.nx, 'ny': fine_grid.ny, 'nz': fine_grid.nz},
         'grid_spacing': {'dx': fine_grid.dx, 'dy': fine_grid.dy, 'dz': fine_grid.dz},
         'grid_origin': {'x': fine_grid.origin_x, 'y': fine_grid.origin_y, 'z': fine_grid.origin_z},
-        'use_chapman_inverse': use_chapman,
-        'earth_radius_km': earth_radius,
         'interpolation_mode': mode,
         'phase_type': phase_type,
     }
@@ -788,4 +745,3 @@ def create_velocity_csv_from_binaries(config: DictConfig, phase_type: str = "bot
     print(f"  Rows: {len(df_output):,}")
     print(f"  Mode: {mode}")
     print(f"  Phase type: {phase_type}")
-    print(f"  Chapman transform: {use_chapman}")

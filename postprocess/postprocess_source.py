@@ -118,18 +118,8 @@ def process_source_updates(cfg: DictConfig) -> pd.DataFrame:
     ns = cfg["grid_dimensions"][0]
     logger.info(f"Number of sources: {ns}")
 
-    # Determine precision for st0 (origin time) from config
-    # Access parent config through OmegaConf structure
-    st0_precision = 'single'  # default
-    if hasattr(cfg, '_parent') and cfg._parent is not None:
-        # Try to get precision from general.precision.st0
-        parent_cfg = cfg._parent
-        if hasattr(parent_cfg, 'general') and hasattr(parent_cfg.general, 'precision'):
-            st0_precision = parent_cfg.general.precision.get('st0', 'single')
-
-    # Determine dtype for st0
-    st0_dtype = np.float64 if st0_precision == 'double' else np.float32
-    logger.info(f"Using {st0_precision} precision for st0 (origin time) - dtype: {st0_dtype.__name__}")
+    # st0 is always single precision (float32)
+    st0_dtype = np.float32
 
     # Read binary files with source corrections (REQUIRED)
     logger.info("\nReading updated source parameter binaries...")
@@ -162,7 +152,7 @@ def process_source_updates(cfg: DictConfig) -> pd.DataFrame:
             logger.info(f"\n  Processing optional fields for {param.upper()}:")
 
             # Use st0 precision for st0 gradient/search, single precision for others
-            param_dtype = st0_dtype if param == 'st0' else np.float32
+            param_dtype = np.float32
 
             # Load gradient file if specified
             grad_key = f'grad_{param}_file'
