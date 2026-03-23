@@ -687,13 +687,9 @@ def _write_single_event_files(event_item, geom_config, phase_type):
     geom_fname = f"shot_{idx}_geometry.txt"
     ex, ey, ez = data['coords']
 
-    # Prepare origin time formatting
+    # Prepare origin time formatting (single precision, 6 decimal places)
     origin_time = data.get('origin_time_s', 0.0)
-    origin_time_precision = geom_config.get('origin_time_precision', 'single')
-    if origin_time_precision == 'double':
-        origin_time_fmt = f"{origin_time:.12f}"
-    else:
-        origin_time_fmt = f"{origin_time:.6f}"
+    origin_time_fmt = f"{origin_time:.6f}"
 
     # Write Geometry File
     geom_path = Path(geom_config.geometry_dir) / geom_fname
@@ -763,12 +759,8 @@ def write_source_binary_files(events: Dict, config: DictConfig, origin_time_conf
     sy_array = np.array(sy_values, dtype='<f4')
     sz_array = np.array(sz_values, dtype='<f4')
 
-    # Use configured precision for origin times
-    origin_time_precision = geom_config.get('origin_time_precision', 'single')
-    if origin_time_precision == 'double':
-        st0_array = np.array(st0_values, dtype='<f8')  # Little-endian 64-bit double
-    else:
-        st0_array = np.array(st0_values, dtype='<f4')  # Little-endian 32-bit float
+    # Origin times: single precision (little-endian 32-bit float)
+    st0_array = np.array(st0_values, dtype='<f4')
 
     # Write binary files
     source_dir = Path(geom_config.source_dir)
@@ -781,12 +773,11 @@ def write_source_binary_files(events: Dict, config: DictConfig, origin_time_conf
     with open(source_dir / 'st0.bin', 'wb') as f:
         f.write(st0_array.tobytes())
 
-    precision_desc = "double precision (8 bytes)" if origin_time_precision == 'double' else "single precision (4 bytes)"
     logger.info(f"Source binary files written:")
     logger.info(f"  sx.bin: {len(sx_values)} values (x-coordinates, single precision)")
     logger.info(f"  sy.bin: {len(sy_values)} values (y-coordinates, single precision)")
     logger.info(f"  sz.bin: {len(sz_values)} values (z-coordinates, single precision)")
-    logger.info(f"  st0.bin: {len(st0_values)} values (origin times in {origin_time_config.mode} mode, {precision_desc})")
+    logger.info(f"  st0.bin: {len(st0_values)} values (origin times in {origin_time_config.mode} mode, single precision (4 bytes))")
 
     # Save origin time metadata
     save_origin_time_metadata(
@@ -859,15 +850,12 @@ def write_output_files(events: Dict, config: DictConfig, origin_time_config: Dic
         for shot in shot_files:
             idxf.write(shot + "\n")
 
-    origin_time_precision = geom_config.get('origin_time_precision', 'single')
-    precision_desc = "double precision (12 decimal places)" if origin_time_precision == 'double' else "single precision (6 decimal places)"
-
     logger.info(f"File Generation Summary:")
     logger.info(f"Successfully wrote {len(shot_files)} shots in total.")
     logger.info(f"Geometry index: {geom_index_path}")
     logger.info(f"Source ID map: {id_map_path}")
     logger.info(f"Origin time mode: {origin_time_config.mode}")
-    logger.info(f"Origin time precision: {precision_desc}")
+    logger.info(f"Origin time precision: single (6 decimal places)")
     logger.info(f"IMPORTANT: Update 'ns' parameter in Fortran input to {len(shot_files)}")
 
 

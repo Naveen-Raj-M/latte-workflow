@@ -118,8 +118,6 @@ geometry_traveltime:
   
   # Source binary generation
   generate_source_binaries: true
-  source_binary_format: "travel_time"  # Options: travel_time, fortran
-  origin_time_precision: "single"  # Options: single, double
   
   # Phase and weight settings
   apply_default_weights: false
