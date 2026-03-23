@@ -24,20 +24,7 @@ from checkerboard_test.add_traveltime_noise import (
 )
 from checkerboard_test.convert_inverted_model import convert_inverted_model
 from checkerboard_test.visualize_slices import visualize_checkerboard_test
-
-
-def setup_logging(log_level: str = "INFO") -> None:
-    """
-    Set up logging configuration.
-
-    Args:
-        log_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-    """
-    logging.basicConfig(
-        level=getattr(logging, log_level.upper()),
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S',
-    )
+from utils.logging_utils import setup_logging
 
 
 def run_checkerboard_workflow(config: Union[Dict, DictConfig]) -> None:
