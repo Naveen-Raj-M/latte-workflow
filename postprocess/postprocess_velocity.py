@@ -537,20 +537,16 @@ def create_velocity_csv_from_binaries(config: DictConfig, phase_type: str = "bot
     # Get performance settings from global config
     show_progress = get_performance_setting(config, 'show_progress', True)
 
-    # Load original velocity file (CSV or HDF5)
-    # Check for HDF5 input first, fallback to CSV
-    if hasattr(config, 'original_velocity_hdf5') and config.original_velocity_hdf5:
-        input_path = config.original_velocity_hdf5
+    # Load reference velocity file (auto-detects CSV or HDF5 from extension)
+    input_path = str(config.reference_velocity_file)
+    use_coarse = False
+    if input_path.endswith(('.h5', '.hdf5')):
         use_coarse = config.get('hdf5_options', {}).get('use_coarse_dataset', False)
-        dataset = 'velocity_coarse' if use_coarse else 'velocity'
-        print(f"\nLoading original velocity from HDF5: {input_path}")
-        if use_coarse:
-            print("  Using coarse dataset for faster processing")
-        df_original = read_velocity_file(input_path, dataset=dataset, show_progress=show_progress)
-    else:
-        input_path = config.original_velocity_csv
-        print(f"\nLoading original velocity from CSV: {input_path}")
-        df_original = read_velocity_file(input_path, show_progress=show_progress)
+    dataset = 'velocity_coarse' if use_coarse else 'velocity'
+    print(f"\nLoading reference velocity: {input_path}")
+    if use_coarse:
+        print("  Using coarse dataset for faster processing")
+    df_original = read_velocity_file(input_path, dataset=dataset, show_progress=show_progress)
 
     print(f"  Loaded from: {input_path}")
     print(f"  Rows: {len(df_original):,}")
@@ -602,36 +598,41 @@ def create_velocity_csv_from_binaries(config: DictConfig, phase_type: str = "bot
     
     # Load auxiliary fields
     params_to_process = config.get('parameters_to_process', [])
+    process_gradient = config.get('process_gradient', False)
+    process_search = config.get('process_search', False)
     print(f"\nOptional fields: {params_to_process if params_to_process else 'None'}")
-    
+    print(f"  process_gradient: {process_gradient}, process_search: {process_search}")
+
     auxiliary_fields = {
         'vp': {'gradient': None, 'search': None},
         'vs': {'gradient': None, 'search': None}
     }
-    
-    if params_to_process:
+
+    if params_to_process and (process_gradient or process_search):
         print("Loading auxiliary fields...")
         for param in params_to_process:
             if param not in ['vp', 'vs']:
                 continue
-            
-            grad_key = f'grad_{param}_binary'
-            if hasattr(config, grad_key):
-                grad_file = getattr(config, grad_key)
-                if os.path.exists(grad_file):
-                    auxiliary_fields[param]['gradient'] = load_binary_file(
-                        grad_file, fine_grid.nx, fine_grid.ny, fine_grid.nz,
-                        f"{param.upper()} gradient", convert_to_kms=True
-                    )
-            
-            srch_key = f'srch_{param}_binary'
-            if hasattr(config, srch_key):
-                srch_file = getattr(config, srch_key)
-                if os.path.exists(srch_file):
-                    auxiliary_fields[param]['search'] = load_binary_file(
-                        srch_file, fine_grid.nx, fine_grid.ny, fine_grid.nz,
-                        f"{param.upper()} search", convert_to_kms=True
-                    )
+
+            if process_gradient:
+                grad_key = f'grad_{param}_binary'
+                if hasattr(config, grad_key):
+                    grad_file = getattr(config, grad_key)
+                    if os.path.exists(grad_file):
+                        auxiliary_fields[param]['gradient'] = load_binary_file(
+                            grad_file, fine_grid.nx, fine_grid.ny, fine_grid.nz,
+                            f"{param.upper()} gradient", convert_to_kms=True
+                        )
+
+            if process_search:
+                srch_key = f'srch_{param}_binary'
+                if hasattr(config, srch_key):
+                    srch_file = getattr(config, srch_key)
+                    if os.path.exists(srch_file):
+                        auxiliary_fields[param]['search'] = load_binary_file(
+                            srch_file, fine_grid.nx, fine_grid.ny, fine_grid.nz,
+                            f"{param.upper()} search", convert_to_kms=True
+                        )
     
     # Get processing mode
     mode = config.get('interpolation_mode', 'sample_at_coarse')

@@ -25,9 +25,8 @@ data:
 
 velocity_processing:
   enabled: false
-  # Input velocity file (auto-detects format from extension)
-  original_velocity_csv: "/full/path/to/velocity_cartesian_final.csv"
-  # original_velocity_hdf5: "/full/path/to/velocity_cartesian_final.h5"  # Alternative input
+  # Input velocity file (auto-detects format from extension: .csv, .h5, .hdf5)
+  reference_velocity_file: "/full/path/to/velocity_cartesian_final.csv"
   vp_binary: "${data.base_dir}/model/updated_vp.bin"
   vs_binary: "${data.base_dir}/model/updated_vs.bin"
   fine_grid:
@@ -58,6 +57,8 @@ velocity_processing:
       dx: 2.0
       dy: 2.0
       dz: 2.0
+  process_gradient: false  # Load and output gradient fields (grad_vp, grad_vs)
+  process_search: false    # Load and output search direction fields (srch_vp, srch_vs)
   parameters_to_process: ["vp", "vs"]  # Options: vp, vs
   grad_vp_binary: "${data.base_dir}/model/grad_vp.bin"
   grad_vs_binary: "${data.base_dir}/model/grad_vs.bin"
@@ -83,8 +84,10 @@ source_processing:
   sy_file: "${data.base_dir}/model/updated_sy.bin"
   sz_file: "${data.base_dir}/model/updated_sz.bin"
   st0_file: "${data.base_dir}/model/updated_st0.bin"
-  grid_dimensions: [4495]
+  n_sources: 4495
   output_csv: "${data.analysis_output_dir}/source_parameters_latte_output.csv"
+  process_gradient: false  # Load and output gradient fields (grad_sx, grad_sy, grad_sz, grad_st0)
+  process_search: false    # Load and output search direction fields (srch_sx, srch_sy, srch_sz, srch_st0)
   parameters_to_process: ["sx", "sy", "sz", "st0"]  # Options: sx, sy, sz, st0
   grad_sx_file: "${data.base_dir}/model/grad_sx.bin"
   grad_sy_file: "${data.base_dir}/model/grad_sy.bin"

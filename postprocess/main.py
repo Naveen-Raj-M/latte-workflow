@@ -116,7 +116,7 @@ def postprocess_latte_outputs(config: DictConfig) -> None:
                 "sy_file": config.source_processing.sy_file,
                 "sz_file": config.source_processing.sz_file,
                 "st0_file": config.source_processing.st0_file,
-                "grid_dimensions": config.source_processing.grid_dimensions,
+                "n_sources": config.source_processing.n_sources,
                 "travel_time_csv": config.travel_time_processing.synthetic_tt_output_csv,
                 "output_csv": config.source_processing.output_csv,
                 "enabled": True
@@ -125,13 +125,15 @@ def postprocess_latte_outputs(config: DictConfig) -> None:
             # Add optional gradient/search configuration
             if hasattr(config.source_processing, 'parameters_to_process'):
                 source_cfg_dict['parameters_to_process'] = config.source_processing.parameters_to_process
-                
+                source_cfg_dict['process_gradient'] = config.source_processing.get('process_gradient', False)
+                source_cfg_dict['process_search'] = config.source_processing.get('process_search', False)
+
                 # Add gradient and search files if specified
                 for param in ['sx', 'sy', 'sz', 'st0']:
                     grad_key = f'grad_{param}_file'
                     if hasattr(config.source_processing, grad_key):
                         source_cfg_dict[grad_key] = getattr(config.source_processing, grad_key)
-                    
+
                     srch_key = f'srch_{param}_file'
                     if hasattr(config.source_processing, srch_key):
                         source_cfg_dict[srch_key] = getattr(config.source_processing, srch_key)

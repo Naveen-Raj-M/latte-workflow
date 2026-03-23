@@ -115,7 +115,7 @@ def process_source_updates(cfg: DictConfig) -> pd.DataFrame:
     logger.info("=== PROCESSING SOURCE PARAMETER UPDATES ===")
 
     # Get number of sources
-    ns = cfg["grid_dimensions"][0]
+    ns = cfg["n_sources"]
     logger.info(f"Number of sources: {ns}")
 
     # st0 is always single precision (float32)
@@ -130,8 +130,11 @@ def process_source_updates(cfg: DictConfig) -> pd.DataFrame:
 
     # Determine which parameters to process for gradients/search
     params_to_process = cfg.get('parameters_to_process', [])
+    process_gradient = cfg.get('process_gradient', False)
+    process_search = cfg.get('process_search', False)
     logger.info(f"\nOptional fields to process: {params_to_process if params_to_process else 'None'}")
-    
+    logger.info(f"  process_gradient: {process_gradient}, process_search: {process_search}")
+
     # Dictionary to store optional fields
     auxiliary_fields: Dict[str, Dict[str, Optional[np.ndarray]]] = {
         'sx': {'gradient': None, 'search': None},
@@ -139,11 +142,11 @@ def process_source_updates(cfg: DictConfig) -> pd.DataFrame:
         'sz': {'gradient': None, 'search': None},
         'st0': {'gradient': None, 'search': None}
     }
-    
+
     # Load optional gradient and search direction files
-    if params_to_process:
+    if params_to_process and (process_gradient or process_search):
         logger.info("\nLoading optional gradient and search direction files...")
-        
+
         for param in params_to_process:
             if param not in ['sx', 'sy', 'sz', 'st0']:
                 logger.warning(f"  Unknown parameter '{param}' in parameters_to_process (skipping)")
@@ -151,24 +154,23 @@ def process_source_updates(cfg: DictConfig) -> pd.DataFrame:
 
             logger.info(f"\n  Processing optional fields for {param.upper()}:")
 
-            # Use st0 precision for st0 gradient/search, single precision for others
             param_dtype = np.float32
 
-            # Load gradient file if specified
-            grad_key = f'grad_{param}_file'
-            if hasattr(cfg, grad_key):
-                grad_file = getattr(cfg, grad_key)
-                auxiliary_fields[param]['gradient'] = read_optional_binary_file(
-                    str(grad_file), ns, f"{param.upper()} gradient", dtype=param_dtype
-                )
+            if process_gradient:
+                grad_key = f'grad_{param}_file'
+                if hasattr(cfg, grad_key):
+                    grad_file = getattr(cfg, grad_key)
+                    auxiliary_fields[param]['gradient'] = read_optional_binary_file(
+                        str(grad_file), ns, f"{param.upper()} gradient", dtype=param_dtype
+                    )
 
-            # Load search direction file if specified
-            srch_key = f'srch_{param}_file'
-            if hasattr(cfg, srch_key):
-                srch_file = getattr(cfg, srch_key)
-                auxiliary_fields[param]['search'] = read_optional_binary_file(
-                    str(srch_file), ns, f"{param.upper()} search direction", dtype=param_dtype
-                )
+            if process_search:
+                srch_key = f'srch_{param}_file'
+                if hasattr(cfg, srch_key):
+                    srch_file = getattr(cfg, srch_key)
+                    auxiliary_fields[param]['search'] = read_optional_binary_file(
+                        str(srch_file), ns, f"{param.upper()} search direction", dtype=param_dtype
+                    )
 
     # Create source corrections lookup (1-based shot_id -> corrections)
     source_corrections = {}
