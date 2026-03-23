@@ -7,8 +7,6 @@ hydra:
 general:
   strict_mode: true
   log_level: INFO  # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
-  phase_type: "both"  # Options: both, p, s
-  max_depth_km: null
 
 # Global performance settings for parallel processing
 performance:
@@ -25,6 +23,7 @@ data:
 
 velocity_processing:
   enabled: false
+  phase_type: "both"  # Options: both, p, s
   # Input velocity file (auto-detects format from extension: .csv, .h5, .hdf5)
   reference_velocity_file: "/full/path/to/velocity_cartesian_final.csv"
   vp_binary: "${data.base_dir}/model/updated_vp.bin"
@@ -67,6 +66,7 @@ velocity_processing:
 
 travel_time_processing:
   enabled: false
+  phase_type: "both"  # Options: both, p, s
   ground_truth_csv: "/full/path/to/ground_truth_travel_times_corrected.csv"
   synthetic_tt_dir: "${data.base_dir}/synthetic_traveltimes"
   shot_map_file: "/full/path/to/shot_to_source_id_map.txt"
@@ -113,12 +113,6 @@ ray_path_diagnosis:
   ray_path_output_file: "${data.analysis_output_dir}/ray_paths/ray_paths.h5"
   dws_output_file: "${data.analysis_output_dir}/dws_values.h5"
 
-  # Cache behavior settings
-  force_recompute: false           # Force recompute even if cache exists (deletes existing cache)
-  fix_corrupted_shots: true        # Detect and recompute only corrupted shots in cache
-  compression: "gzip"              # Compression: gzip, lzf, or none
-  compression_level: 4             # Compression level (1-9 for gzip)
-
   # Common grid dimensions (must match the model grid used for eikonal solver)
   grid:
     nx: 401
@@ -134,12 +128,18 @@ ray_path_diagnosis:
   # Common processing parameters
   phase_type: "both"  # Options: both, p, s
 
-  # What to compute/output
-  compute_dws: true  # Compute Derivative Weight Sum
-
   # Event filtering/subsampling (only when compute_dws=false for faster computation)
   event_id_list_file: null  # Path to text file with event IDs (one per line), or null
   subsample_fraction: 1.0  # Fraction of rays to compute (0.0-1.0), only when event_id_list_file=null
+
+  # Cache behavior settings
+  force_recompute: false           # Force recompute even if cache exists (deletes existing cache)
+  fix_corrupted_shots: true        # Detect and recompute only corrupted shots in cache
+  compression: "gzip"              # Compression: gzip, lzf, or none
+  compression_level: 4             # Compression level (1-9 for gzip)
+
+  # What to compute/output
+  compute_dws: true  # Compute Derivative Weight Sum
 
   # DWS-specific parameters (only used if compute_dws=true)
   dws:

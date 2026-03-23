@@ -60,9 +60,7 @@ def postprocess_latte_outputs(config: DictConfig) -> None:
     if config.velocity_processing.enabled:
         print(f"\nVelocity processing: ENABLED")
         try:
-            phase_type = config.general.get('phase_type', 'both')
-            max_depth_km = config.general.get('max_depth_km', None)
-            create_velocity_csv_from_binaries(config.velocity_processing, phase_type, max_depth_km)
+            create_velocity_csv_from_binaries(config.velocity_processing)
         except Exception as e:
             print(f"Error in velocity processing: {e}")
             if config.general.strict_mode:
@@ -75,8 +73,6 @@ def postprocess_latte_outputs(config: DictConfig) -> None:
         print(f"\nTravel time processing: ENABLED")
         use_exchange = config.travel_time_processing.get('source_receiver_exchange', False)
         use_source_correction = config.travel_time_processing.get('source_correction', False)
-        phase_type = config.general.get('phase_type', 'both')
-        max_depth_km = config.general.get('max_depth_km', None)
 
         try:
             tt_config_dict = {
@@ -85,6 +81,7 @@ def postprocess_latte_outputs(config: DictConfig) -> None:
                 'shot_map_file': config.travel_time_processing.shot_map_file,
                 'synthetic_tt_output_csv': config.travel_time_processing.synthetic_tt_output_csv,
                 'use_source_correction': use_source_correction,
+                'phase_type': config.travel_time_processing.get('phase_type', 'both'),
             }
             if use_source_correction:
                 tt_config_dict['source_correction_file'] = config.travel_time_processing.source_correction_file
@@ -94,11 +91,11 @@ def postprocess_latte_outputs(config: DictConfig) -> None:
                 tt_config_dict['exchange_mapping_file'] = config.travel_time_processing.exchange_mapping_file
                 tt_config_dict['virtual_shot_mapping_file'] = config.travel_time_processing.get('virtual_shot_mapping_file', None)
                 tt_config = OmegaConf.create(tt_config_dict)
-                create_synthetic_travel_time_csv_with_exchange(tt_config, phase_type, max_depth_km)
+                create_synthetic_travel_time_csv_with_exchange(tt_config)
             else:
                 print("Using STANDARD mode (no exchange)")
                 tt_config = OmegaConf.create(tt_config_dict)
-                create_synthetic_travel_time_csv(tt_config, phase_type, max_depth_km)
+                create_synthetic_travel_time_csv(tt_config)
         except Exception as e:
             print(f"Error in travel time processing: {e}")
             if config.general.strict_mode:

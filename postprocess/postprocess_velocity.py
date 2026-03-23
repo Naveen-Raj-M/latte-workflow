@@ -527,12 +527,11 @@ def get_performance_setting(config: DictConfig, key: str, default):
     return default
 
 
-def create_velocity_csv_from_binaries(config: DictConfig, phase_type: str = "both", max_depth_km: Optional[float] = None) -> None:
+def create_velocity_csv_from_binaries(config: DictConfig) -> None:
     """Main function to create velocity CSV from binary files."""
+    phase_type = config.get('phase_type', 'both')
     print("\n=== CREATING VELOCITY CSV FROM BINARIES ===")
     print(f"Phase type: {phase_type}")
-    if max_depth_km is not None:
-        print(f"Max depth filter: {max_depth_km} km")
 
     # Get performance settings from global config
     show_progress = get_performance_setting(config, 'show_progress', True)
@@ -650,16 +649,6 @@ def create_velocity_csv_from_binaries(config: DictConfig, phase_type: str = "bot
             vp_fine, vs_fine, auxiliary_fields,
         )
     
-    # Apply depth filtering if specified
-    if max_depth_km is not None and 'Z_grid_km' in df_output.columns:
-        print(f"\nApplying depth filter: max_depth_km = {max_depth_km} km")
-        initial_count = len(df_output)
-        df_output = df_output[df_output['Z_grid_km'] <= max_depth_km].copy()
-        removed_count = initial_count - len(df_output)
-        print(f"  Points before filtering: {initial_count}")
-        print(f"  Points removed (depth > {max_depth_km} km): {removed_count}")
-        print(f"  Points remaining: {len(df_output)}")
-
     # Write output (CSV and/or HDF5)
     output_format = config.get('velocity_output_format', 'csv')
     print(f"\nWriting output in format: {output_format}")

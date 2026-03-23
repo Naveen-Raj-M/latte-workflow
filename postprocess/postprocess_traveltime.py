@@ -209,7 +209,7 @@ def create_ground_truth_lookup(df_ground_truth: pd.DataFrame) -> Dict[Tuple[int,
 
 
 
-def create_synthetic_travel_time_csv(config: DictConfig, phase_type: str = "both", max_depth_km: Optional[float] = None) -> None:
+def create_synthetic_travel_time_csv(config: DictConfig) -> None:
     """
     Create synthetic travel time CSV from binary files (standard mode - no exchange).
 
@@ -219,10 +219,9 @@ def create_synthetic_travel_time_csv(config: DictConfig, phase_type: str = "both
     3. Optionally apply source correction if enabled
     4. Compare with observed travel times (which are already physical travel times from CSV)
     """
+    phase_type = config.get('phase_type', 'both')
     print("\n=== CREATING SYNTHETIC TRAVEL TIME CSV FROM BINARIES (STANDARD MODE) ===")
     print(f"Phase type: {phase_type}")
-    if max_depth_km is not None:
-        print(f"Max depth filter: {max_depth_km} km")
 
     # Load ground truth CSV for structure and metadata
     print(f"Loading ground truth travel time CSV: {config.ground_truth_csv}")
@@ -371,16 +370,6 @@ def create_synthetic_travel_time_csv(config: DictConfig, phase_type: str = "both
     if csv_data:
         df_synthetic = pd.DataFrame(csv_data)
 
-        # Apply depth filtering if specified
-        if max_depth_km is not None and 'event_z_transformed' in df_synthetic.columns:
-            print(f"\nApplying depth filter: max_depth_km = {max_depth_km} km")
-            initial_count = len(df_synthetic)
-            df_synthetic = df_synthetic[df_synthetic['event_z_transformed'] <= max_depth_km].copy()
-            removed_count = initial_count - len(df_synthetic)
-            print(f"  Records before filtering: {initial_count}")
-            print(f"  Records removed (event depth > {max_depth_km} km): {removed_count}")
-            print(f"  Records remaining: {len(df_synthetic)}")
-
         ensure_directory_exists(os.path.dirname(config.synthetic_tt_output_csv))
         df_synthetic.to_csv(config.synthetic_tt_output_csv, index=False)
 
@@ -413,7 +402,7 @@ def create_synthetic_travel_time_csv(config: DictConfig, phase_type: str = "both
         print("Warning: No synthetic travel time data was processed")
 
 
-def create_synthetic_travel_time_csv_with_exchange(config: DictConfig, phase_type: str = "both", max_depth_km: Optional[float] = None) -> None:
+def create_synthetic_travel_time_csv_with_exchange(config: DictConfig) -> None:
     """
     Create synthetic travel time CSV using source-receiver exchange - OPTIMIZED.
 
@@ -423,10 +412,9 @@ def create_synthetic_travel_time_csv_with_exchange(config: DictConfig, phase_typ
     3. Optionally apply source correction if enabled
     4. Compare with observed travel times (which are already physical travel times from CSV)
     """
+    phase_type = config.get('phase_type', 'both')
     print("\n=== CREATING SYNTHETIC TRAVEL TIME CSV WITH SOURCE-RECEIVER EXCHANGE ===")
     print(f"Phase type: {phase_type}")
-    if max_depth_km is not None:
-        print(f"Max depth filter: {max_depth_km} km")
 
     # Load ground truth CSV
     print(f"Loading ground truth travel time CSV: {config.ground_truth_csv}")
@@ -603,16 +591,6 @@ def create_synthetic_travel_time_csv_with_exchange(config: DictConfig, phase_typ
         # Sort to match ground truth order
         df_output = df_output.sort_values(['shot_id', 'station', 'phase']).reset_index(drop=True)
 
-        # Apply depth filtering if specified
-        if max_depth_km is not None and 'event_z_transformed' in df_output.columns:
-            print(f"\nApplying depth filter: max_depth_km = {max_depth_km} km")
-            initial_count = len(df_output)
-            df_output = df_output[df_output['event_z_transformed'] <= max_depth_km].copy()
-            removed_count = initial_count - len(df_output)
-            print(f"  Records before filtering: {initial_count}")
-            print(f"  Records removed (event depth > {max_depth_km} km): {removed_count}")
-            print(f"  Records remaining: {len(df_output)}")
-        
         # Save output
         ensure_directory_exists(os.path.dirname(config.synthetic_tt_output_csv))
         df_output.to_csv(config.synthetic_tt_output_csv, index=False)
