@@ -9,12 +9,29 @@ from typing import Optional, Union
 from datetime import datetime
 
 
-def setup_logging(level: str = "INFO", 
+class _LevelBasedFormatter(logging.Formatter):
+    """Uses a clean format for INFO and below, full format for WARNING+."""
+
+    def __init__(self, fmt_info: str, fmt_warning: str,
+                 datefmt: str = '%Y-%m-%d %H:%M:%S'):
+        super().__init__(datefmt=datefmt)
+        self._fmt_info = fmt_info
+        self._fmt_warning = fmt_warning
+
+    def format(self, record: logging.LogRecord) -> str:
+        if record.levelno <= logging.INFO:
+            self._style._fmt = self._fmt_info
+        else:
+            self._style._fmt = self._fmt_warning
+        return super().format(record)
+
+
+def setup_logging(level: str = "INFO",
                  log_file: Optional[Union[str, Path]] = None,
                  format_string: Optional[str] = None) -> None:
     """
     Setup logging configuration for the LATTE package.
-    
+
     Args:
         level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
         log_file: Optional path to log file
@@ -24,42 +41,41 @@ def setup_logging(level: str = "INFO",
     numeric_level = getattr(logging, level.upper(), None)
     if not isinstance(numeric_level, int):
         raise ValueError(f'Invalid log level: {level}')
-    
-    # Default format string
-    if format_string is None:
-        format_string = (
-            '%(asctime)s - %(name)s - %(levelname)s - '
-            '%(filename)s:%(lineno)d - %(message)s'
-        )
-    
-    # Configure root logger
-    logging.basicConfig(
-        level=numeric_level,
-        format=format_string,
-        datefmt='%Y-%m-%d %H:%M:%S',
-        handlers=[]
+
+    # Full format string (used for WARNING+ on console, and for any added file handler)
+    full_format = (
+        format_string if format_string is not None else
+        '%(asctime)s - %(name)s - %(levelname)s - '
+        '%(filename)s:%(lineno)d - %(message)s'
     )
-    
-    # Console handler
+
+    # Clean format for INFO messages on console (no timestamp/module prefix)
+    clean_format = '%(message)s'
+
+    # Remove existing console (StreamHandler) handlers added by Hydra to avoid
+    # duplicate output.  FileHandlers (e.g. Hydra's log file) are kept intact.
+    root_logger = logging.getLogger()
+    for handler in root_logger.handlers[:]:
+        if isinstance(handler, logging.StreamHandler) and not isinstance(
+                handler, logging.FileHandler):
+            root_logger.removeHandler(handler)
+    root_logger.setLevel(numeric_level)
+
+    # Console handler: INFO prints clean message only; WARNING+ prints full format
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(numeric_level)
-    console_formatter = logging.Formatter(format_string)
-    console_handler.setFormatter(console_formatter)
-    
-    # Add console handler to root logger
-    root_logger = logging.getLogger()
+    console_handler.setFormatter(_LevelBasedFormatter(clean_format, full_format))
     root_logger.addHandler(console_handler)
-    
-    # File handler if specified
+
+    # Optional extra file handler
     if log_file:
         log_path = Path(log_file)
         log_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         file_handler = logging.FileHandler(log_path)
         file_handler.setLevel(numeric_level)
-        file_formatter = logging.Formatter(format_string)
-        file_handler.setFormatter(file_formatter)
-        
+        file_handler.setFormatter(
+            logging.Formatter(full_format, datefmt='%Y-%m-%d %H:%M:%S'))
         root_logger.addHandler(file_handler)
 
 

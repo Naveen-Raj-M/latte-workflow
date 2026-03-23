@@ -206,7 +206,7 @@ def _load_and_transform_basin_boundaries(config: DictConfig, origin_lon: float,
             continue
 
         # Read space-delimited file (despite .csv extension)
-        df = pd.read_csv(csv_file, delim_whitespace=True)
+        df = pd.read_csv(csv_file, sep=r'\s+')
 
         # Create a DataFrame with standard column names for transformation
         basin_df = pd.DataFrame({

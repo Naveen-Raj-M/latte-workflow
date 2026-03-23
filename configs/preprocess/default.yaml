@@ -101,21 +101,26 @@ coordinate_transform:
 # Geometry and travel time file generation
 geometry_traveltime:
   enabled: true
+  
   # Input files (from coordinate transformation)
   events_csv: "${coordinate_transform.output_dir}/events_cartesian.csv"
   stations_csv: "${coordinate_transform.output_dir}/stations_cartesian.csv"
+  
   # Output directories
   geometry_dir: "${data.output_base_dir}/geometry"
   traveltime_dir: "${data.output_base_dir}/ground_truth_traveltimes"
   source_dir: "${data.output_base_dir}/model"
+  
   # CSV output for debugging/inspection
   generate_travel_time_csv: true
   csv_output_dir: "${data.output_base_dir}/geometry_csv"
   include_magnitude_in_csv: false  # If true, adds event magnitude as a column in the travel time CSV
+  
   # Source binary generation
   generate_source_binaries: true
   source_binary_format: "travel_time"  # Options: travel_time, fortran
   origin_time_precision: "single"  # Options: single, double
+  
   # Phase and weight settings
   apply_default_weights: false
   default_weight: 1.0

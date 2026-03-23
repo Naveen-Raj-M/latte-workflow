@@ -30,7 +30,7 @@ Usage:
 """
 
 __version__ = "2.0.0"
-__author__ = "LATTE Workflow Team"
+__author__ = "Naveen Raj Manoharan"
 
 from preprocess.data_loader import load_seismic_data
 from preprocess.coordinate_transformation import (
