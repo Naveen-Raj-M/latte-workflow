@@ -447,45 +447,7 @@ def _process_single_event(event_id, event_picks, event_lookup, station_lookup,
             logger.warning(f"Could not parse pick time: {e}")
             continue
 
-    # Apply per-event azimuthal weighting if enabled AND scale is per_event
-    # Global scale weighting is applied after all events are processed
-    if geom_config.get('apply_azimuthal_weighting', False):
-        weighting_scale = geom_config.get('azimuthal_weighting_scale', 'global')
-
-        if weighting_scale == 'per_event':
-            bin_size = geom_config.get('azimuthal_bin_size_deg', 30.0)
-            weight_formula = geom_config.get('azimuthal_weight_formula', 'inverse_sqrt')
-            event_coords = event_data['coords']
-
-            if event_coords is not None:
-                # Collect all station coordinates for P and S picks
-                all_picks_coords = []
-                for station_id, pick_info in event_data['p_picks'].items():
-                    sx, sy, sz = pick_info['coords']
-                    all_picks_coords.append((station_id, sx, sy, sz))
-                for station_id, pick_info in event_data['s_picks'].items():
-                    # Avoid duplicates if same station has both P and S
-                    if station_id not in [p[0] for p in all_picks_coords]:
-                        sx, sy, sz = pick_info['coords']
-                        all_picks_coords.append((station_id, sx, sy, sz))
-
-                if all_picks_coords:
-                    # Compute azimuthal weights
-                    azimuthal_weights = compute_azimuthal_weights(
-                        all_picks_coords, event_coords, bin_size, weight_formula
-                    )
-
-                    # Apply weights to P picks
-                    for station_id in event_data['p_picks']:
-                        if station_id in azimuthal_weights:
-                            event_data['p_picks'][station_id]['weight'] = \
-                                azimuthal_weights[station_id]
-
-                    # Apply weights to S picks
-                    for station_id in event_data['s_picks']:
-                        if station_id in azimuthal_weights:
-                            event_data['s_picks'][station_id]['weight'] = \
-                                azimuthal_weights[station_id]
+    # Global azimuthal weighting is applied after all events are processed
 
     return (event_id, event_data, unrealistic_velocity_count, negative_tt_count)
 
@@ -576,19 +538,16 @@ def parse_picks_with_cartesian(events_df: pd.DataFrame,
         else:
             failed_event_count += 1
 
-    # Apply global azimuthal weighting if enabled and scale is 'global'
+    # Apply global azimuthal weighting if enabled
     # This must be done BEFORE phase_type filtering (which converts dicts to lists)
     if geom_config.get('apply_azimuthal_weighting', False):
-        weighting_scale = geom_config.get('azimuthal_weighting_scale', 'global')
+        bin_size = geom_config.get('azimuthal_bin_size_deg', 30.0)
+        weight_formula = geom_config.get('azimuthal_weight_formula', 'inverse_sqrt')
 
-        if weighting_scale == 'global':
-            bin_size = geom_config.get('azimuthal_bin_size_deg', 30.0)
-            weight_formula = geom_config.get('azimuthal_weight_formula', 'inverse_sqrt')
-
-            logger.info("Applying global-scale azimuthal weighting...")
-            temp_events = apply_global_azimuthal_weights(
-                temp_events, event_lookup, bin_size, weight_formula
-            )
+        logger.info("Applying global-scale azimuthal weighting...")
+        temp_events = apply_global_azimuthal_weights(
+            temp_events, event_lookup, bin_size, weight_formula
+        )
 
     # Filter based on phase_type configuration
     final_events = {}
@@ -1149,10 +1108,9 @@ def create_geometry_and_traveltime_files(config: DictConfig,
     elif apply_azimuthal_weighting:
         bin_size = geom_config.get('azimuthal_bin_size_deg', 30)
         weight_formula = geom_config.get('azimuthal_weight_formula', 'inverse_sqrt')
-        weighting_scale = geom_config.get('azimuthal_weighting_scale', 'global')
         formula_display = "1/sqrt(N)" if weight_formula == 'inverse_sqrt' else "1/N"
         logger.info(f"Weighting method: azimuthal weighting")
-        logger.info(f"  - Scale: {weighting_scale} (N = picks per station-bin {'across all events' if weighting_scale == 'global' else 'within each event'})")
+        logger.info(f"  - Scale: global (N = picks per station-bin across all events)")
         logger.info(f"  - Bin size: {bin_size}°")
         logger.info(f"  - Weight formula: {formula_display}")
     else:
