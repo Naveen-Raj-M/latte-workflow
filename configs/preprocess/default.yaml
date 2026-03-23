@@ -268,7 +268,7 @@ visualization:
     plot_xy: true  # Map view (summed over depth)
     plot_xz: true  # Vertical cross-section (summed over Y)
     plot_yz: true  # Vertical cross-section (summed over X)
-    # New visualization options
+    # Other visualization options
     plot_xy_threshold_count: false  # Map view showing count of depth layers >= threshold
     plot_depth_slices: false  # Plot horizontal slices at specified depths
     depth_slices: [5, 10, 20, 30]  # Depths in km for horizontal slices

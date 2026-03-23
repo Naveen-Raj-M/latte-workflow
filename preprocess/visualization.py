@@ -11,9 +11,11 @@ from typing import Dict, Optional
 
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
+from matplotlib.colors import Normalize
 import numpy as np
 import pandas as pd
 from omegaconf import DictConfig
+from scipy.interpolate import griddata as scipy_griddata
 
 from utils.io_utils import ensure_directory_exists
 from utils.velocity_io import read_velocity_file
@@ -683,55 +685,125 @@ def create_velocity_model_visualization(config: DictConfig,
 
 def _plot_depth_slices(vel_df: pd.DataFrame, depth_slices: list,
                       output_dir: Path, config: DictConfig) -> None:
-    """Plot horizontal slices at specified depths."""
+    """Plot horizontal depth slices using filled contours (viridis/plasma).
+
+    Matches the analysis workflow style: contourf with 20 levels, griddata
+    interpolation, and shared colorbar normalization.  When the model is
+    laterally uniform (1D initial model), an annotation is added and the
+    colorbar range is centred on the uniform value so the fill is still
+    informative.
+    """
     logger = logging.getLogger(__name__)
+
+    # Column names present in the velocity DataFrame
+    z_col = 'Z_grid_km' if 'Z_grid_km' in vel_df.columns else 'depth'
+    x_col = 'X_grid_km' if 'X_grid_km' in vel_df.columns else 'lon'
+    y_col = 'Y_grid_km' if 'Y_grid_km' in vel_df.columns else 'lat'
+    x_label = 'X (km)' if x_col == 'X_grid_km' else 'Longitude (°)'
+    y_label = 'Y (km)' if y_col == 'Y_grid_km' else 'Latitude (°)'
 
     for depth in depth_slices:
         # Find closest depth in data
-        depths = vel_df['depth'].unique()
+        depths = vel_df[z_col].unique()
         closest_depth = depths[np.argmin(np.abs(depths - depth))]
 
-        # Extract data at this depth
-        slice_df = vel_df[vel_df['depth'] == closest_depth]
+        slice_df = vel_df[vel_df[z_col] == closest_depth].copy()
 
         if len(slice_df) == 0:
             logger.warning(f"No data at depth {depth} km, skipping")
             continue
 
-        # Create figure with two subplots (Vp and Vs)
+        # Build regular meshgrid for interpolation
+        x_unique = np.sort(slice_df[x_col].unique())
+        y_unique = np.sort(slice_df[y_col].unique())
+        X, Y = np.meshgrid(x_unique, y_unique)
+
+        # Interpolate Vp and Vs onto the regular grid
+        Z_vp = scipy_griddata(
+            (slice_df[x_col].values, slice_df[y_col].values),
+            slice_df['vp'].values, (X, Y), method='linear'
+        )
+        Z_vs = scipy_griddata(
+            (slice_df[x_col].values, slice_df[y_col].values),
+            slice_df['vs'].values, (X, Y), method='linear'
+        )
+
+        # Detect laterally uniform (1D) model
+        vp_std = float(np.nanstd(Z_vp))
+        vs_std = float(np.nanstd(Z_vs))
+        is_1d = vp_std < 1e-6 and vs_std < 1e-6
+
+        vp_val = float(np.nanmean(Z_vp))
+        vs_val = float(np.nanmean(Z_vs))
+
+        # Colour range — for a 1D model add a small symmetric range so
+        # contourf can render a meaningful filled plot
+        if is_1d:
+            half = max(vp_val * 0.02, 0.05)   # ±2 % or ±0.05 km/s
+            vp_min, vp_max = vp_val - half, vp_val + half
+            half = max(vs_val * 0.02, 0.05)
+            vs_min, vs_max = vs_val - half, vs_val + half
+        else:
+            vp_min, vp_max = float(np.nanmin(Z_vp)), float(np.nanmax(Z_vp))
+            vs_min, vs_max = float(np.nanmin(Z_vs)), float(np.nanmax(Z_vs))
+            # Guard against near-zero range
+            if vp_max - vp_min < 1e-10:
+                vp_min, vp_max = vp_val - 0.05, vp_val + 0.05
+            if vs_max - vs_min < 1e-10:
+                vs_min, vs_max = vs_val - 0.05, vs_val + 0.05
+
+        norm_vp = Normalize(vmin=vp_min, vmax=vp_max)
+        norm_vs = Normalize(vmin=vs_min, vmax=vs_max)
+
+        title_suffix = '  [1D — Laterally Uniform]' if is_1d else ''
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6), dpi=150)
 
-        # Plot Vp
-        scatter1 = ax1.scatter(
-            slice_df['lon'], slice_df['lat'],
-            c=slice_df['vp'], cmap='seismic', s=50,
-            edgecolors='black', linewidths=0.5
-        )
-        ax1.set_xlabel('Longitude (°)')
-        ax1.set_ylabel('Latitude (°)')
-        ax1.set_title(f'Vp at {closest_depth:.1f} km depth')
-        ax1.axis('equal')
+        # --- Vp panel ---
+        ax1.contourf(X, Y, Z_vp, levels=20, cmap='viridis',
+                     vmin=vp_min, vmax=vp_max, extend='both')
+        ax1.set_title(f'Vp at {closest_depth:.1f} km depth', fontsize=13)
+        ax1.set_xlabel(x_label, fontsize=11)
+        ax1.set_ylabel(y_label, fontsize=11)
+        ax1.set_aspect('equal')
         ax1.grid(True, alpha=0.3)
-        plt.colorbar(scatter1, ax=ax1, label='Vp (km/s)')
-
-        # Plot Vs
-        scatter2 = ax2.scatter(
-            slice_df['lon'], slice_df['lat'],
-            c=slice_df['vs'], cmap='seismic', s=50,
-            edgecolors='black', linewidths=0.5
+        plt.colorbar(
+            plt.cm.ScalarMappable(norm=norm_vp, cmap='viridis'),
+            ax=ax1, label='Vp (km/s)'
         )
-        ax2.set_xlabel('Longitude (°)')
-        ax2.set_ylabel('Latitude (°)')
-        ax2.set_title(f'Vs at {closest_depth:.1f} km depth')
-        ax2.axis('equal')
-        ax2.grid(True, alpha=0.3)
-        plt.colorbar(scatter2, ax=ax2, label='Vs (km/s)')
+        if is_1d:
+            ax1.text(0.5, 0.5, f'Laterally uniform\nVp = {vp_val:.3f} km/s',
+                     transform=ax1.transAxes, ha='center', va='center',
+                     fontsize=12, color='white', fontweight='bold',
+                     bbox=dict(boxstyle='round', facecolor='black', alpha=0.55))
 
-        plt.tight_layout()
+        # --- Vs panel ---
+        ax2.contourf(X, Y, Z_vs, levels=20, cmap='plasma',
+                     vmin=vs_min, vmax=vs_max, extend='both')
+        ax2.set_title(f'Vs at {closest_depth:.1f} km depth', fontsize=13)
+        ax2.set_xlabel(x_label, fontsize=11)
+        ax2.set_ylabel(y_label, fontsize=11)
+        ax2.set_aspect('equal')
+        ax2.grid(True, alpha=0.3)
+        plt.colorbar(
+            plt.cm.ScalarMappable(norm=norm_vs, cmap='plasma'),
+            ax=ax2, label='Vs (km/s)'
+        )
+        if is_1d:
+            ax2.text(0.5, 0.5, f'Laterally uniform\nVs = {vs_val:.3f} km/s',
+                     transform=ax2.transAxes, ha='center', va='center',
+                     fontsize=12, color='white', fontweight='bold',
+                     bbox=dict(boxstyle='round', facecolor='black', alpha=0.55))
+
+        plt.suptitle(
+            f'Velocity Depth Slice at {closest_depth:.1f} km{title_suffix}',
+            fontsize=15, fontweight='bold'
+        )
+        plt.subplots_adjust(left=0.08, right=0.95, top=0.88,
+                            bottom=0.10, wspace=0.32)
+
         output_file = output_dir / f'velocity_slice_depth_{closest_depth:.1f}km.png'
         fig.savefig(output_file, dpi=150, bbox_inches='tight')
         plt.close(fig)
-
         logger.info(f"Saved depth slice: {output_file}")
 
 
