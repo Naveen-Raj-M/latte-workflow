@@ -208,14 +208,12 @@ except ImportError as e:
 # Import common filtering utilities
 # Moved to separate module to avoid circular imports
 from .filters import (
-    apply_depth_filter,
     apply_phase_filter,
     apply_analysis_filters
 )
 
 # Export filter functions
 __all__ += [
-    'apply_depth_filter',
     'apply_phase_filter',
     'apply_analysis_filters',
 ]

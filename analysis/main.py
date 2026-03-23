@@ -377,10 +377,7 @@ def initialize_analysis_configuration(cfg: DictConfig) -> None:
     # Initialize and log analysis settings
     logger.info(f"Output format: {cfg.analysis.output_format}")
     logger.info(f"DPI: {cfg.analysis.dpi}")
-    logger.info(f"Save intermediate results: {cfg.analysis.save_intermediate_results}")
     logger.info(f"Phase type: {cfg.analysis.get('phase_type', 'both')}")
-    if cfg.analysis.get('max_depth_km'):
-        logger.info(f"Max depth filter: {cfg.analysis.max_depth_km} km")
 
     # Initialize plot style settings
     plot_style = cfg.analysis.plot_style
@@ -409,30 +406,15 @@ def initialize_analysis_configuration(cfg: DictConfig) -> None:
     # Initialize performance settings
     if hasattr(cfg, 'performance'):
         logger.info("Performance configuration:")
-        logger.info(f"  Max memory: {cfg.performance.max_memory_gb} GB")
-        logger.info(f"  Subsample large datasets: {cfg.performance.subsample_large_datasets}")
-        logger.info(f"  Subsample threshold: {cfg.performance.subsample_threshold} points")
         logger.info(f"  Parallel processing: {cfg.performance.parallel_processing}")
         if cfg.performance.parallel_processing:
             logger.info(f"  Number of jobs: {cfg.performance.n_jobs}")
-
-    # Initialize logging settings
-    if hasattr(cfg, 'logging'):
-        logger.info("Logging configuration:")
-        logger.info(f"  Log to file: {cfg.logging.log_to_file}")
-        if cfg.logging.log_to_file:
-            logger.info(f"  Log file prefix: {cfg.logging.log_file_prefix}")
-        logger.info(f"  Detailed progress: {cfg.logging.detailed_progress}")
-        logger.info(f"  Profile memory: {cfg.logging.profile_memory}")
-        logger.info(f"  Profile timing: {cfg.logging.profile_timing}")
 
     # Initialize quality control settings
     if hasattr(cfg, 'quality_control'):
         logger.info("Quality control configuration:")
         logger.info(f"  Validate input data: {cfg.quality_control.validate_input_data}")
         logger.info(f"  Check coordinate consistency: {cfg.quality_control.check_coordinate_consistency}")
-        logger.info(f"  Warn on missing data: {cfg.quality_control.warn_missing_data}")
-        logger.info(f"  Error on empty results: {cfg.quality_control.error_on_empty_results}")
 
     logger.info("Configuration initialization complete")
 

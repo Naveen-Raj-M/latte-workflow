@@ -11,10 +11,7 @@ analysis:
   log_level: "DEBUG"  # Options: DEBUG, INFO, WARNING, ERROR
   output_format: "png"  # Options: png, pdf, svg
   dpi: 300
-  save_intermediate_results: true
-
   phase_type: "both"  # Options: both, p, s
-  max_depth_km: null
 
   plot_style:
     font_family: "sans-serif"
@@ -491,26 +488,9 @@ paths:
   reports_subdir: "reports"
 
 performance:
-  max_memory_gb: 8.0
-  subsample_large_datasets: false
-  subsample_threshold: 100000
   parallel_processing: false
   n_jobs: 1
-
-logging:
-  log_to_file: true
-  log_file_prefix: "analysis"
-  detailed_progress: true
-  profile_memory: false
-  profile_timing: false
 
 quality_control:
   validate_input_data: true
   check_coordinate_consistency: true
-  warn_missing_data: true
-  error_on_empty_results: true
-  max_velocity_km_s: 15.0
-  min_velocity_km_s: 0.5
-  max_travel_time_s: 1000.0
-  min_travel_time_s: 0.0
-  max_distance_km: 2000.0

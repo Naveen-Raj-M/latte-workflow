@@ -32,7 +32,6 @@ from .velocity_plots import (
     create_plane_specific_ratio_plots
 )
 from .velocity_reports import generate_velocity_comparison_report
-from . import apply_depth_filter
 
 logger = logging.getLogger(__name__)
 
@@ -98,18 +97,8 @@ def analyze_velocity_models(config: Dict[str, Any]) -> Dict[str, Any]:
             if not np.allclose(df1[col].values, df2[col].values, rtol=1e-6):
                 logger.warning(f"Coordinate column '{col}' differs between models")
 
-    # Apply depth filtering (velocity models use Z_grid_km for depth)
-    max_depth_km = config.get('analysis', {}).get('max_depth_km', None)
-    if max_depth_km is not None:
-        df1 = apply_depth_filter(df1, max_depth_km, depth_column='Z_grid_km', data_type="velocity Model 1")
-        df2 = apply_depth_filter(df2, max_depth_km, depth_column='Z_grid_km', data_type="velocity Model 2")
-
-        # Verify both models still have matching coordinates after filtering
-        if len(df1) != len(df2):
-            logger.warning(f"After depth filtering: Model 1 has {len(df1)} points, Model 2 has {len(df2)} points")
-
     logger.info("Velocity model validation completed")
-    
+
     # Compute differences and statistics
     logger.info("Computing velocity differences and statistics")
     differences = compute_velocity_differences(df1, df2, config)
@@ -193,16 +182,6 @@ def load_and_validate_velocity_models(model1_csv: str, model2_csv: str,
         for col in coord_cols:
             if not np.allclose(df1[col].values, df2[col].values, rtol=1e-6):
                 logger.warning(f"Coordinate column '{col}' differs between models")
-
-    # Apply depth filtering (velocity models use Z_grid_km for depth)
-    max_depth_km = config.get('analysis', {}).get('max_depth_km', None)
-    if max_depth_km is not None:
-        df1 = apply_depth_filter(df1, max_depth_km, depth_column='Z_grid_km', data_type="velocity Model 1")
-        df2 = apply_depth_filter(df2, max_depth_km, depth_column='Z_grid_km', data_type="velocity Model 2")
-
-        # Verify both models still have matching coordinates after filtering
-        if len(df1) != len(df2):
-            logger.warning(f"After depth filtering: Model 1 has {len(df1)} points, Model 2 has {len(df2)} points")
 
     logger.info("Velocity model validation completed")
     return df1, df2
