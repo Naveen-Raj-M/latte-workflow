@@ -1,18 +1,21 @@
-# Default configuration for LATTE analysis module
+# configs/analysis/default.yaml
+# Configuration for post-inversion analysis of LATTE tomography results
 
 hydra:
   run:
     dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}_analysis_${hydra:job.config_name}
   job_logging:
     root:
-      handlers: []
+      handlers: []                        # disables Hydra's default console handler; setup_logging manages output
 
+# Global settings shared across all analysis modules
 analysis:
-  log_level: "DEBUG"  # Options: DEBUG, INFO, WARNING, ERROR
-  output_format: "png"  # Options: png, pdf, svg
+  log_level: "DEBUG"                      # DEBUG | INFO | WARNING | ERROR
+  output_format: "png"                    # png | pdf | svg
   dpi: 300
-  phase_type: "both"  # Options: both, p, s
+  phase_type: "both"                      # both | p | s
 
+  # Matplotlib style applied globally before each module runs
   plot_style:
     font_family: "sans-serif"
     font_size: 14
@@ -25,8 +28,10 @@ analysis:
     marker_size: 4
     alpha: 0.7
     grid_alpha: 0.3
+    # Scatter plots downsample to this limit to keep rendering fast
     max_plot_points: 100000
 
+    # Hex color palette used across all plot modules
     colors:
       p_wave_dark: "#1f4e79"
       p_wave_light: "#5b9bd5"
@@ -40,137 +45,178 @@ analysis:
       negative_residual: "#4444ff"
       zero_line: "#000000"
 
+# Velocity gradient and search direction analysis
 gradient_analysis:
   enabled: false
-  analysis_type: ["velocity", "source"]  # Options: velocity, source
-  # Input files - support both CSV and HDF5 (HDF5 takes precedence if both specified)
+  analysis_type: ["velocity", "source"]   # subset of: velocity, source
+
+  # Input files — HDF5 takes precedence over CSV when both are set
   velocity_input_csv: /path/to/postprocessed/velocity/csv
-  velocity_input_hdf5: null  # Alternative: /path/to/postprocessed/velocity.h5
+  velocity_input_hdf5: null               # null = use CSV
   velocity_output_dir: "/path/to/velocity_gradient_analysis"
   source_input_csv: /path/to/postprocessed/source/csv
-  source_input_hdf5: null  # Alternative: /path/to/postprocessed/source.h5
+  source_input_hdf5: null                 # null = use CSV
   source_output_dir: "/path/to/source_gradient_analysis"
+
   histogram_bins: 50
   depth_bins: 10
   min_points_per_bin: 10
+
   generate_report: true
   create_histograms: true
   create_alignment_plots: true
   create_spatial_plots: true
   create_depth_profiles: true
 
+# Travel time residual analysis
 travel_time_analysis:
   enabled: true
-  comparison_mode: "ground_truth"  # Options: ground_truth, method_comparison
+  comparison_mode: "ground_truth"         # ground_truth | method_comparison
+
+  # ground_truth mode: single residual CSV compared against zero
   input_csv: null
   output_dir: null
+
+  # method_comparison mode: two residual CSVs compared against each other
   method1_csv: null
   method2_csv: null
   method1_name: "Method 1"
   method2_name: "Method 2"
+
   enable_log_log_plots: true
   enable_ln_ratio_analysis: true
-  enable_corrected_format: true
-  outlier_threshold_sigma: 3.0
-  min_residual_threshold: -50.0
-  max_residual_threshold: 50.0
+  enable_corrected_format: true           # true = parse picks in LATTE corrected-residual format
+
+  outlier_threshold_sigma: 3.0            # residuals beyond N·σ are flagged as outliers
+  min_residual_threshold: -50.0           # s; residuals below this are treated as unrealistic
+  max_residual_threshold: 50.0            # s; residuals above this are treated as unrealistic
+
   histogram_bins: 50
   scatter_alpha: 0.6
   scatter_size: 15
-  generate_summary_report: true
-  include_mismatch_log: true
-  include_unrealistic_log: true
 
+  generate_summary_report: true
+  include_mismatch_log: true              # true = log picks present in one file only
+  include_unrealistic_log: true           # true = log picks flagged by residual thresholds
+
+# Velocity model comparison analysis
 velocity_analysis:
   enabled: true
-  # Input files - support both CSV and HDF5 (HDF5 takes precedence if both specified)
+  comparison_mode: "initial_vs_final"     # initial_vs_final | method_comparison | custom
+
+  # Input files — HDF5 takes precedence over CSV when both are set
   model1_csv: "data/processed/velocity_cartesian.csv"
-  model1_hdf5: null  # Alternative: "data/processed/velocity_cartesian.h5"
+  model1_hdf5: null                       # null = use CSV
   model2_csv: "data/processed/velocity_cartesian_updated.csv"
-  model2_hdf5: null  # Alternative: "data/processed/velocity_cartesian_updated.h5"
+  model2_hdf5: null                       # null = use CSV
   output_dir: "results/analysis/velocity_comparison"
+
   initial_velocity_model_csv: null
-  initial_velocity_model_hdf5: null  # Alternative HDF5 initial model
-  # Use coarse dataset for faster analysis (HDF5 only)
-  use_coarse_dataset: false  # Set to true to use coarse grid for faster analysis
-  comparison_mode: "initial_vs_final"  # Options: initial_vs_final, method_comparison, custom
+  initial_velocity_model_hdf5: null       # null = use CSV
+
+  # true = read 'velocity_coarse' HDF5 dataset for faster analysis
+  use_coarse_dataset: false
+
   model1_name: "Initial Model"
   model2_name: "Final Model"
-  custom_title1: "Model A"
-  custom_title2: "Model B"
+  custom_title1: "Model A"                # used when comparison_mode is 'custom'
+  custom_title2: "Model B"                # used when comparison_mode is 'custom'
+
   compute_log_ratios: true
   compute_geometric_mean_ratios: true
+
+  # Plot type toggles
   enable_basic_comparison_plots: true
   enable_spatial_projections: true
   enable_profile_analysis: true
   enable_slice_analysis: true
   enable_plane_ratio_plots: true
   enable_domain_overview: true
-  interpolation_method: "cubic"  # Options: linear, cubic, nearest
+
+  interpolation_method: "cubic"           # linear | cubic | nearest
   grid_resolution: 100
   contour_levels: 20
   velocity_colormap: "viridis"
   difference_colormap: "RdBu_r"
   ratio_colormap: "RdBu_r"
 
+  # Per-plane ratio slice configuration
   plane_ratio_plots:
     planes:
-      - plane_type: "xy"  # Options: xy, xz, yz
+      - plane_type: "xy"                  # xy | xz | yz
         coordinates: []
         label: "Horizontal Plane (xy)"
-      - plane_type: "xz"  # Options: xy, xz, yz
+      - plane_type: "xz"
         coordinates: []
         label: "Vertical Plane (xz)"
-      - plane_type: "yz"  # Options: xy, xz, yz
+      - plane_type: "yz"
         coordinates: []
         label: "Vertical Plane (yz)"
 
+# Residual vs epicentral/hypocentral distance analysis
 distance_analysis:
   enabled: true
-  comparison_mode: "ground_truth"  # Options: ground_truth, method_comparison
+  comparison_mode: "ground_truth"         # ground_truth | method_comparison
+
+  # ground_truth mode inputs
   travel_time_csv: null
   station_csv: null
   events_csv: null
   output_dir: null
+
+  # method_comparison mode inputs
   method1_csv: null
   method2_csv: null
   method1_name: "Method 1"
   method2_name: "Method 2"
-  coordinate_type: "transformed"  # Options: transformed, original
-  distance_types: ["hypocentral"]  # Options: hypocentral, epicentral
+
+  coordinate_type: "transformed"          # transformed | original
+  distance_types: ["hypocentral"]         # list; hypocentral | epicentral
+
   enable_ratio_analysis: true
   enable_binned_analysis: true
   enable_correlation_analysis: true
-  distance_bins: 20
   enable_log_plots: true
-  max_distance_plot: null
+
+  distance_bins: 20
+  max_distance_plot: null                 # null = auto from data
   min_distance_plot: 0.0
-  correlation_method: "pearson"  # Options: pearson, spearman
+  correlation_method: "pearson"           # pearson | spearman
   fit_polynomial_degree: 1
 
+# Residual analysis restricted to short source–receiver distances
 short_distance_analysis:
   enabled: true
-  comparison_mode: "ground_truth"  # Options: ground_truth, method_comparison
+  comparison_mode: "ground_truth"         # ground_truth | method_comparison
+
+  # ground_truth mode inputs
   travel_time_csv: null
   station_csv: null
   events_csv: null
   output_dir: null
+
+  # method_comparison mode inputs
   method1_csv: null
   method2_csv: null
   method1_name: "Method 1"
   method2_name: "Method 2"
-  distance_cutoff_km: 20.0
-  coordinate_type: "transformed"  # Options: transformed, original
-  distance_types: ["hypocentral"]  # Options: hypocentral, epicentral
-  phase_filter: null  # Options: null, P, S
-  min_residual_threshold: -5.0
-  max_residual_threshold: 5.0
+
+  distance_cutoff_km: 20.0               # km; only source–receiver pairs within this range are analysed
+  coordinate_type: "transformed"          # transformed | original
+  distance_types: ["hypocentral"]         # list; hypocentral | epicentral
+  phase_filter: null                      # null = both phases | P | S
+
+  min_residual_threshold: -5.0            # s
+  max_residual_threshold: 5.0             # s
+
   show_events: true
   show_stations: true
   show_travel_paths: true
   enable_detailed_stats: true
   enable_residual_histograms: true
-  enable_zoom_clusters: true
+  enable_zoom_clusters: true              # true = render per-cluster zoom panels defined below
+
+  # Spatial clusters for zoomed map panels; only used when enable_zoom_clusters is true
   zoom_clusters:
     - name: "Cluster_A"
       x_min: 350.0
@@ -191,105 +237,102 @@ short_distance_analysis:
       y_max: 220.0
       description: "Northwestern region"
 
+# Source parameter correction analysis
 source_analysis:
   enabled: false
-  comparison_mode: "ground_truth"  # Options: ground_truth, method_comparison
+  comparison_mode: "ground_truth"         # ground_truth | method_comparison
+
+  # ground_truth mode input
   input_csv: null
   output_dir: "results/analysis/source_corrections"
+
+  # method_comparison mode inputs
   method1_csv: null
   method2_csv: null
   method1_name: "Method 1"
   method2_name: "Method 2"
+
   use_log_scale: false
   enable_depth_analysis: true
-  origin_time_metadata_dir: null
-  zero_initial_origin_time: true
+  origin_time_metadata_dir: null          # null = skip origin-time metadata loading
+  zero_initial_origin_time: true          # true = treat initial origin time as 0 s
+
   depth_bins: 10
   min_events_per_bin: 5
   histogram_bins: 50
-  max_arrows_map: 5000
-  generate_summary_report: true
-  save_corrected_data: true
+  max_arrows_map: 5000                    # max correction vectors drawn on the map plot
 
-# DWS analysis configuration
+  generate_summary_report: true
+  save_corrected_data: true               # true = write source_corrections_with_deltas.csv
+
+# Derivative weight sum (DWS) model coverage analysis
 dws_analysis:
   enabled: false
 
-  # Input HDF5 file containing DWS values
   input_hdf5: "/path/to/dws_values.h5"
-
-  # Output directory for analysis results
   output_dir: "${paths.output_base_dir}/dws_analysis"
 
-  # Visualization options
-  enable_log_scale: true  # Create both linear and log scale plots
-  enable_coverage_maps: true  # Create binary coverage maps
-  enable_histograms: true  # Create histograms of DWS values
-  enable_vertical_slices: true  # Create vertical slice plots
-  use_m2_units: false  # If true, plot DWS values in m² instead of km² (1 km² = 1,000,000 m²)
+  # Plot type toggles
+  enable_log_scale: true                  # true = produce both linear and log-scale plots
+  enable_coverage_maps: true              # true = produce binary covered/uncovered maps
+  enable_histograms: true
+  enable_vertical_slices: true
 
-  # Coverage threshold for coverage maps (in km², not affected by use_m2_units)
-  # Cells with DWS > threshold are considered "covered"
+  use_m2_units: false                     # true = display in m² instead of km² (1 km² = 1 000 000 m²)
+
+  # Cells with DWS > coverage_threshold are considered covered; applies to coverage maps
   coverage_threshold: 0.0
 
-  # Horizontal slice depths (km) - specify depths where you want to visualize DWS
-  horizontal_slice_depths: [5.0, 10.0, 15.0, 20.0, 30.0, 40.0, 50.0]  
+  # Depth levels for horizontal slice plots (km)
+  horizontal_slice_depths: [5.0, 10.0, 15.0, 20.0, 30.0, 40.0, 50.0]
 
   # Vertical slice positions (km)
   vertical_slices:
-    # XZ slices (constant Y positions)
-    xz_positions:
-      - 120.0  # Y = 120 km
-    # YZ slices (constant X positions)
-    yz_positions:
-      - 100.0  # X = 100 km
+    xz_positions:                         # constant Y values for XZ slices
+      - 120.0
+    yz_positions:                         # constant X values for YZ slices
+      - 100.0
 
-  # DWS-specific plot configuration (inherits from analysis.plot_style for fonts/dpi)
+  # DWS-specific plot settings (font sizes and dpi inherited from analysis.plot_style)
   plot_config:
     figure_width: 12
     figure_height: 10
-    colormap: 'viridis'  # For linear scale: viridis, plasma, inferno, magma, jet
-    colormap_log: 'viridis'  # For log scale
+    colormap: "viridis"                   # linear-scale colormap: viridis | plasma | inferno | jet
+    colormap_log: "viridis"               # log-scale colormap
     equal_aspect: false
     grid: true
-    depth_tolerance: 0.01  # Tolerance for depth matching (km)
-    position_tolerance: 0.01  # Tolerance for position matching (km)
+    depth_tolerance: 0.01                 # km; tolerance for horizontal slice depth matching
+    position_tolerance: 0.01             # km; tolerance for vertical slice position matching
 
-  # Report generation
   generate_report: true
 
-# Ray path visualization analysis configuration
+# Ray path projection visualization
 raypath_analysis:
   enabled: false
 
-  # Input HDF5 cache file containing ray paths (from postprocess module)
+  # Input ray path cache (HDF5) produced by the postprocess module
   input_cache: "${paths.input_dir}/ray_paths/ray_paths.h5"
-
-  # Output directory for analysis results
   output_dir: "${paths.output_base_dir}/raypaths/"
 
-  # Phase type to visualize
-  phase_type: "both"  # Options: both, p, s
+  phase_type: "both"                      # both | p | s
 
-  # Event filtering/subsampling (priority: event_id_list_file > max_rays > subsample_fraction)
-  event_id_list_file: null  # Path to text file with event IDs (one per line), or null
-  shot_map_file: null  # Path to shot map CSV (required if using event_id_list_file), or null to use paths.shot_map_file
-  max_rays: null  # Maximum rays to load (null for all)
-  subsample_fraction: 1.0  # Fraction of rays to plot (0.0-1.0)
+  # Event filtering — priority order: event_id_list_file > max_rays > subsample_fraction
+  event_id_list_file: null               # null = no filter; or path to a text file of event IDs (one per line)
+  shot_map_file: null                    # required when event_id_list_file is set; or null to use paths.shot_map_file
+  max_rays: null                         # null = load all rays
+  subsample_fraction: 1.0               # fraction of loaded rays to actually plot (0.0–1.0)
 
-  # Optional: filter to a specific subset of rays defined by a CSV file.
-  filter_csv: null  # Path to filter CSV, or null to disable
-  filter_match_tolerance_km: 0.5  # Receiver coordinate match tolerance (km)
+  # Receiver-level filter from a CSV (e.g. anomalous-pick export)
+  filter_csv: null                       # null = disabled
+  filter_match_tolerance_km: 0.5        # km; receiver coordinate match tolerance
 
-  # Report generation
   generate_report: true
 
-  # Basin boundaries (optional, shown on XY plane plots only)
-  # These should be the transformed (Cartesian) basin boundary files from preprocessing
+  # Basin boundary overlays shown on XY projection only
+  # Provide the Cartesian-transformed boundary directory produced by preprocess
   basin_boundaries:
-    enabled: false  # Set to true to enable basin boundaries on XY plots
-    data_dir: "/path/to/preprocessed/coordinate_transform/basin_boundaries"  # Directory with transformed basin CSVs
-    # Basin files (same names as preprocessing output)
+    enabled: false
+    data_dir: "/path/to/preprocessed/coordinate_transform/basin_boundaries"
     basins:
       - file: "CentralBasin_Verticies_WGS84.csv"
         label: "Central Basin"
@@ -297,93 +340,88 @@ raypath_analysis:
         label: "Delaware Basin"
       - file: "MidlandBasin_Verticies_WGS84.csv"
         label: "Midland Basin"
-    # Styling options
     line_color: "darkgreen"
     line_width: 2
-    line_style: "-"
-    line_alpha: 0.8
+    line_style: "-"                      # - | -- | : | -.
+    line_alpha: 0.8                      # transparency (0 = transparent, 1 = opaque)
     show_labels: true
     label_fontsize: 12
-    label_fontweight: "bold"
-    label_offset_x: 0.0  # km offset from centroid
-    label_offset_y: 0.0  # km offset from centroid
+    label_fontweight: "bold"             # normal | bold
+    label_offset_x: 0.0                 # km offset from basin centroid
+    label_offset_y: 0.0                 # km offset from basin centroid
 
-  # Plot configuration
+  # Ray path plot settings (font sizes and dpi inherited from analysis.plot_style)
   plot:
-    planes: ["xy", "xz", "yz"]  # Projection planes to plot
+    planes: ["xy", "xz", "yz"]          # projection planes to generate
+
     figure_width: 12
     figure_height: 10
 
-    # Ray path styling
+    # Ray path rendering
     ray_color: "blue"
-    ray_alpha: 0.3  # Transparency (0-1)
+    ray_alpha: 0.3                       # transparency (0 = transparent, 1 = opaque)
     ray_linewidth: 0.5
 
-    # Source styling
+    # Source marker
     source_color: "red"
-    source_marker: "*"  # Options: *, o, ^, v, s, D
+    source_marker: "*"                   # *, o, ^, v, s, D
     source_size: 100
 
-    # Receiver styling
+    # Receiver marker
     receiver_color: "green"
-    receiver_marker: "^"  # Options: *, o, ^, v, s, D
+    receiver_marker: "^"                 # *, o, ^, v, s, D
     receiver_size: 50
 
-    # Plot layout
     grid: true
     equal_aspect: true
 
-# Ray density analysis configuration
+# Ray density computation and grid coverage visualization
 ray_density_analysis:
   enabled: false
 
-  # Input HDF5 cache file containing ray paths (from postprocess module)
+  # Input ray path cache (HDF5) produced by the postprocess module
   input_cache: "${paths.input_dir}/ray_paths/ray_paths.h5"
-
-  # Output directory for analysis results
   output_dir: "${paths.output_base_dir}/ray_density/"
 
-  # Grid dimensions (should match the model grid)
+  # Model grid — must match the inversion grid exactly
   grid:
     nx: 401
     ny: 361
     nz: 43
-    dx: 0.5  # km
-    dy: 0.5  # km
-    dz: 0.5  # km
-    x_min: 0.0  # km
-    y_min: 0.0  # km
-    z_min: 0.0  # km
+    dx: 0.5                              # km
+    dy: 0.5                              # km
+    dz: 0.5                              # km
+    x_min: 0.0                           # km
+    y_min: 0.0                           # km
+    z_min: 0.0                           # km
 
-  # Phase type to analyze
-  phase_type: "both"  # Options: both, p, s
+  phase_type: "both"                     # both | p | s
 
-  # Ray density computation settings
-  threshold: 0  # Ray count threshold for visualization (cells below are masked)
-  num_samples_per_ray: 1000  # Number of sample points per ray for grid intersection
-  n_jobs: -1  # Number of parallel jobs (-1 = all cores, 1 = sequential)
-  batch_size: 1000  # Number of rays per batch for parallel processing
+  # Computation settings
+  threshold: 0                           # cells with ray count < threshold are masked in plots
+  num_samples_per_ray: 1000             # sample points per ray used for grid intersection
+  n_jobs: -1                            # -1 = all cores, 1 = serial, N = N cores
+  batch_size: 1000                      # rays per parallel batch
 
-  # Event filtering/subsampling (priority: event_id_list_file > max_rays > subsample_fraction)
-  event_id_list_file: null  # Path to text file with event IDs (one per line), or null
-  shot_map_file: null  # Path to shot map TSV (required if using event_id_list_file), or null to use paths.shot_map_file
-  max_rays: null  # Maximum rays to load from cache (null for all)
-  subsample_fraction: 1.0  # Fraction of rays to use (0.0-1.0)
+  # Event filtering — priority order: event_id_list_file > max_rays > subsample_fraction
+  event_id_list_file: null              # null = no filter; or path to a text file of event IDs (one per line)
+  shot_map_file: null                   # required when event_id_list_file is set; or null to use paths.shot_map_file
+  max_rays: null                        # null = load all rays
+  subsample_fraction: 1.0              # fraction of loaded rays to use (0.0–1.0)
 
-  # Visualization options
-  planes: ["xy", "xz", "yz"]  # Projection planes to plot
-  enable_xy_threshold_count: true  # Create map showing depth layers >= threshold
-  enable_depth_slices: true  # Create horizontal slices at specified depths
+  # Plot type toggles
+  planes: ["xy", "xz", "yz"]           # projection planes to generate
+  enable_xy_threshold_count: true       # true = map showing count of depth layers >= threshold
+  enable_depth_slices: true             # true = horizontal slice plots at specified depths
 
-  # Depth slices to create (in km)
+  # Depth levels for horizontal slice plots (km)
   depth_slices: [5.0, 10.0, 15.0, 20.0, 30.0, 40.0, 50.0]
 
-  # Basin boundaries (optional, shown on XY plane plots only)
-  # These should be the transformed (Cartesian) basin boundary files from preprocessing
+  # Basin boundary overlays shown on XY projection only
+  # Provide the Cartesian-transformed boundary directory produced by preprocess
   basin_boundaries:
-    enabled: false  # Set to true to enable basin boundaries on XY plots
-    data_dir: "/path/to/preprocessed/coordinate_transform/basin_boundaries"  # Directory with transformed basin CSVs
-    # Basin files (same names as preprocessing output)
+    enabled: false
+    data_dir: "/path/to/preprocessed/coordinate_transform/basin_boundaries"
     basins:
       - file: "CentralBasin_Verticies_WGS84.csv"
         label: "Central Basin"
@@ -391,85 +429,85 @@ ray_density_analysis:
         label: "Delaware Basin"
       - file: "MidlandBasin_Verticies_WGS84.csv"
         label: "Midland Basin"
-    # Styling options
     line_color: "darkgreen"
     line_width: 2
-    line_style: "-"
-    line_alpha: 0.8
+    line_style: "-"                     # - | -- | : | -.
+    line_alpha: 0.8                     # transparency (0 = transparent, 1 = opaque)
     show_labels: true
     label_fontsize: 12
-    label_fontweight: "bold"
-    label_offset_x: 0.0  # km offset from centroid
-    label_offset_y: 0.0  # km offset from centroid
+    label_fontweight: "bold"            # normal | bold
+    label_offset_x: 0.0               # km offset from basin centroid
+    label_offset_y: 0.0               # km offset from basin centroid
 
-  # Plot configuration
+  # Plot settings (font sizes and dpi inherited from analysis.plot_style)
   figure_width: 12
   figure_height: 10
-  colormap: "hot"  # Colormap for density plots
+  colormap: "hot"                       # density colormap: hot | viridis | plasma | inferno | jet
 
+# Inversion tradeoff curve (data misfit vs. model variance)
 tradeoff_analysis:
   enabled: false
 
-  # --- Y-axis mode ---
-  y_axis_mode: "data_misfit"          # Options: "data_misfit", "rms"
+  # Y-axis mode
+  y_axis_mode: "data_misfit"            # data_misfit | rms
 
-  # data_misfit mode: read from a data_misfit.txt file (3-column whitespace-separated)
+  # data_misfit mode: reads a 3-column whitespace-separated file
   # Columns: iteration | data_misfit | normalized_data_misfit
-  data_misfit_file_path: null         # e.g. /path/to/inversion_runs/.../data_misfit.txt
-  use_normalized_misfit: false        # true = use normalized column; false = absolute
+  data_misfit_file_path: null           # path to data_misfit.txt
+  use_normalized_misfit: false          # true = use normalized column; false = absolute
 
-  # rms mode: compute RMS from per-iteration traveltime residual CSVs
-  inversion_base_path: null           # Dir containing iteration_*/ subdirs with traveltime CSVs
+  # rms mode: computes RMS from per-iteration traveltime residual CSVs
+  inversion_base_path: null             # dir containing iteration_*/ subdirs with traveltime CSVs
   traveltime_csv_pattern: "travel_time_residuals*.csv"
-  phase_mode: "both"                  # Options: "both", "p", "s", "separate"
-  min_residual_threshold: -50.0       # Residual threshold (s) for RMS computation
-  max_residual_threshold: 50.0
+  phase_mode: "both"                    # both | p | s | separate
+  min_residual_threshold: -50.0         # s; lower bound for RMS computation
+  max_residual_threshold: 50.0          # s; upper bound for RMS computation
 
-  # rms comparison mode: 'ground_truth' or 'method_comparison'
-  rms_comparison_mode: "ground_truth"
-  method1_csv: null                   # Static path to Method 1 traveltime CSV
-  method2_csv_pattern: "travel_time_residuals*.csv"  # Pattern for Method 2 CSV per iteration
+  # rms comparison mode
+  rms_comparison_mode: "ground_truth"   # ground_truth | method_comparison
+  method1_csv: null                     # static path to Method 1 traveltime CSV
+  method2_csv_pattern: "travel_time_residuals*.csv"  # glob pattern for Method 2 CSV per iteration
 
-  # --- Model paths ---
-  initial_model_csv: null             # Path to initial velocity model CSV
-  initial_model_hdf5: null            # Path to initial velocity model HDF5 (takes precedence)
-  inversion_analysis_dir: null        # Dir containing iteration_*/ subdirs with postprocessed velocity
-  velocity_dataset: "velocity"        # HDF5 dataset name: "velocity" or "velocity_coarse"
+  # Velocity model paths
+  initial_model_csv: null               # path to initial velocity model CSV
+  initial_model_hdf5: null              # path to initial velocity model HDF5 (takes precedence over CSV)
+  inversion_analysis_dir: null          # dir containing iteration_*/ subdirs with postprocessed velocity
+  velocity_dataset: "velocity"          # HDF5 dataset name: velocity | velocity_coarse
 
-  # --- Model variance (X-axis) ---
-  # Model variance = mean(|v_initial - v_inverted|) at selected grid points (km/s)
-  # For data_misfit mode (P+S combined): X = max(vp_variance, vs_variance)
-  # For rms mode with phase_mode "separate": separate vp and vs curves plotted
+  # Model variance (X-axis)
+  # Variance = mean(|v_initial − v_inverted|) over selected grid points (km/s)
+  # For data_misfit mode with P+S combined: X = max(vp_variance, vs_variance)
+  # For rms mode with phase_mode "separate": separate Vp and Vs curves are plotted
   model_variance:
-    region: "full"                    # Options: "full", "z_bounded", "depth_layer"
-    z_bounds: [null, null]            # [z_min_km, z_max_km] — used when region = "z_bounded"
-    depth_layers: []                  # [d1, d2, ...] km — used when region = "depth_layer"
-    depth_tolerance_km: 0.5           # Z-matching tolerance for depth_layer mode
-    x_bounds: [null, null]            # Optional: [x_min, x_max] km (applied before variance)
-    y_bounds: [null, null]            # Optional: [y_min, y_max] km (applied before variance)
-    use_percentage_change: false      # true = mean(|v_initial - v_inverted| / |v_initial|) * 100 (%)
-    aggregation: "mean"               # Aggregation over selected grid points: "mean" or "max"
+    region: "full"                      # full | z_bounded | depth_layer
+    z_bounds: [null, null]              # [z_min_km, z_max_km]; used when region = z_bounded
+    depth_layers: []                    # [d1, d2, ...] km; used when region = depth_layer
+    depth_tolerance_km: 0.5            # km; Z-matching tolerance for depth_layer mode
+    x_bounds: [null, null]             # [x_min, x_max] km; optional spatial clip before variance
+    y_bounds: [null, null]             # [y_min, y_max] km; optional spatial clip before variance
+    use_percentage_change: false       # true = mean(|Δv| / |v_initial|) × 100  (%)
+    aggregation: "mean"                # mean | max — aggregation over selected grid points
 
-  # --- Output ---
   output_dir: "${paths.output_base_dir}/tradeoff_analysis"
 
-  # --- Plot controls ---
+  # Plot settings
   plot:
     figure_width: 10
     figure_height: 8
     show_grid: true
-    show_iteration_labels: true       # Annotate each data point with its iteration number
-    use_log_scale_x: false            # Log scale on X-axis (model variance)
-    use_log_scale_y: false            # Log scale on Y-axis (data misfit / RMS)
-    x_label: null                     # null = auto-derived ("Model Variance (km/s)" or "Model Variance (%)")
-    y_label: null                     # null = auto-derived from y_axis_mode and phase_mode
-    marker_style: "o"                 # Matplotlib marker style: "o", "s", "^", "D", etc.
-    color_by_iteration: false         # Color each point by iteration number using colormap
-    colormap: "viridis"               # Colormap when color_by_iteration is true
-    highlight_optimal: false          # Annotate the elbow/optimal point with a gold star
-    vp_color: null                    # null = use analysis.plot_style.colors.p_wave_dark
-    vs_color: null                    # null = use analysis.plot_style.colors.s_wave_dark
+    show_iteration_labels: true         # true = annotate each data point with its iteration number
+    use_log_scale_x: false              # true = log scale on X-axis (model variance)
+    use_log_scale_y: false              # true = log scale on Y-axis (data misfit / RMS)
+    x_label: null                       # null = auto ("Model Variance (km/s)" or "Model Variance (%)")
+    y_label: null                       # null = auto-derived from y_axis_mode and phase_mode
+    marker_style: "o"                   # matplotlib marker: o | s | ^ | D | etc.
+    color_by_iteration: false           # true = color each point by iteration number using colormap
+    colormap: "viridis"                 # used when color_by_iteration is true
+    highlight_optimal: false            # true = annotate the elbow/optimal point with a gold star
+    vp_color: null                      # null = use analysis.plot_style.colors.p_wave_dark
+    vs_color: null                      # null = use analysis.plot_style.colors.s_wave_dark
 
+# File path patterns used across all analysis modules
 paths:
   input_dir: "data/processed"
   output_base_dir: "results/analysis"
@@ -482,10 +520,12 @@ paths:
   stats_subdir: "statistics"
   reports_subdir: "reports"
 
+# Parallel processing (currently used by dws_analysis only)
 performance:
   parallel_processing: false
-  n_jobs: 1
+  n_jobs: 1                             # number of parallel jobs; 1 = serial
 
+# Input data validation before each analysis module runs
 quality_control:
-  validate_input_data: true
-  check_coordinate_consistency: true
+  validate_input_data: true             # true = abort if any required input file is missing
+  check_coordinate_consistency: true    # true = warn when coordinate columns differ between models
