@@ -10,93 +10,72 @@ hydra:
 
 preprocessing:
   output_dir: "/path/to/output/files"
-  log_level: INFO  # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  log_level: INFO                         # DEBUG | INFO | WARNING | ERROR | CRITICAL
 
 data:
-  # Input data source - choose one method
-  use_hdf5: true  # If true, load from HDF5; if false, load directly from QuakeML
-  hdf5_file: "/path/to/seismic_data.h5"  # Pre-generated HDF5 file
-
-  # For direct QuakeML loading (when use_hdf5 is false)
+  use_hdf5: true                          # true = load from HDF5, false = load from QuakeML
+  hdf5_file: "/path/to/seismic_data.h5"
+  # Directory containing QuakeML files; used when use_hdf5 is false
   quakeml_dir: "/path/to/quakeml/files"
   station_file: "/path/to/station_list.txt"
-
-  # Output directory
   output_base_dir: "/path/to/output"
-
-  # QuakeML processing options
-  max_files: null  # null = process all files, or set a number for testing
-  years: null  # null = auto-detect year subdirectories and files directly in quakeml_dir; or list like [2020, 2021, 2022]
+  max_files: null                         # null = all files; positive int limits (for testing)
+  # null = auto-detect year subdirectories and files directly in quakeml_dir; or [2020, 2021, 2022]
+  years: null
   use_preferred_origin: true
   use_preferred_magnitude: true
-  save_all_picks: false  # If false, only picks associated with selected origin
+  save_all_picks: false                   # false = only picks from the selected origin
 
 # Parallel processing
 parallel:
-  num_workers: null  # null = use all CPU cores, or set a specific number
-  chunk_size: 100  # Number of events to process per chunk (for parse_picks_with_cartesian)
-  grid_chunk_size: 50000  # Number of grid points to process per chunk (for velocity model creation)
-  vectorize_max_points: 100000000  # Max points for full vectorization (100M points ~ 6GB RAM)
+  num_workers: null                       # null = all CPU cores
+  chunk_size: 100                         # events per chunk (parse_picks_with_cartesian)
+  grid_chunk_size: 50000                  # grid points per chunk (velocity model creation)
+  vectorize_max_points: 100000000         # max points for full vectorization (~6 GB RAM at 100 M)
 
-# Filtering options
 filters:
-  manual_picks_only: false  # If true, only use picks with evaluation_mode='manual'
-
-  # Magnitude filters (null = no filter)
-  magnitude_min: null
-  magnitude_max: null
-
-  # Geographic filters (degrees, null = no filter)
-  lat_min: null
-  lat_max: null
-  lon_min: null
-  lon_max: null
-
-  # Depth filter (km, positive = below MSL, null = no filter)
-  depth_min: null
-  depth_max: null
-
-  # Distance filters (km, null = no filter)
-  # Note: Only applied if station coordinates are available
-  hypocentral_distance_min: null
-  hypocentral_distance_max: null
-  epicentral_distance_min: null
-  epicentral_distance_max: null
+  manual_picks_only: false                # true = only picks with evaluation_mode='manual'
+  magnitude_min: null                     # null = no filter
+  magnitude_max: null                     # null = no filter
+  lat_min: null                           # degrees, null = no filter
+  lat_max: null                           # degrees, null = no filter
+  lon_min: null                           # degrees, null = no filter
+  lon_max: null                           # degrees, null = no filter
+  depth_min: null                         # km, null = no filter
+  depth_max: null                         # km, null = no filter
+  # Distance filters apply only when station coordinates are available
+  hypocentral_distance_min: null          # km, null = no filter
+  hypocentral_distance_max: null          # km, null = no filter
+  epicentral_distance_min: null           # km, null = no filter
+  epicentral_distance_max: null           # km, null = no filter
 
 origin_time:
-  mode: "fixed"  # Options: fixed, unix_epoch
-  fixed_value: 0.0
+  mode: "fixed"                           # fixed | unix_epoch
+  fixed_value: 0.0                        # seconds; used when mode is 'fixed'
 
-# Coordinate transformation (flattening)
+# Converts geodetic (lon/lat/depth) to Cartesian (x/y/z km) via flattening transformation
 coordinate_transform:
   enabled: true
-  # Origin point in geographic coordinates
-  origin_lon: -108.0  # degrees
-  origin_lat: 34.5    # degrees
-  origin_depth_km: 0.0  # km, positive = below MSL
-  # Grid spacing in Cartesian coordinates (km)
-  grid_spacing_km: [1.0, 1.0, 1.0]  # [dx, dy, dz] in km
-  # Y-axis direction control
-  # If true: positive y as latitude decreases (origin at top, y increases going south)
-  # If false: positive y as latitude increases (origin at bottom, y increases going north)
-  invert_y_axis: true  # true = positive y when moving south from origin
-  # Output directory for transformed coordinates
+  origin_lon: -108.0                      # degrees
+  origin_lat: 34.5                        # degrees
+  origin_depth_km: 0.0                    # km, positive = below MSL
+  grid_spacing_km: [1.0, 1.0, 1.0]       # [dx, dy, dz] in km
+  # true = +y going south (lat decreases); false = +y going north (lat increases)
+  invert_y_axis: true
   output_dir: "${data.output_base_dir}/coordinate_transform"
 
-  # Output CSV files
+  # Output CSV file paths
   events_cartesian_csv: "${coordinate_transform.output_dir}/events_cartesian.csv"
   stations_cartesian_csv: "${coordinate_transform.output_dir}/stations_cartesian.csv"
   picks_cartesian_csv: "${coordinate_transform.output_dir}/picks_cartesian.csv"
   events_geodetic_csv: "${data.output_base_dir}/events_geodetic.csv"
   stations_geodetic_csv: "${data.output_base_dir}/stations_geodetic.csv"
 
-  # Basin boundaries transformation (optional)
-  # When enabled, transforms basin boundaries from geographic (lon/lat) to Cartesian (x/y km) coordinates
-  # Output: ${coordinate_transform.output_dir}/basin_boundaries/ (use this path in analysis module)
+  # Transforms basin boundary CSVs from geographic to Cartesian coordinates
+  # Output saved to: ${coordinate_transform.output_dir}/basin_boundaries/
   basin_boundaries:
-    enabled: false  # Set to true to enable basin boundary transformation
-    data_dir: "/path/to/basin_boundaries"  # Directory containing basin boundary CSV files (geographic coords)
-    # Basin files to transform (same format as visualization.basin_boundaries.basins)
+    enabled: false
+    data_dir: "/path/to/basin_boundaries"
     basins:
       - file: "CentralBasin_Verticies_WGS84.csv"
         label: "Central Basin"
@@ -108,57 +87,48 @@ coordinate_transform:
 # Geometry and travel time file generation
 geometry_traveltime:
   enabled: true
-  
-  # Input files (from coordinate transformation)
+
+  # Input files (outputs from coordinate_transform)
   events_csv: "${coordinate_transform.events_cartesian_csv}"
   stations_csv: "${coordinate_transform.stations_cartesian_csv}"
-  
+
   # Output directories
   geometry_dir: "${data.output_base_dir}/geometry"
   traveltime_dir: "${data.output_base_dir}/ground_truth_traveltimes"
   source_dir: "${data.output_base_dir}/model"
-  
-  # CSV output for debugging/inspection
+
   generate_travel_time_csv: true
   csv_output_dir: "${data.output_base_dir}/geometry_csv"
-  include_magnitude_in_csv: false  # If true, adds event magnitude as a column in the travel time CSV
-  
-  # Source binary generation
+  include_magnitude_in_csv: false         # true = adds magnitude column to travel time CSV
   generate_source_binaries: true
-  
-  # Phase and weight settings
+
+  # apply_default_weights and apply_azimuthal_weighting are mutually exclusive
   apply_default_weights: false
   default_weight: 1.0
-  # Azimuthal weighting: compute weights based on back-azimuth distribution
-  # NOTE: apply_default_weights and apply_azimuthal_weighting are mutually exclusive
   apply_azimuthal_weighting: false
-  azimuthal_bin_size_deg: 30  # Bin size in degrees (e.g., 30 creates 12 bins)
-  azimuthal_weight_formula: "inverse_sqrt"  # Options: "inverse_sqrt" (1/sqrt(N)), "inverse" (1/N)
-  # Azimuthal weighting scale: global (pick counts per station-bin across ALL events)
-  phase_type: "both"  # Options: both, p, s
-  # Velocity range filters (m/s)
-  p_velocity_range_m_s: [500, 10000]
-  s_velocity_range_m_s: [500, 6000]
+  azimuthal_bin_size_deg: 30              # degrees; 30° creates 12 azimuthal bins
+  # Weight formula: inverse_sqrt = 1/sqrt(N), inverse = 1/N
+  azimuthal_weight_formula: "inverse_sqrt"
+  # Azimuthal weighting uses global scale (pick counts per station-bin across ALL events)
+  phase_type: "both"                      # both | p | s
+  p_velocity_range_m_s: [500, 10000]      # m/s; picks outside this range are discarded
+  s_velocity_range_m_s: [500, 6000]       # m/s; picks outside this range are discarded
 
-# Initial velocity model creation
+# Initial 3D velocity model created by extruding a 1D depth profile
 initial_velocity_model:
   enabled: true
-  # Initial 1D velocity model from CSV
   initial_model_file: "/path/to/initial_model.csv"
-  # Maximum depth to use from initial model
-  max_depth_km: 100.0  # Only use velocity model data up to this depth
+  max_depth_km: 100.0                     # km; model entries below this depth are ignored
 
-  # Domain definition
-  # Origin and grid spacing from coordinate_transform section
+  # Origin and grid spacing inherited from coordinate_transform
   origin_lon: "${coordinate_transform.origin_lon}"
   origin_lat: "${coordinate_transform.origin_lat}"
   origin_depth_km: "${coordinate_transform.origin_depth_km}"
   grid_spacing_km: "${coordinate_transform.grid_spacing_km}"
 
-  # Domain bounds (auto-computed from events/stations or manually specified)
-  use_auto_bounds: true  # If true, compute from transformed events/stations
-  # Manual bounds (only used if use_auto_bounds is false)
-  # Bounds in Cartesian coordinates (km, relative to origin)
+  # true = bounds computed from transformed events/stations; false = use manual bounds below
+  use_auto_bounds: true
+  # Manual bounds in Cartesian km relative to origin; used only when use_auto_bounds is false
   x_min: null
   x_max: null
   y_min: null
@@ -166,44 +136,40 @@ initial_velocity_model:
   z_min: null
   z_max: null
 
-  # Output files
-  # Format: csv, hdf5, or both
-  output_format: "csv"  # Default to csv for backward compatibility
+  output_format: "csv"                    # csv | hdf5 | both
   output_csv: "${data.output_base_dir}/velocity_model_cartesian.csv"
-  output_hdf5: "${data.output_base_dir}/velocity_model_cartesian.h5"  # Used if format is hdf5 or both
+  output_hdf5: "${data.output_base_dir}/velocity_model_cartesian.h5"
   vp_binary: "${data.output_base_dir}/model/vp_init.bin"
   vs_binary: "${data.output_base_dir}/model/vs_init.bin"
 
-  # HDF5-specific options (only used when output_format is hdf5 or both)
+  # HDF5 output options; used when output_format is 'hdf5' or 'both'
   hdf5_options:
-    compression: "gzip"  # Options: gzip, lzf, null
-    compression_level: 4  # 0-9 for gzip (4 is balanced)
-    parallel_processing: true  # Use multiple cores for processing
-    n_jobs: -1  # -1 = all cores, 1 = no parallel, >1 = specific count
-    show_progress: true  # Show tqdm progress bars
-    # Coarse grid subsampling options
-    create_coarse_dataset: false  # Create coarse dataset INSIDE HDF5 file
-    write_coarse_csv: false  # Write SEPARATE CSV file with coarse data
+    compression: "gzip"                   # gzip | lzf | null
+    compression_level: 4                  # 0–9 for gzip; 4 is balanced
+    parallel_processing: true
+    n_jobs: -1                            # -1 = all cores, 1 = serial, N = N cores
+    show_progress: true
+    create_coarse_dataset: false          # true = write coarse dataset inside the HDF5 file
+    write_coarse_csv: false               # true = write a separate coarse CSV file
     output_coarse_csv: "${data.output_base_dir}/velocity_model_cartesian_coarse.csv"
     coarse_grid:
-      dx: 2.0  # km, must be integral multiple of fine dx
-      dy: 2.0  # km, must be integral multiple of fine dy
-      dz: 2.0  # km, must be integral multiple of fine dz
+      dx: 2.0                             # km; must be an integer multiple of fine dx
+      dy: 2.0                             # km; must be an integer multiple of fine dy
+      dz: 2.0                             # km; must be an integer multiple of fine dz
 
-  # Binary file generation options
   interpolate: true
   neighbor_threshold: 5
-  phase_type: "both"  # Options: both, p, s
+  phase_type: "both"                      # both | p | s
 
-# Visualization
 visualization:
   enabled: true
-  # Station and event visualization (map view and cross-sections)
+
+  # Station and event map view and cross-section plots
   station_event_vis:
-    enabled: true  # Set to false to disable station/event plotting
+    enabled: true
     output_dir: "${data.output_base_dir}/visualizations"
     figure_dpi: 150
-    figure_size: [12, 10]
+    figure_size: [12, 10]                 # [width, height] in inches
     source_marker: "*"
     source_size: 100
     source_color: "red"
@@ -211,14 +177,13 @@ visualization:
     receiver_size: 30
     receiver_color: "blue"
     plot_pick_lines: true
-    pick_alpha: 0.3
+    pick_alpha: 0.3                       # transparency of pick lines (0=transparent, 1=opaque)
 
-    # Basin boundaries (optional, only shown on map view)
+    # Basin boundary overlays shown on map view only
     basin_boundaries:
-      enabled: false  # Set to true to enable basin boundaries
-      show_labels: true  # Set to false to hide basin labels (only boundary lines will be shown)
+      enabled: false
+      show_labels: true                   # false = boundary lines only, no text labels
       data_dir: "/path/to/basin_boundaries"
-      # Basin files
       basins:
         - file: "CentralBasin_Verticies_WGS84.csv"
           label: "Central Basin"
@@ -226,17 +191,15 @@ visualization:
           label: "Delaware Basin"
         - file: "MidlandBasin_Verticies_WGS84.csv"
           label: "Midland Basin"
-      # Common styling (applies to all basins)
       line_color: "darkgreen"
       line_width: 2
-      line_style: "-"
-      line_alpha: 0.8
+      line_style: "-"                     # - | -- | : | -.
+      line_alpha: 0.8                     # transparency (0=transparent, 1=opaque)
       label_fontsize: 12
-      label_fontweight: "bold"
-      label_offset_x: 0.0  # Degrees offset from centroid
-      label_offset_y: 0.0  # Degrees offset from centroid
+      label_fontweight: "bold"            # normal | bold
+      label_offset_x: 0.0                 # degrees offset from basin centroid
+      label_offset_y: 0.0                 # degrees offset from basin centroid
 
-    # Font size settings
     fontsize:
       title: 16
       axis_label: 16
@@ -244,40 +207,35 @@ visualization:
       legend: 12
       colorbar_label: 14
       colorbar_ticks: 14
-      
-  # Velocity model visualization
+
+  # Velocity model depth slice and 1D profile plots
   velocity_model_vis:
     enabled: false
     output_dir: "${data.output_base_dir}/visualizations"
     plot_depth_slices: true
-    depth_slices: [5, 10, 20, 30, 40, 50]  # Depths in km
+    # km; one contourf plot (Vp + Vs) is produced per depth
+    depth_slices: [5, 10, 20, 30, 40, 50]
     plot_profiles: true
-    profile_type: "both"  # Options: lat, lon, both
+    profile_type: "both"                  # lat | lon | both
 
-  # Ray density visualization (coverage analysis)
+  # Ray path density visualization (coverage analysis)
   ray_density:
     enabled: false
     output_dir: "${data.output_base_dir}/visualizations"
-    # Threshold for ray count (values below this are displayed as white)
-    threshold: 1  # Set to 0 to show all cells, >0 to highlight well-covered regions
-    # Report generation
-    generate_report: true  # Generate ray_path_density_report.txt with statistics
-    # Master control for ray density plots (summed projections)
-    plot_overall_ray_density: true  # Set to false to disable all xy/xz/yz projection plots
-    # Which planes to plot (summed projections) - only used if plot_overall_ray_density is true
-    plot_xy: true  # Map view (summed over depth)
-    plot_xz: true  # Vertical cross-section (summed over Y)
-    plot_yz: true  # Vertical cross-section (summed over X)
-    # Other visualization options
-    plot_xy_threshold_count: false  # Map view showing count of depth layers >= threshold
-    plot_depth_slices: false  # Plot horizontal slices at specified depths
-    depth_slices: [5, 10, 20, 30]  # Depths in km for horizontal slices
-    # Colormap for density plots
-    density_colormap: "hot"  # Options: hot, viridis, plasma, inferno, jet
-    # Parallel processing
-    use_parallel: true  # Enable parallel processing (currently unused, reserved for future)
-    show_progress: true  # Show progress bar during computation
-    # Figure settings (inherits from station_event_vis if not specified)
-    figure_size: null  # null = inherit, or [width, height]
-    figure_dpi: null   # null = inherit
-    fontsize: null     # null = inherit fontsize settings
+    threshold: 1                          # cells with ray count below this shown as white; 0 = show all
+    generate_report: true                 # writes ray_path_density_report.txt with statistics
+    # Master switch for the xy/xz/yz summed projection plots
+    plot_overall_ray_density: true
+    # Individual projection planes; used only when plot_overall_ray_density is true
+    plot_xy: true                         # map view, summed over depth
+    plot_xz: true                         # vertical cross-section, summed over Y
+    plot_yz: true                         # vertical cross-section, summed over X
+    plot_xy_threshold_count: false        # map view: count of depth layers >= threshold
+    plot_depth_slices: false
+    depth_slices: [5, 10, 20, 30]         # km
+    density_colormap: "hot"               # hot | viridis | plasma | inferno | jet
+    use_parallel: true                    # reserved for future use
+    show_progress: true
+    figure_size: null                     # null = inherit from station_event_vis; or [width, height]
+    figure_dpi: null                      # null = inherit from station_event_vis
+    fontsize: null                        # null = inherit from station_event_vis
