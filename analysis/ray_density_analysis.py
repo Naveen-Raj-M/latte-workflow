@@ -28,6 +28,7 @@ from .raypath_data import (
 )
 from .basin_boundaries import load_basin_boundaries
 from utils.io_utils import ensure_directory_exists
+from utils.plot_utils import setup_plot_style
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,7 @@ def analyze_ray_density(config_dict: Dict[str, Any]) -> Dict[str, Any]:
         Dictionary with analysis results including statistics and plot paths
     """
     config = config_dict['ray_density_analysis']
+    setup_plot_style(config_dict.get('analysis', {}))
 
     logger.info("="*80)
     logger.info("STARTING RAY DENSITY ANALYSIS")

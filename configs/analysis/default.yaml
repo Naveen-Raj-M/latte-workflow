@@ -311,8 +311,6 @@ raypath_analysis:
   # Plot configuration
   plot:
     planes: ["xy", "xz", "yz"]  # Projection planes to plot
-    format: "png"  # Options: png, pdf, svg
-    dpi: 300
     figure_width: 12
     figure_height: 10
 
@@ -331,12 +329,9 @@ raypath_analysis:
     receiver_marker: "^"  # Options: *, o, ^, v, s, D
     receiver_size: 50
 
-    # Plot formatting
+    # Plot layout
     grid: true
     equal_aspect: true
-    label_fontsize: 12
-    title_fontsize: 14
-    legend_fontsize: 10
 
 # Ray density analysis configuration
 ray_density_analysis:

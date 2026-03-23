@@ -34,6 +34,7 @@ from .raypath_plots import (
 )
 from .basin_boundaries import load_basin_boundaries
 from utils.io_utils import ensure_directory_exists
+from utils.plot_utils import setup_plot_style
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +56,7 @@ def analyze_ray_paths(config_dict: Dict[str, Any]) -> Dict[str, Any]:
             - 'plots': Generated plot files
     """
     config = config_dict['raypath_analysis']
+    setup_plot_style(config_dict.get('analysis', {}))
 
     logger.info("="*80)
     logger.info("STARTING RAY PATH VISUALIZATION ANALYSIS")
@@ -128,7 +130,7 @@ def analyze_ray_paths(config_dict: Dict[str, Any]) -> Dict[str, Any]:
     # Get visualization settings
     phase_type = config.get('phase_type', 'both')
     planes = config.get('plot', {}).get('planes', ['xy', 'xz', 'yz'])
-    output_format = config.get('plot', {}).get('format', 'png')
+    output_format = config_dict.get('analysis', {}).get('output_format', 'png')
 
     # Event filtering/subsampling (priority: event_id_list_file > max_rays > subsample_fraction)
     event_id_list_file = config.get('event_id_list_file', None)
