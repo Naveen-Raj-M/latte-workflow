@@ -31,6 +31,7 @@ from .velocity_plots import (
     create_domain_overview_plot,
     create_plane_specific_ratio_plots
 )
+from .basin_boundaries import load_basin_boundaries
 from .velocity_reports import generate_velocity_comparison_report
 
 logger = logging.getLogger(__name__)
@@ -234,6 +235,17 @@ def create_all_velocity_plots(df1: pd.DataFrame, df2: pd.DataFrame,
     output_format = config['analysis'].get('output_format', 'png')
 
     vel_cfg = config['velocity_analysis']
+
+    # Pre-load basin boundaries once and cache on config to avoid repeated disk reads
+    if vel_cfg.get('plot_basin_boundaries', False):
+        basin_config = config.get('basin_boundaries', {})
+        _basin_data = load_basin_boundaries(basin_config)
+        if _basin_data:
+            logger.info(f"Loaded {len(_basin_data)} basin boundaries for XY plane overlays")
+            config['_basin_data_cache'] = _basin_data
+            config['_basin_config_cache'] = basin_config
+        else:
+            logger.warning("plot_basin_boundaries is true but no basin data was loaded — check basin_boundaries.data_dir and basins list")
 
     # 1. Basic comparison plots (scatter + histograms)
     if vel_cfg.get('enable_basic_comparison_plots', True):

@@ -31,7 +31,7 @@ basin_boundaries:
 
 # Global settings shared across all analysis modules
 analysis:
-  log_level: "DEBUG"                      # DEBUG | INFO | WARNING | ERROR
+  log_level: "INFO"                      # DEBUG | INFO | WARNING | ERROR
   output_format: "png"                    # png | pdf | svg
   dpi: 300
   phase_type: "both"                      # both | p | s
@@ -92,7 +92,7 @@ gradient_analysis:
 
 # Travel time residual analysis
 travel_time_analysis:
-  enabled: true
+  enabled: false
   comparison_mode: "ground_truth"         # ground_truth | method_comparison
 
   # ground_truth mode: single residual CSV compared against zero
@@ -123,7 +123,7 @@ travel_time_analysis:
 
 # Velocity model comparison analysis
 velocity_analysis:
-  enabled: true
+  enabled: false
   comparison_mode: "initial_vs_final"     # initial_vs_final | method_comparison | custom
 
   # Input files — HDF5 takes precedence over CSV when both are set
@@ -178,7 +178,7 @@ velocity_analysis:
 
 # Residual vs epicentral/hypocentral distance analysis
 distance_analysis:
-  enabled: true
+  enabled: false
   comparison_mode: "ground_truth"         # ground_truth | method_comparison
 
   # ground_truth mode inputs
@@ -209,7 +209,7 @@ distance_analysis:
 
 # Residual analysis restricted to short source–receiver distances
 short_distance_analysis:
-  enabled: true
+  enabled: false
   comparison_mode: "ground_truth"         # ground_truth | method_comparison
 
   # ground_truth mode inputs

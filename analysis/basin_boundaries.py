@@ -20,17 +20,13 @@ def load_basin_boundaries(config: Dict) -> Dict:
 
     Args:
         config: Basin boundaries configuration dictionary with keys:
-            - enabled: bool - Whether basin boundaries are enabled
             - data_dir: str - Directory containing basin boundary CSV files
             - basins: list - List of basin configs with 'file' and 'label' keys
 
     Returns:
         Dictionary with basin name -> {'x': array, 'y': array, 'label': str}
-        Returns empty dict if disabled or no basins configured.
+        Returns empty dict if no basins configured or data directory not found.
     """
-    if not config.get('enabled', False):
-        return {}
-
     basin_data = {}
     data_dir = Path(config.get('data_dir', ''))
 

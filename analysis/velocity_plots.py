@@ -23,7 +23,7 @@ import logging
 from utils.plot_utils import save_figure, get_color_scheme
 from utils.velocity_io import read_velocity_file
 from .velocity_spatial import find_max_min_ratio_change_depths, find_extreme_ratio_change_profiles
-from .basin_boundaries import load_basin_boundaries, plot_basin_boundaries
+from .basin_boundaries import plot_basin_boundaries
 
 logger = logging.getLogger(__name__)
 
@@ -182,8 +182,8 @@ def create_spatial_projection_plots(df: pd.DataFrame, differences: Dict[str, np.
     fig, axes = plt.subplots(2, 4, figsize=(25, 14))
     axes = axes.flatten()
 
-    basin_config = config.get('basin_boundaries', {})
-    basin_data = load_basin_boundaries(basin_config) if config['velocity_analysis'].get('plot_basin_boundaries', False) else {}
+    basin_data = config.get('_basin_data_cache', {})
+    basin_config = config.get('_basin_config_cache', config.get('basin_boundaries', {}))
 
     # Vp projections
     _create_velocity_spatial_projection(df_temp, 'vp_diff', 'Vp', axes[0:4],
@@ -463,8 +463,8 @@ def create_slice_heatmap_plots(df1: pd.DataFrame, df2: pd.DataFrame,
     y_unique = np.sort(df1['Y_grid_km'].unique())
     X, Y = np.meshgrid(x_unique, y_unique)
     
-    basin_config = config.get('basin_boundaries', {})
-    basin_data = load_basin_boundaries(basin_config) if config['velocity_analysis'].get('plot_basin_boundaries', False) else {}
+    basin_data = config.get('_basin_data_cache', {})
+    basin_config = config.get('_basin_config_cache', config.get('basin_boundaries', {}))
 
     # Create difference plot
     fig, axes = plt.subplots(2, 4, figsize=(24, 12))
@@ -601,11 +601,10 @@ def create_domain_overview_plot(df: pd.DataFrame, extremes: Dict[str, Any],
     axes[0].legend(loc='upper right')
     axes[0].grid(True, alpha=0.3)
 
-    basin_config = config.get('basin_boundaries', {})
-    if config['velocity_analysis'].get('plot_basin_boundaries', False):
-        basin_data = load_basin_boundaries(basin_config)
-        if basin_data:
-            plot_basin_boundaries(axes[0], basin_data, basin_config)
+    basin_data = config.get('_basin_data_cache', {})
+    basin_config = config.get('_basin_config_cache', config.get('basin_boundaries', {}))
+    if basin_data:
+        plot_basin_boundaries(axes[0], basin_data, basin_config)
     
     # Cross section view (X-Z)
     axes[1].scatter(x_coords, z_coords, c='lightgray', s=2, alpha=0.5)
@@ -657,8 +656,8 @@ def create_ratio_analysis_plots(df1: pd.DataFrame, df2: pd.DataFrame,
         output_format: Output format
         config: Configuration dictionary
     """
-    basin_config = config.get('basin_boundaries', {})
-    basin_data = load_basin_boundaries(basin_config) if config['velocity_analysis'].get('plot_basin_boundaries', False) else {}
+    basin_data = config.get('_basin_data_cache', {})
+    basin_config = config.get('_basin_config_cache', config.get('basin_boundaries', {}))
 
     # Create geometric mean ratio projections
     _create_geometric_ratio_projections(df1, df2, plots_dir, output_format, config,
@@ -1018,8 +1017,8 @@ def create_plane_specific_ratio_plots(df1: pd.DataFrame, df2: pd.DataFrame,
     plane_config = config['velocity_analysis'].get('plane_ratio_plots', {})
     planes = plane_config.get('planes', [])
 
-    basin_config = config.get('basin_boundaries', {})
-    basin_data = load_basin_boundaries(basin_config) if config['velocity_analysis'].get('plot_basin_boundaries', False) else {}
+    basin_data = config.get('_basin_data_cache', {})
+    basin_config = config.get('_basin_config_cache', config.get('basin_boundaries', {}))
 
     # Get unique coordinates for validation
     x_unique = np.sort(df1['X_grid_km'].unique())
