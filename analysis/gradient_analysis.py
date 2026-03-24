@@ -451,7 +451,7 @@ def _compute_depth_dependent_gradient_stats(df: pd.DataFrame,
     for grad_field in available_fields['gradients']:
         param = grad_field.replace('grad_', '')
         
-        bin_stats = df_copy.groupby('depth_bin')[grad_field].agg([
+        bin_stats = df_copy.groupby('depth_bin', observed=True)[grad_field].agg([
             'count', 'mean', 'std', 
             lambda x: np.sqrt(np.mean(x**2)),  # RMS
             lambda x: x.abs().mean()  # Mean absolute

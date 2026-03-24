@@ -136,7 +136,7 @@ def create_histogram_with_stats(data: np.ndarray, bins: int = 50,
     ax.grid(True, alpha=0.3)
     
     if show_mean or show_median:
-        ax.legend()
+        ax.legend(loc='upper right')
     
     return fig
 
@@ -179,9 +179,9 @@ def create_scatter_plot(x: np.ndarray, y: np.ndarray,
     if add_diagonal:
         min_val = min(np.min(x), np.min(y))
         max_val = max(np.max(x), np.max(y))
-        ax.plot([min_val, max_val], [min_val, max_val], 'r--', 
+        ax.plot([min_val, max_val], [min_val, max_val], 'r--',
                linewidth=2, label='1:1 line')
-        ax.legend()
+        ax.legend(loc='upper right')
     
     ax.set_title(title)
     ax.set_xlabel(xlabel)

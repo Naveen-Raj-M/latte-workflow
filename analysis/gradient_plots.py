@@ -166,7 +166,7 @@ def create_gradient_histograms(df: pd.DataFrame, gradient_fields: List[str],
         ax.set_xlabel(f'Gradient: {param} {unit}')
         ax.set_ylabel('Frequency')
         ax.set_title(f'{param.upper()} Gradient Distribution')
-        ax.legend(fontsize=9)
+        ax.legend(fontsize=9, loc='upper right')
         ax.grid(True, alpha=0.3)
         
         # Add statistics box
@@ -239,7 +239,7 @@ def create_search_histograms(df: pd.DataFrame, search_fields: List[str],
         ax.set_xlabel(f'Search Direction: {param} {unit}')
         ax.set_ylabel('Frequency')
         ax.set_title(f'{param.upper()} Search Direction Distribution')
-        ax.legend(fontsize=9)
+        ax.legend(fontsize=9, loc='upper right')
         ax.grid(True, alpha=0.3)
         
         # Add statistics box
@@ -319,7 +319,7 @@ def create_alignment_plots(df: pd.DataFrame, available_fields: Dict[str, List[st
         ax.set_ylabel(f'Search Direction {search_unit}')
         ax.set_title(f'{param.upper()}: Gradient vs Search Direction')
         ax.grid(True, alpha=0.3)
-        ax.legend(fontsize=9)
+        ax.legend(fontsize=9, loc='upper right')
         
         # Compute and display alignment statistics
         same_sign = ((grad_data > 0) & (search_data > 0)) | ((grad_data < 0) & (search_data < 0))
