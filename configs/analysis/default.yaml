@@ -31,7 +31,7 @@ basin_boundaries:
 
 # Global settings shared across all analysis modules
 analysis:
-  log_level: "INFO"                      # DEBUG | INFO | WARNING | ERROR
+  log_level: "INFO"                       # DEBUG | INFO | WARNING | ERROR
   output_format: "png"                    # png | pdf | svg
   dpi: 300
   phase_type: "both"                      # both | p | s

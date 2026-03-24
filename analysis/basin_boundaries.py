@@ -48,7 +48,7 @@ def load_basin_boundaries(config: Dict) -> Dict:
 
         try:
             # Read space-delimited file (same format as preprocessing output)
-            df = pd.read_csv(csv_file, delim_whitespace=True)
+            df = pd.read_csv(csv_file, sep='\s+')
 
             # Extract X and Y coordinates (Cartesian, in km)
             x_coords = df['POINT_X'].values

@@ -46,7 +46,7 @@ def _load_basin_boundaries(config: DictConfig) -> Dict:
             continue
 
         # Read space-delimited file (despite .csv extension)
-        df = pd.read_csv(csv_file, delim_whitespace=True)
+        df = pd.read_csv(csv_file, sep='\s+')
 
         # Extract longitude and latitude
         lons = df['POINT_X'].values
