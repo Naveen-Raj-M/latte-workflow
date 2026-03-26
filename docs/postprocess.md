@@ -1,759 +1,345 @@
-# LATTE Post-Processing Documentation
+# Postprocess Pipeline
 
-## Overview
+The postprocess pipeline converts LATTE inversion binary outputs into human-readable CSV and HDF5 files, computes ray path caches, and derives model coverage diagnostics (Derivative Weight Sum). All five processing stages are independent and disabled by default; enable only the stages relevant to each run.
 
-The post-processing module converts LATTE tomography binary outputs into analysis-ready CSV files. It bridges the gap between inversion results and downstream analysis workflows while maintaining consistency with preprocessing outputs.
-
----
-
-## Features
-
-### Core Capabilities
-
-- **Velocity Model Conversion**: Transforms `updated_vp.bin` and `updated_vs.bin` into structured CSV format
-- **Synthetic Travel Time Processing**: Merges synthetic travel time binaries with ground truth metadata
-- **Source Parameter Updates**: Processes updated source locations and origin times
-- **Source-Receiver Exchange**: Handles reciprocity-based inversion outputs
-- **Coordinate Transformations**: Optional Chapman inverse transformation for spherical coordinates
-
-### Output Characteristics
-
-- Self-contained CSV files requiring no external mapping files
-- Automatic residual calculation (observed - synthetic)
-- Complete metadata preservation from preprocessing
-- Consistent structure with ground truth data
+> **Configuration reference:** See [`configs/postprocess/README.md`](../configs/postprocess/README.md) for a complete description of every configuration parameter and all required file paths.
 
 ---
 
-## Getting Started
+## Table of Contents
 
-### Quick Start
+1. [Modules](#1-modules)
+2. [Outputs](#2-outputs)
+3. [Usage and Configuration](#3-usage-and-configuration)
+4. [Logging](#4-logging)
+5. [Troubleshooting](#5-troubleshooting)
+6. [Best Practices](#6-best-practices)
+
+---
+
+## 1. Modules
+
+The pipeline is driven by `postprocess/main.py` and executes the following five stages in order. Each stage is guarded by an `enabled` flag and is wrapped in error handling controlled by `general.strict_mode`.
+
+---
+
+### 1.1 Velocity Processing (`postprocess_velocity.py`)
+
+Reads updated Vp and Vs binary files produced by LATTE and projects them onto a reference coordinate grid, writing the result in CSV, HDF5, or both formats.
+
+**What it does:**
+
+- Loads a reference velocity file (the preprocess output CSV or HDF5) to obtain the coarse grid coordinate frame.
+- Reads `vp_binary` and `vs_binary` (float32, m/s) and converts units to km/s.
+- Operates in one of two modes:
+  - **`sample_at_coarse` (default):** For each coarse reference grid point, finds the nearest node on the fine inversion grid and reads the velocity there. Uses `scipy.interpolate.RegularGridInterpolator` as a fallback for non-exact matches.
+  - **`expand_to_fine`:** Constructs the full fine grid, interpolates coarse velocity fields onto it, and writes one row per fine grid node.
+- Optionally loads gradient and search direction binaries (`grad_vp.bin`, `srch_vp.bin`, etc.) and appends them as extra columns.
+- Writes output in the configured format (CSV, HDF5, or both) and optionally generates a coarse-resolution preview CSV.
+
+**Key configuration:**
+
+| Key | Purpose |
+|---|---|
+| `velocity_processing.enabled` | Enable/disable this stage |
+| `velocity_processing.vp_binary` / `vs_binary` | Paths to LATTE output velocity binaries |
+| `velocity_processing.reference_velocity_file` | Preprocess CSV or HDF5 reference grid |
+| `velocity_processing.fine_grid.*` | Inversion grid dimensions and spacing; must match LATTE exactly |
+| `velocity_processing.interpolation_mode` | `sample_at_coarse` or `expand_to_fine` |
+| `velocity_processing.velocity_output_format` | `csv` / `hdf5` / `both` |
+| `velocity_processing.process_gradient` | Load and append gradient binaries |
+| `velocity_processing.process_search` | Load and append search direction binaries |
+
+---
+
+### 1.2 Travel Time Processing (`postprocess_traveltime.py`)
+
+Merges observed ground truth travel times with synthetic predictions from the inversion kernel, computing per-pick residuals.
+
+**What it does:**
+
+- Loads the ground truth CSV produced by the preprocess pipeline and builds an O(1) lookup table keyed on `(shot_id, station, phase)`.
+- Loads the shot-to-event mapping file (`shot_to_source_id_map.txt`) to link integer shot indices back to original event IDs.
+- Reads one synthetic travel time binary per shot per phase. For each binary value:
+  1. Subtracts the configured origin time offset (the binary stores `physical_tt + origin_time`).
+  2. Optionally applies a per-shot source correction (corrected origin time from `source_correction_file`).
+- Supports **source-receiver exchange mode** (`source_receiver_exchange: true`): in this mode the virtual stations are events, and the pipeline first matches virtual station coordinates to actual station names before reading binaries indexed by shot rather than by station.
+- Computes per-pick residuals (`observed_tt − synthetic_tt`) and a weighted RMS.
+- Writes a single merged CSV containing both observed and synthetic columns, plus all available metadata.
+
+> **Critical (exchange mode):** Binary array size must match the number of sources. If a mismatch is detected, the pipeline prints a detailed comparison and raises an error.
+
+**Key configuration:**
+
+| Key | Purpose |
+|---|---|
+| `travel_time_processing.enabled` | Enable/disable this stage |
+| `travel_time_processing.ground_truth_csv` | Path to preprocess ground truth CSV |
+| `travel_time_processing.synthetic_tt_dir` | Directory of `tt_*.bin` files from LATTE |
+| `travel_time_processing.shot_map_file` | `shot_to_source_id_map.txt` |
+| `travel_time_processing.phase_type` | `both` / `p` / `s` |
+| `travel_time_processing.source_receiver_exchange` | Enable reciprocity mode |
+| `travel_time_processing.use_source_correction` | Apply corrected origin times |
+| `travel_time_processing.source_correction_file` | Binary file with corrected st0 values |
+
+---
+
+### 1.3 Source Parameter Processing (`postprocess_source.py`)
+
+Reads updated hypocenter coordinates and origin times from LATTE binary files and merges them with the travel time CSV, computing correction magnitudes.
+
+**What it does:**
+
+- Reads four required binary files (`sx_file`, `sy_file`, `sz_file`, `st0_file`) as float32 arrays of length `n_sources`. Each array element corresponds to a 1-based shot index.
+- Optionally reads gradient and search direction binaries for all four source parameters.
+- Validates that shot IDs in the travel time CSV fall within the expected range `[1, n_sources]`.
+- Computes per-shot correction magnitudes: spatial shift (√(Δx² + Δy² + Δz²) in km) and origin time shift (Δst0 in s).
+- Appends corrected coordinate columns and optional diagnostic columns to the travel time CSV and writes a new output file.
+
+**Key configuration:**
+
+| Key | Purpose |
+|---|---|
+| `source_processing.enabled` | Enable/disable this stage |
+| `source_processing.sx_file` / `sy_file` / `sz_file` / `st0_file` | Paths to source binary files |
+| `source_processing.n_sources` | Expected array length (must match LATTE `ns`) |
+| `source_processing.output_csv` | Output file path |
+| `source_processing.process_gradient` | Append source gradient columns |
+| `source_processing.process_search` | Append source search direction columns |
+
+---
+
+### 1.4 Ray Path Diagnosis (`compute_ray_paths.py`, `postprocess_raypath.py`, `postprocess_dws.py`)
+
+Reads precomputed ray path binaries from the LATTE forward solver, builds an incremental HDF5 cache, and optionally computes the Derivative Weight Sum (DWS) as a volumetric coverage metric.
+
+**What it does:**
+
+**Cache computation (`compute_ray_paths.py`):**
+- Computes an MD5 hash of the critical configuration parameters (grid dimensions, spacing, origin, binary directory) and stores it in the cache. If the config changes, the cache is automatically invalidated.
+- Identifies which shots are already cached and processes only new shots, enabling incremental updates.
+- Reads one binary ray path file per shot per phase (format: header `nrays`, then `ray_npoints[nrays]`, then concatenated float32 `(x, y, z)` coordinates in meters).
+- Saves ray paths to the HDF5 cache in batches, grouped by phase (`/p_wave/shots/<id>/` and `/s_wave/shots/<id>/`).
+- Supports event filtering (`event_id_list_file`) and random sub-sampling (`subsample_fraction`) for large datasets.
+
+**Ray tracing from gradients (`postprocess_raypath.py`):**
+- When precomputed binary ray paths are unavailable, traces rays using traveltime gradient fields via steepest descent (receiver-to-source).
+- Reads per-shot gradient metadata and binary fields (`dT/dx`, `dT/dy`, `dT/dz`).
+- Supports nearest-neighbor and trilinear interpolation of gradient values during tracing.
+
+**DWS computation (`postprocess_dws.py`):**
+- Accumulates the weighted squared path length of every ray segment within each grid cell: DWS = Σ(w · L²) where w is the pick weight and L is the segment length in km.
+- Runs in parallel (configurable backend and worker count).
+- Saves the DWS grid to an HDF5 file in velocity model format, with `dws_vp` and `dws_vs` datasets of shape `(nz, ny, nx)`.
+
+**Ray path simplification (`simplify_ray_paths.py`):**
+- Optionally reduces the memory footprint of the HDF5 cache by applying the Ramer–Douglas–Peucker (RDP) algorithm to each ray path.
+- The tolerance `epsilon` (km) controls aggressiveness: 0.01 km is gentle, 0.10 km is aggressive.
+
+**Key configuration:**
+
+| Key | Purpose |
+|---|---|
+| `ray_path_diagnosis.enabled` | Enable/disable this stage |
+| `ray_path_diagnosis.raypath_binary_dir` | Directory of LATTE ray path binaries |
+| `ray_path_diagnosis.ray_path_output_file` | HDF5 cache output path |
+| `ray_path_diagnosis.dws_output_file` | DWS HDF5 output path |
+| `ray_path_diagnosis.grid.*` | Must match the LATTE inversion grid exactly |
+| `ray_path_diagnosis.compute_dws` | Compute DWS after building the cache |
+| `ray_path_diagnosis.force_recompute` | Ignore existing cache and recompute |
+| `ray_path_diagnosis.fix_corrupted_shots` | Detect and reprocess corrupted cache entries |
+| `ray_path_diagnosis.subsample_fraction` | Fraction of events to process (0.0–1.0) |
+| `ray_path_diagnosis.compression` | HDF5 compression: `gzip` / `lzf` / `none` |
+| `ray_path_simplification.enabled` | Enable RDP simplification |
+| `ray_path_simplification.epsilon` | RDP tolerance in km |
+
+---
+
+## 2. Outputs
+
+All outputs are written to paths specified in the configuration. See [`docs/file_formats.md`](file_formats.md) for complete column/key definitions and units.
+
+| File | Format | Stage | Description |
+|---|---|---|---|
+| `velocity_model_cartesian.csv` | CSV | Velocity | Updated Vp/Vs on reference grid |
+| `velocity_model_cartesian.h5` | HDF5 | Velocity | Same data with compression |
+| `synthetic_travel_times_latte_output.csv` | CSV | Travel time | Observed + synthetic TT, residuals, metadata |
+| `source_parameters_latte_output.csv` | CSV | Source | Updated source coordinates and origin times |
+| `ray_paths.h5` | HDF5 | Ray path | Cached ray paths grouped by phase and shot |
+| `ray_paths_simplified.h5` | HDF5 | Ray path | RDP-simplified ray paths (optional) |
+| `dws.h5` | HDF5 | DWS | Volumetric DWS coverage grid `(nz, ny, nx)` |
+
+---
+
+## 3. Usage and Configuration
+
+### Running the pipeline
 
 ```bash
-# Run with default configuration
+# Use the default configuration
 python -m postprocess.main
 
-# View available options
-python -m postprocess.main --help
+# Use a named configuration
+python -m postprocess.main --config-name example
 ```
 
-### Configuration
+Hydra writes all run outputs to:
 
-Configuration file location: `configs/postprocess/default.yaml`
-
-#### Required Path Updates
-
-Before running, update these paths to match your directory structure:
-
-```yaml
-data:
-  base_dir: "/path/to/latte/output"
-  analysis_output_dir: "/path/to/analysis/output"
-
-velocity_processing:
-  original_velocity_csv: "/full/path/to/velocity_cartesian_final.csv"
-
-travel_time_processing:
-  ground_truth_csv: "/full/path/to/ground_truth_travel_times_corrected.csv"
-  shot_map_file: "/full/path/to/shot_to_source_id_map.txt"
+```
+outputs/YYYY-MM-DD/HH-MM-SS_postprocess_<config_name>/
 ```
 
----
-
-## Configuration Reference
-
-### General Settings
-
-```yaml
-general:
-  strict_mode: true        # Stop on first error (true) vs. continue (false)
-  log_level: INFO          # DEBUG | INFO | WARNING | ERROR
-  phase_type: both         # both | p | s
-  max_depth_km: null       # Depth filtering (km); null to disable
-  precision:
-    default: single        # single | double - Most binaries
-    st0: single            # single | double - Origin time files
-```
-
-#### Phase Type Configuration
-
-Controls which phase files are expected during processing.
-
-| Phase Type | P-wave Files | S-wave Files | Use Case |
-|------------|-------------|-------------|----------|
-| `both` | Required | Required | Joint P+S inversion |
-| `p` | Required | Not expected | P-wave only inversion |
-| `s` | Not expected | Required | S-wave only inversion |
-
-**Critical**: Must match preprocessing `phase_type` setting. Mismatches cause file not found errors.
-
-**Binary Naming**: `shot_{id}_traveltime_{p\|s}.bin`
-
-#### Binary Precision Configuration
-
-Specifies floating-point precision for reading binary files.
-
-| Precision | Bytes/Value | NumPy Type | Use Case |
-|-----------|------------|------------|----------|
-| `single` | 4 | `float32` | Standard LATTE output |
-| `double` | 8 | `float64` | High-precision requirements |
-
-**precision.default**: Applies to velocity (`vp`, `vs`) and source coordinate (`sx`, `sy`, `sz`) binaries.
-
-**precision.st0**: Applies to origin time binaries (`updated_st0.bin`, `grad_st0.bin`, `srch_st0.bin`).
-
-**Critical**: `precision.st0` must match preprocessing `origin_time_precision` setting.
-
-#### Depth Filtering
-
-Removes points deeper than specified threshold from output CSVs.
-
-```yaml
-max_depth_km: 30.0  # Remove points with Z_grid_km > 30 km
-```
-
-- Applied after all processing (velocity, travel time, source)
-- Filters on `Z_grid_km` column
-- Set to `null` to disable
-- **Recommendation**: Match preprocessing `max_depth_km` for consistency
-
-### Velocity Processing
-
-```yaml
-velocity_processing:
-  enabled: true
-  original_velocity_csv: "/path/to/velocity_cartesian_final.csv"
-  vp_binary: "${data.base_dir}/model/updated_vp.bin"
-  vs_binary: "${data.base_dir}/model/updated_vs.bin"
-  fine_grid:                       # LATTE internal grid specification
-    nx: 401
-    ny: 361
-    nz: 43
-    dx: 0.5                        # Grid spacing (km)
-    dy: 0.5
-    dz: 0.5
-    origin_x: 0.0                  # Grid origin (km)
-    origin_y: 0.0
-    origin_z: 0.0
-  interpolation_mode: sample_at_coarse  # sample_at_coarse | expand_to_fine
-  velocity_output_csv: "${data.analysis_output_dir}/velocity_cartesian_latte_output.csv"
-  use_chapman_inverse: false       # Apply Chapman transformation
-  earth_radius_km: 6371.0
-  parameters_to_process: [vp, vs] # Process gradient/search direction files
-  grad_vp_binary: "${data.base_dir}/model/grad_vp.bin"
-  grad_vs_binary: "${data.base_dir}/model/grad_vs.bin"
-  srch_vp_binary: "${data.base_dir}/model/srch_vp.bin"
-  srch_vs_binary: "${data.base_dir}/model/srch_vs.bin"
-```
-
-#### Fine Grid Specification
-
-The **fine_grid** defines LATTE's internal computation grid (from binary files).
-
-**Parameters**:
-- `nx, ny, nz`: Grid dimensions in each direction
-- `dx, dy, dz`: Uniform grid spacing (km)
-- `origin_x, origin_y, origin_z`: Grid origin coordinates (km)
-
-**Source**: Typically extracted from LATTE configuration or binary metadata.
-
-**Coarse Grid**: Auto-detected from `original_velocity_csv` structure. Represents the preprocessing output grid, which may differ from fine grid if LATTE uses mesh refinement.
-
-#### Interpolation Mode
-
-Controls output grid resolution and memory usage.
-
-| Mode | Behavior | Output Size | Memory | Use Case |
-|------|----------|-------------|--------|----------|
-| `sample_at_coarse` | Sample fine grid values at coarse grid points | Coarse grid size | Low | Standard workflow |
-| `expand_to_fine` | Output full fine grid with interpolated metadata | Fine grid size | High | High-resolution analysis |
-
-**sample_at_coarse** (Default):
-- Preserves coarse grid structure from preprocessing
-- Samples fine grid velocities at coarse grid locations
-- Output CSV size matches input CSV
-- Recommended for most workflows
-
-**expand_to_fine**:
-- Creates all fine grid points
-- Interpolates coarse CSV metadata to fine grid
-- Assigns velocities directly from binaries
-- Significantly larger output files
-- Use when fine grid resolution is required for analysis
-
-#### Gradient and Search Direction Processing
-
-Optionally process gradient and search direction fields from optimization.
-
-```yaml
-parameters_to_process: [vp, vs]  # Or [vp], [vs], or []
-```
-
-**Files Required** (per parameter):
-- `grad_{vp|vs}.bin`: Gradient of objective function
-- `srch_{vp|vs}.bin`: Search direction from optimization
-
-**Output CSV Columns** (when enabled):
-- `grad_vp`, `grad_vs`: Gradient magnitude at each grid point
-- `srch_vp`, `srch_vs`: Search direction magnitude
-
-**Use Cases**:
-- Analyzing sensitivity patterns
-- Identifying well-constrained regions
-- Diagnosing convergence issues
-- Understanding optimization behavior
-
-**Notes**:
-- Set `parameters_to_process: []` to skip gradient processing
-- Files are optional; missing files are logged and skipped
-- Gradient files use same precision as velocity binaries
-
-### Travel Time Processing
-
-```yaml
-travel_time_processing:
-  enabled: true
-  ground_truth_csv: "/path/to/ground_truth_travel_times_corrected.csv"
-  synthetic_tt_dir: "${data.base_dir}/synthetic_traveltimes"
-  shot_map_file: "/path/to/shot_to_source_id_map.txt"
-  removed_shots: []  # List of 1-based shot IDs filtered by LATTE
-  synthetic_tt_output_csv: "${data.analysis_output_dir}/synthetic_travel_times_latte_output.csv"
-
-  # Reciprocity-based inversion
-  source_receiver_exchange: false
-  exchange_mapping_file: "${data.base_dir}/exchange_mapping.txt"
-  exchange_geometry_file: "${data.base_dir}/exchange_geometry.txt"
-  virtual_shot_mapping_file: "${data.base_dir}/shot_mapping.txt"  # Optional
-  coordinate_tolerance: 1.0  # meters
-
-  # Source correction
-  source_correction: false
-  source_correction_file: "${data.base_dir}/model/updated_st0.bin"
-```
-
-#### Removed Shots Configuration
-
-Specifies shots that were filtered out by LATTE during geometry loading.
-
-```yaml
-removed_shots: [5, 12, 47, 103]  # 1-based shot IDs
-```
-
-**Why This Is Needed**:
-- LATTE may exclude shots that fail geometry validation
-- Common reasons: missing stations, insufficient ray coverage, geometry constraints
-- Preprocessing shot numbering includes all shots
-- LATTE's internal shot indexing excludes removed shots
-
-**Impact on Processing**:
-- Standard mode: Minimal impact (files for removed shots simply don't exist)
-- **Source-receiver exchange mode**: Critical for correct array indexing
-
-**Source-Receiver Exchange Complications**:
-- Exchange mode uses dense arrays indexed by shot_id
-- Array size = number of valid shots (after removal)
-- Array index = `(shot_id - 1) - number_of_removed_shots_before_this_id`
-- Without `removed_shots` list, mapping becomes incorrect
-
-**Example**:
-```yaml
-# Preprocessing: 100 shots (IDs 1-100)
-# LATTE removes shots: [5, 12, 47]
-# LATTE internal: 97 shots with renumbered indices
-
-removed_shots: [5, 12, 47]  # Must match LATTE's exclusion list
-```
-
-**Determining Removed Shots**:
-- Check LATTE log files for geometry filtering messages
-- Compare preprocessing shot count vs. LATTE's reported shot count
-- Verify by checking which `shot_*_traveltime_*.bin` files exist
-
-### Source Processing
-
-```yaml
-source_processing:
-  enabled: true
-  sx_file: "${data.base_dir}/model/updated_sx.bin"
-  sy_file: "${data.base_dir}/model/updated_sy.bin"
-  sz_file: "${data.base_dir}/model/updated_sz.bin"
-  st0_file: "${data.base_dir}/model/updated_st0.bin"
-  grid_dimensions: [4495]  # Number of sources
-  output_csv: "${data.analysis_output_dir}/source_parameters_latte_output.csv"
-  parameters_to_process: [sx, sy, sz, st0]  # Process gradient/search direction files
-  grad_sx_file: "${data.base_dir}/model/grad_sx.bin"
-  grad_sy_file: "${data.base_dir}/model/grad_sy.bin"
-  grad_sz_file: "${data.base_dir}/model/grad_sz.bin"
-  grad_st0_file: "${data.base_dir}/model/grad_st0.bin"
-  srch_sx_file: "${data.base_dir}/model/srch_sx.bin"
-  srch_sy_file: "${data.base_dir}/model/srch_sy.bin"
-  srch_sz_file: "${data.base_dir}/model/srch_sz.bin"
-  srch_st0_file: "${data.base_dir}/model/srch_st0.bin"
-```
-
-#### Gradient and Search Direction Processing
-
-Optionally process gradient and search direction fields for source parameters.
-
-```yaml
-parameters_to_process: [sx, sy, sz, st0]  # Or any subset, or []
-```
-
-**Files Required** (per parameter):
-- `grad_{sx|sy|sz|st0}.bin`: Gradient of objective function w.r.t. source parameter
-- `srch_{sx|sy|sz|st0}.bin`: Search direction for source parameter
-
-**Output CSV Columns** (when enabled):
-- `grad_sx`, `grad_sy`, `grad_sz`, `grad_st0`: Gradient values per source
-- `srch_sx`, `srch_sy`, `srch_sz`, `srch_st0`: Search direction values per source
-
-**Use Cases**:
-- Identifying poorly constrained sources
-- Analyzing sensitivity to source position/timing
-- Understanding optimization convergence patterns
-- Diagnosing source location quality
-
-**Precision**:
-- Coordinate gradients (`sx`, `sy`, `sz`) use `precision.default`
-- Origin time gradients (`st0`) use `precision.st0`
-
-**Notes**:
-- Set `parameters_to_process: []` to skip gradient processing
-- Files are optional; missing files are logged and skipped
-- Each binary file contains one value per source
-
----
-
-## Usage Examples
-
-### Standard Processing
+### CLI overrides
 
 ```bash
-python -m postprocess.main
-```
+# Enable only velocity processing
+python -m postprocess.main \
+  velocity_processing.enabled=true \
+  velocity_processing.vp_binary=/latte/out/updated_vp.bin \
+  velocity_processing.vs_binary=/latte/out/updated_vs.bin
 
-### Command-Line Overrides
+# Enable travel time processing and change phase
+python -m postprocess.main \
+  travel_time_processing.enabled=true \
+  travel_time_processing.phase_type=p
 
-```bash
-# Disable travel time processing
-python -m postprocess.main travel_time_processing.enabled=false
+# Enable ray path cache and DWS, limit to 50% of events
+python -m postprocess.main \
+  ray_path_diagnosis.enabled=true \
+  ray_path_diagnosis.compute_dws=true \
+  ray_path_diagnosis.subsample_fraction=0.5
 
-# Change output directory
-python -m postprocess.main data.analysis_output_dir="/new/output/path"
+# Force cache recomputation
+python -m postprocess.main \
+  ray_path_diagnosis.enabled=true \
+  ray_path_diagnosis.force_recompute=true
 
-# Enable Chapman transformation
-python -m postprocess.main velocity_processing.use_chapman_inverse=true
+# Run in non-strict mode (continue on error)
+python -m postprocess.main general.strict_mode=false
 
-# Enable debug logging
+# Change log level
 python -m postprocess.main general.log_level=DEBUG
 ```
 
-### Custom Configuration File
+### Minimal configuration checklist
 
-```bash
-# Use alternative config
-python -m postprocess.main --config-name=production
+Before enabling each stage, confirm the following paths and values are set:
 
-# Specify custom config path
-python -m postprocess.main --config-path=/custom/config/path
+```yaml
+general:
+  strict_mode: true
+  log_level: INFO
+
+data:
+  base_dir: /path/to/latte/output
+
+# Velocity processing
+velocity_processing:
+  enabled: true
+  vp_binary: ${data.base_dir}/model/updated_vp.bin
+  vs_binary: ${data.base_dir}/model/updated_vs.bin
+  reference_velocity_file: /path/to/preprocess/velocity_model_cartesian.csv
+  fine_grid:
+    nx: 60    # must match LATTE inversion grid
+    ny: 60
+    nz: 50
+    dx: 2.0   # km
+    dy: 2.0
+    dz: 1.0
+    origin_x: -60.0
+    origin_y: -60.0
+    origin_z: 0.0
+
+# Travel time processing
+travel_time_processing:
+  enabled: true
+  ground_truth_csv: /path/to/preprocess/ground_truth_travel_times.csv
+  synthetic_tt_dir: ${data.base_dir}/synthetic_traveltimes
+  shot_map_file: /path/to/preprocess/shot_to_source_id_map.txt
+
+# Source processing
+source_processing:
+  enabled: true
+  n_sources: 4495   # must match LATTE ns parameter
+  sx_file: ${data.base_dir}/sources/sx.bin
+  sy_file: ${data.base_dir}/sources/sy.bin
+  sz_file: ${data.base_dir}/sources/sz.bin
+  st0_file: ${data.base_dir}/sources/st0.bin
 ```
 
-### Advanced Workflows
+Refer to `configs/postprocess/example.yaml` for a complete working template.
 
-#### Source-Receiver Exchange Mode
+---
 
-```bash
-python -m postprocess.main \
-  travel_time_processing.source_receiver_exchange=true \
-  travel_time_processing.exchange_geometry_file="/path/to/exchange_geometry.txt" \
-  travel_time_processing.exchange_mapping_file="/path/to/exchange_mapping.txt"
+## 4. Logging
+
+The log level is controlled by `general.log_level` (default: `INFO`). Valid values are `DEBUG`, `INFO`, `WARNING`, `ERROR`, and `CRITICAL`.
+
+| Level | What is logged |
+|---|---|
+| `DEBUG` | Full YAML configuration dump; per-field value ranges for gradient/search binaries; coordinate ranges; interpolation fallback events |
+| `INFO` | Stage start/end; file loading summaries; binary value ranges; output row counts; RMS residuals; DWS statistics; cache hit/miss counts |
+| `WARNING` | Source corrections all zero (likely incorrect file); unmatched virtual stations (exchange mode); optional binary files missing; corrupted cache entries detected |
+| `ERROR` | Binary array size mismatch; missing required files; out-of-range shot IDs; cache config hash mismatch |
+
+Key log messages to monitor:
+
 ```
+# Travel time — confirm coverage
+Final: M / N ground truth pairs found (P.P% coverage)
+RMS residual: X.XXX s
 
-#### Source Correction
+# Source processing — verify corrections are non-trivial
+Mean spatial shift: X.XXX km (std: X.XXX km)
+Mean origin time shift: X.XXX s (std: X.XXX s)
 
-```bash
-python -m postprocess.main \
-  travel_time_processing.source_correction=true \
-  travel_time_processing.source_correction_file="/path/to/updated_st0.bin"
-```
+# Ray path cache — confirm incremental progress
+Cache valid. N shots already computed, M new shots to process.
 
-#### Combined Source Updates
-
-```bash
-python -m postprocess.main \
-  source_processing.enabled=true \
-  travel_time_processing.source_correction=true
+# DWS — verify coverage
+DWS non-zero cells: N / TOTAL (P.P%)
 ```
 
 ---
 
-## Output Files
+## 5. Troubleshooting
 
-### Velocity CSV
+**`velocity_processing`: binary array size does not match grid**
+The product `nx × ny × nz` specified in `fine_grid` must exactly match the number of float32 values in the binary file. Cross-check the dimensions in the LATTE Fortran input file.
 
-**File**: `velocity_cartesian_latte_output.csv`
+**`travel_time_processing`: binary array size mismatch (exchange mode)**
+In exchange mode the binary array length must equal `n_sources`. The pipeline prints expected vs. actual sizes. Verify that `n_sources` in the config matches the `ns` value used in the LATTE run.
 
-**Structure**: Preserves original velocity CSV format with updated Vp and Vs values.
+**`travel_time_processing`: low coverage percentage (< 80%)**
+Many ground truth picks are not found in the synthetic binaries. Confirm that `shot_map_file` was generated by the same preprocess run that produced the binaries, and that `phase_type` is consistent between preprocess and postprocess.
 
-**Key Columns**:
-- `lon`, `lat`, `depth`: Geographic coordinates
-- `vp`, `vs`: Updated velocity values (km/s)
-- `x_km`, `y_km`, `z_km`: Cartesian coordinates
-- `X_grid_km`, `Y_grid_km`, `Z_grid_km`: Grid coordinates
-- `i`, `j`, `k`: Grid indices
+**`source_processing`: corrections are unexpectedly zero**
+If the source parameter log reports all corrections at zero, check that `n_sources` matches the binary file length. A size mismatch causes the file to be read with wrong indexing, silently producing zeros.
 
-**Optional Columns** (when gradient processing enabled):
-- `grad_vp`, `grad_vs`: Gradient magnitudes
-- `srch_vp`, `srch_vs`: Search direction magnitudes
+**`ray_path_diagnosis`: cache invalidated after config change**
+Any change to grid dimensions, spacing, origin, or `raypath_binary_dir` invalidates the existing cache. Either revert the config change or set `force_recompute: true` to rebuild from scratch.
 
-**Features**:
-- Automatic conversion from m/s to km/s
-- Optional Chapman inverse transformation
-- Preserves all coordinate systems
-- Grid resolution depends on `interpolation_mode` setting
+**`ray_path_diagnosis`: corrupted shots detected**
+Enable `fix_corrupted_shots: true` to automatically detect and reprocess incomplete cache entries. Check `general.log_level=DEBUG` to see which shot IDs are affected.
 
-### Travel Time CSV
+**DWS grid is uniformly zero**
+Confirm that `compute_dws: true` is set and that `ray_path_output_file` points to a non-empty cache. If the cache was built with `subsample_fraction < 1.0`, the DWS will reflect only the sampled rays.
 
-**File**: `synthetic_travel_times_latte_output.csv`
+**Slow ray path computation**
+Increase `performance.n_jobs` or switch `performance.backend` from `loky` to `multiprocessing`. For very large datasets, use `subsample_fraction` to compute a representative subset first.
 
-**Structure**: Combines observed and synthetic travel times with comprehensive metadata.
-
-**Key Columns**:
-
-| Column Group | Description |
-|--------------|-------------|
-| **Identifiers** | `shot_id`, `event_id`, `station`, `phase` |
-| **Travel Times** | `observed_tt`, `synthetic_tt`, `residual_s` |
-| **Metadata** | `weight`, `origin_time_s`, `weighted_rms` |
-| **Event Coordinates** | Geographic: `event_longitude`, `event_latitude`, `event_depth_km` |
-|  | Cartesian: `event_x_transformed`, `event_y_transformed`, `event_z_transformed` |
-| **Station Coordinates** | Geographic: `station_longitude`, `station_latitude`, `station_depth_km` |
-|  | Cartesian: `station_x_transformed`, `station_y_transformed`, `station_z_transformed` |
-| **Derived** | `distance_m` |
-
-**Optional Columns** (when source correction enabled):
-- `corrected_origin_time_s`: Updated origin time
-
-**Features**:
-- Self-contained with complete metadata
-- Residuals calculated as: observed - synthetic
-- Consistent ordering with ground truth
-
-### Source Updates CSV
-
-**File**: `source_parameters_latte_output.csv`
-
-**Key Columns**:
-- `shot_id`: Source identifier (1-based)
-- `sx_km`, `sy_km`, `sz_km`: Updated source coordinates (km)
-- `st0_s`: Updated origin time (s)
-
-**Optional Columns** (when gradient processing enabled):
-- `grad_sx`, `grad_sy`, `grad_sz`: Coordinate gradients
-- `grad_st0`: Origin time gradient
-- `srch_sx`, `srch_sy`, `srch_sz`: Coordinate search directions
-- `srch_st0`: Origin time search direction
-
-**Features**:
-- One row per source
-- Coordinate corrections relative to preprocessing values
-- Gradient values indicate sensitivity/constraint quality
+**HDF5 cache file grows too large**
+Enable `ray_path_simplification` with `epsilon: 0.05` to reduce point density. Alternatively, reduce `compression_level` for faster writes at the cost of larger files.
 
 ---
 
-## Processing Details
-
-### Velocity Processing
-
-**Workflow**:
-1. Load original velocity CSV to preserve structure
-2. Read fine grid specification and detect coarse grid from CSV
-3. Read binary files (`updated_vp.bin`, `updated_vs.bin`) on fine grid
-4. Optionally read gradient and search direction binaries
-5. Apply processing mode:
-   - **sample_at_coarse**: Sample fine grid at coarse points
-   - **expand_to_fine**: Interpolate to full fine grid
-6. Convert velocities from m/s to km/s
-7. Apply Chapman transformation (if enabled)
-8. Apply depth filtering (if enabled)
-9. Generate output CSV
-
-**Grid Relationship**:
-- **Fine Grid**: LATTE's internal computation grid (from binaries)
-- **Coarse Grid**: Preprocessing output grid (from CSV)
-- Fine grid typically equals or refines coarse grid
-
-**Chapman Transformation**:
-```
-v_spherical = exp(-depth/R) * v_flattened
-```
-Where `R = 6371.0 km` (Earth radius), depth in km (positive downward)
-
-**Binary Format**:
-- Precision determined by `precision.default` setting
-- Single: 4 bytes/value (float32), Double: 8 bytes/value (float64)
-- Storage order: C-order (row-major), dimensions `[nx, ny, nz]`
-
-### Travel Time Processing
-
-#### Standard Mode
-
-**Workflow**:
-1. Load ground truth CSV as template
-2. Load shot ID to event ID mapping
-3. Identify removed shots (if specified)
-4. Process each valid shot and phase:
-   - Read synthetic travel time binary
-   - Match stations with ground truth ordering
-   - Apply source correction (if enabled)
-   - Calculate residuals
-5. Apply depth filtering (if enabled)
-6. Generate output CSV with preserved metadata
-
-**Binary Naming**: `shot_{shot_id}_traveltime_{p|s}.bin`
-
-**Phase-Specific Processing**:
-- `phase_type: both`: Process both P and S binaries for each shot
-- `phase_type: p`: Process only P binaries
-- `phase_type: s`: Process only S binaries
-
-**Precision**: Determined by `precision.default` for travel times
-
-#### Source-Receiver Exchange Mode
-
-**Workflow**:
-1. Load virtual station geometry and match to actual stations
-2. Load removed shots list for correct array indexing
-3. For each virtual station (one binary file per station per phase):
-   - Read travel time array (indexed by shot_id, accounting for removed shots)
-   - Apply source correction per shot
-   - Match with ground truth records
-4. Apply depth filtering (if enabled)
-5. Generate output CSV
-
-**Binary Naming**: `shot_{virtual_id}_traveltime_{p|s}.bin`
-**Array Structure**: Index calculated accounting for removed shots
-
-**Removed Shots Impact**:
-- Array index must account for shots filtered by LATTE
-- Incorrect `removed_shots` list causes wrong travel time assignments
-- Critical for data integrity in exchange mode
-
-### Source Parameter Processing
-
-**Workflow**:
-1. Read binary files: `updated_sx.bin`, `updated_sy.bin`, `updated_sz.bin`, `updated_st0.bin`
-2. Optionally read gradient and search direction binaries
-3. Validate source count matches `grid_dimensions`
-4. Generate output CSV with one row per source
-5. Apply depth filtering (if enabled)
-
-**Binary Format**:
-- One value per source
-- 1-based source/shot indexing
-- Precision:
-  - Coordinates (`sx`, `sy`, `sz`): `precision.default`
-  - Origin time (`st0`): `precision.st0`
-
-**Gradient/Search Files**:
-- Same format as main parameter files
-- Optional; missing files logged and skipped
-- Units match corresponding parameter (m for coordinates, s for time)
-
----
-
-## Error Handling
-
-### Strict Mode (`strict_mode: true`)
-- Stops processing on first error
-- Recommended for production
-- Ensures data consistency
-
-### Permissive Mode (`strict_mode: false`)
-- Continues despite errors
-- Logs warnings for failed components
-- Useful for debugging
-
-### Common Issues
-
-| Issue | Solution |
-|-------|----------|
-| **File Not Found** | Check paths; verify `phase_type` matches available binaries |
-| **Grid Dimension Mismatch** | Verify `fine_grid` dimensions match binary file sizes |
-| **Station Ordering Mismatch** | Ensure consistent station sorting in ground truth |
-| **Binary Format Issues** | Check `precision.default` and `precision.st0` settings |
-| **Virtual Station Mismatch** | Adjust `coordinate_tolerance` parameter |
-| **Wrong Travel Times in Exchange Mode** | Verify `removed_shots` list matches LATTE filtering |
-| **Phase Type Mismatch** | Ensure `phase_type` matches preprocessing setting |
-| **Memory Issues with expand_to_fine** | Use `sample_at_coarse` mode or increase available memory |
-
----
-
-## Integration Workflow
-
-### Complete Pipeline
-
-```
-Preprocessing → LATTE Inversion → Post-Processing → Analysis
-```
-
-**Directory Structure Example**:
-
-```
-project/
-├── preprocessing/
-│   ├── ground_truth_travel_times_corrected.csv
-│   ├── velocity_cartesian_final.csv
-│   └── shot_to_source_id_map.txt
-├── latte_run/
-│   ├── model/
-│   │   ├── updated_vp.bin
-│   │   ├── updated_vs.bin
-│   │   ├── updated_sx.bin
-│   │   ├── updated_sy.bin
-│   │   ├── updated_sz.bin
-│   │   ├── updated_st0.bin
-│   │   ├── grad_vp.bin           # Optional gradient files
-│   │   ├── grad_vs.bin
-│   │   ├── srch_vp.bin           # Optional search direction files
-│   │   ├── srch_vs.bin
-│   │   ├── grad_sx.bin
-│   │   ├── grad_sy.bin
-│   │   ├── grad_sz.bin
-│   │   ├── grad_st0.bin
-│   │   ├── srch_sx.bin
-│   │   ├── srch_sy.bin
-│   │   ├── srch_sz.bin
-│   │   └── srch_st0.bin
-│   └── synthetic_traveltimes/
-│       ├── shot_1_traveltime_p.bin
-│       ├── shot_1_traveltime_s.bin
-│       └── ...
-└── analysis/
-    ├── velocity_cartesian_latte_output.csv
-    ├── synthetic_travel_times_latte_output.csv
-    └── source_parameters_latte_output.csv
-```
-
----
-
-## API Reference
-
-### Main Functions
-
-#### `postprocess_latte_outputs(config: DictConfig)`
-Orchestrates all post-processing operations.
-
-**Parameters**: Configuration object  
-**Outputs**: CSV files as specified in config
-
-#### `create_velocity_csv_from_binaries(config: DictConfig)`
-Converts velocity binaries to CSV.
-
-**Outputs**: Velocity CSV with updated Vp/Vs values
-
-#### `create_synthetic_travel_time_csv(config: DictConfig)`
-Standard travel time processing.
-
-**Outputs**: Travel time CSV with residuals
-
-#### `create_synthetic_travel_time_csv_with_exchange(config: DictConfig)`
-Exchange mode travel time processing.
-
-**Outputs**: Travel time CSV using reciprocity
-
-#### `process_source_updates(config: DictConfig)`
-Processes source parameter updates.
-
-**Outputs**: Travel time CSV with corrected source parameters
-
----
-
-## Logging
-
-### Log Levels
-
-- **DEBUG**: Detailed processing steps, configuration dump
-- **INFO**: Major stages, file counts, statistics
-- **WARNING**: Non-fatal issues, missing files
-- **ERROR**: Fatal errors requiring intervention
-
-### Example Output
-
-```
-2024-01-15 14:30:15 - INFO - Starting LATTE post-processing
-2024-01-15 14:30:15 - INFO - Velocity processing: ENABLED
-2024-01-15 14:30:16 - INFO - Grid dimensions: NX=401, NY=361, NZ=43
-2024-01-15 14:30:17 - INFO - Updated Vp: 6253440 points
-2024-01-15 14:30:17 - INFO - Travel time processing: ENABLED
-2024-01-15 14:30:20 - INFO - Total records: 15420
-2024-01-15 14:30:20 - INFO - RMS residual: 0.0847 s
-2024-01-15 14:30:20 - INFO - Post-processing completed successfully
-```
-
----
-
-## Troubleshooting
-
-### Configuration Issues
-- Verify YAML syntax and indentation
-- Check that all file paths exist
-- Ensure variable substitutions resolve correctly (`${data.base_dir}`)
-
-### Data Issues
-- Confirm binary files match ground truth versions
-- Verify grid dimensions consistency
-- Check shot numbering alignment across files
-
-### Performance Issues
-- Monitor memory usage for large models
-- Consider processing subsets for testing
-- Verify sufficient disk space
-
-### Exchange Mode Issues
-- Adjust `coordinate_tolerance` if stations don't match
-- Verify exchange geometry file format
-- Check virtual station ID ranges
-
----
-
-## Performance Notes
-
-- **Memory**: Velocity binaries loaded entirely into memory
-  - `sample_at_coarse`: Memory ~ coarse grid size
-  - `expand_to_fine`: Memory ~ fine grid size (potentially much larger)
-- **Processing Time**:
-  - Scales with number of shots × stations for travel times
-  - Gradient processing adds minimal overhead
-- **Disk I/O**: Optimized for SSD storage
-- **Typical Runtime**: Minutes for thousands of shots
-- **Precision Impact**: Double precision doubles memory and I/O requirements
-
----
-
-## Best Practices
-
-1. **Always validate configuration** before running on production data
-2. **Use strict mode** for final processing runs
-3. **Match preprocessing settings**:
-   - `phase_type` must match preprocessing
-   - `precision.st0` must match `origin_time_precision`
-   - `max_depth_km` should match for consistency
-4. **For source-receiver exchange**:
-   - Carefully specify `removed_shots` from LATTE logs
-   - Verify shot count matches expected value
-5. **Choose interpolation mode wisely**:
-   - Use `sample_at_coarse` for standard workflows
-   - Use `expand_to_fine` only when fine resolution is required
-6. **Gradient processing**:
-   - Enable only when needed for analysis
-   - Set `parameters_to_process: []` to skip if not required
-7. **Check output statistics** to verify reasonable residuals
-8. **Preserve original files** - post-processing creates new files
-9. **Document processing parameters** used for each inversion
-10. **Review log files** for warnings or missing gradient files
-
----
-
-**Version:** 1.0.0  
-**Last Updated:** 2025
+## 6. Best Practices
+
+- **Enable stages incrementally.** Run velocity processing first to confirm the grid is correct before enabling travel time or source processing. Add DWS last, as it is the most compute-intensive stage.
+- **Keep `strict_mode: true` in production.** Silent failures in binary conversions can propagate undetected errors into the analysis. Let the pipeline stop and report the cause.
+- **Verify `fine_grid` matches LATTE exactly.** Copy `nx`, `ny`, `nz`, `dx`, `dy`, `dz`, and the origin directly from the LATTE Fortran input file. Any mismatch causes incorrect sampling or array-size errors.
+- **Use the incremental cache.** Do not set `force_recompute: true` routinely. The cache stores completed shots, so interrupted runs resume automatically.
+- **Set a meaningful `compression` level.** `gzip` with `compression_level: 4` gives a good balance of file size and read/write speed for the ray path HDF5 cache.
+- **Use `subsample_fraction` for exploratory runs.** A 10–20% sample is usually sufficient to assess DWS coverage patterns before committing to a full computation.
+- **Validate residuals before analysis.** Check the weighted RMS in the travel time processing log. Values significantly higher than the preprocess acceptance range suggest a configuration mismatch.
+- **Archive the `shot_to_source_id_map.txt`.** This file links shot indices to event IDs across the entire workflow. Losing it makes it impossible to trace results back to individual events.
