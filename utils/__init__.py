@@ -3,6 +3,9 @@ LATTE Utilities Module
 Common utilities used across preprocessing, postprocessing, and analysis.
 """
 
+__version__ = "3.0.0"
+__author__ = "Naveen Raj Manoharan"
+
 from .io_utils import *
 from .logging_utils import setup_logging, ProcessTimer, ProgressLogger
 from .distance_utils import (
@@ -17,6 +20,11 @@ from .origin_time_utils import (
 from .plot_utils import (
     setup_plot_style,
     save_figure,
+)
+from .velocity_io import (
+    read_velocity_file,
+    write_velocity_file,
+    get_velocity_file_metadata,
 )
 
 __all__ = [
@@ -53,5 +61,10 @@ __all__ = [
 
     # Plot utilities
     'setup_plot_style',
-    'save_figure'
+    'save_figure',
+
+    # Velocity I/O utilities
+    'read_velocity_file',
+    'write_velocity_file',
+    'get_velocity_file_metadata',
 ]

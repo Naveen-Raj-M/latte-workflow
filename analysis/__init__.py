@@ -1,13 +1,32 @@
-"""
-Analysis module for LATTE tomography results.
-This module provides comprehensive analysis tools for travel time residuals,
-velocity model comparisons, distance-dependent analysis, source corrections,
-and gradient/search direction analysis.
+"""LATTE analysis module.
 
-Updated to support method comparison mode for distance and short distance analysis.
+Post-inversion diagnostics for LATTE tomography results. Reads post-processed
+CSV, HDF5, and ray path cache files to produce publication-quality plots and
+statistical reports. All ten modules are independent and disabled by default.
+
+Available modules:
+    1.  traveltime_analysis     — residual distributions and statistics
+    2.  velocity_analysis       — velocity model comparison and spatial projections
+    3.  distance_analysis       — distance-dependent residual bias
+    4.  short_distance_analysis — near-field residual analysis
+    5.  source_analysis         — hypocenter correction distributions
+    6.  gradient_analysis       — velocity/source gradient diagnostics
+    7.  dws_analysis            — Derivative Weight Sum model coverage
+    8.  raypath_analysis        — 3D ray path projection visualization
+    9.  ray_density_analysis    — ray count per grid cell and coverage mapping
+    10. tradeoff_analysis       — data misfit vs. model variance (L-curve)
+
+Usage:
+    From command line:
+        python -m analysis.main --config-name=example
+
+    With Hydra overrides:
+        python -m analysis.main --config-name=example \\
+            travel_time_analysis.enabled=true \\
+            velocity_analysis.enabled=true
 """
 
-__version__ = "2.0.0"
+__version__ = "3.0.0"
 __author__ = "Naveen Raj Manoharan"
 
 __all__ = [

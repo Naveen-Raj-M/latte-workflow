@@ -1,35 +1,36 @@
-"""LATTE preprocessing module for QuakeML seismic data.
+"""LATTE preprocessing module.
 
-This module provides preprocessing functionality for seismic tomography,
-specifically designed to work with QuakeML format data and HDF5 files.
+Transforms raw seismic data (QuakeML or HDF5 catalog) into binary and tabular
+inputs required by the LATTE tomography inversion kernel.
 
 Workflow:
-1. Load data from QuakeML or HDF5
-2. Transform coordinates (flattening transformation)
+1. Load data from QuakeML or HDF5 and apply filters
+2. Transform coordinates (geodetic → local Cartesian via flattening)
 3. Create geometry and travel time files
-4. Create initial velocity model and binaries
-5. Generate visualizations
+4. Create initial 3D velocity model and Fortran-compatible binaries
+5. Generate visualizations and ray density diagnostics
 
 Main components:
-    - data_loader: Load data from QuakeML files or HDF5
-    - coordinate_transformation: Flattening transformation to Cartesian
-    - geometry_traveltime: Generate geometry and travel time files
-    - initial_velocity_model: Create velocity model and binaries (merged)
-    - visualization: Visualize events, stations, and velocity models
-    - main: Orchestration and pipeline execution
+    - data_loader: Load events/stations/picks from QuakeML or HDF5; apply filters
+    - coordinate_transformation: Geodetic to Cartesian coordinate transformation
+    - geometry_traveltime: Source-receiver geometry and travel time table generation
+    - initial_velocity_model: 3D velocity model creation and binary output
+    - visualization: Station/event maps and velocity model plots
+    - ray_density_visualization: Ray coverage density plots
+    - main: Pipeline orchestration
 
 Usage:
     From command line:
-        python -m preprocess.main
+        python -m preprocess.main --config-name=example
 
-    With custom config:
-        python -m preprocess.main \
-            coordinate_transform.origin_lon=-108.0 \
-            coordinate_transform.origin_lat=34.5 \
+    With Hydra overrides:
+        python -m preprocess.main --config-name=example \\
+            coordinate_transform.origin_lon=-108.0 \\
+            coordinate_transform.origin_lat=34.5 \\
             filters.magnitude_min=2.0
 """
 
-__version__ = "2.0.0"
+__version__ = "3.0.0"
 __author__ = "Naveen Raj Manoharan"
 
 from preprocess.data_loader import load_seismic_data

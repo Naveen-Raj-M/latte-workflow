@@ -22,8 +22,8 @@ Usage:
     from checkerboard_test import create_checkerboard_model
 """
 
-__version__ = "1.0.0"
-__author__ = "LATTE Workflow"
+__version__ = "3.0.0"
+__author__ = "Naveen Raj Manoharan"
 
 from .create_checkerboard_model import (
     create_checkerboard_model,
