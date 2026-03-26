@@ -1,0 +1,41 @@
+# configs/postprocess/example.yaml
+# Minimal example overriding only necessary fields
+
+defaults:
+  - default
+  - _self_
+
+data:
+  base_dir: "/path/to/latte/output"
+  analysis_output_dir: "/path/to/analysis/output"
+
+velocity_processing:
+  enabled: true
+  reference_velocity_file: "/path/to/velocity_cartesian_final.csv"
+  fine_grid:
+    nx: 401
+    ny: 361
+    nz: 43
+    dx: 0.5
+    dy: 0.5
+    dz: 0.5
+
+travel_time_processing:
+  enabled: true
+  ground_truth_csv: "/path/to/ground_truth_travel_times.csv"
+  shot_map_file: "/path/to/shot_to_source_id_map.txt"
+
+source_processing:
+  enabled: true
+  n_sources: 4495
+
+ray_path_diagnosis:
+  enabled: true
+  raypath_binary_dir: "/path/to/raypath/binaries"
+  grid:
+    nx: 401
+    ny: 361
+    nz: 43
+    dx: 0.5
+    dy: 0.5
+    dz: 0.5
