@@ -1,0 +1,24 @@
+# configs/preprocess/example.yaml
+# Minimal example configuration for preprocessing QuakeML seismic data
+
+defaults:
+  - default
+  - _self_
+
+preprocessing:
+  output_dir: "/path/to/output"
+
+data:
+  use_hdf5: true
+  hdf5_file: "/path/to/seismic_data.h5"
+  quakeml_dir: "/path/to/quakeml"        # used when use_hdf5 is false
+  station_file: "/path/to/station_list.txt"
+  output_base_dir: "/path/to/output"
+
+coordinate_transform:
+  origin_lon: -108.0
+  origin_lat: 34.5
+  origin_depth: 0.0
+
+initial_velocity_model:
+  initial_model_file: "/path/to/initial_model.csv"
