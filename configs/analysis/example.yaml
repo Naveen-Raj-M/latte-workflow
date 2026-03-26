@@ -1,0 +1,82 @@
+# configs/analysis/example.yaml
+# Minimal example overriding only necessary fields
+
+defaults:
+  - default
+  - _self_
+
+paths:
+  input_dir: "/path/to/postprocessed/output"
+  output_base_dir: "/path/to/analysis/output"
+
+basin_boundaries:
+  data_dir: "/path/to/preprocessed/coordinate_transform/basin_boundaries"
+
+analysis:
+  phase_type: "both"                      # both | p | s
+
+gradient_analysis:
+  enabled: true
+  velocity_input_csv: "/path/to/velocity_cartesian_latte_output.csv"
+  velocity_output_dir: "/path/to/analysis/output/gradient_velocity"
+  source_input_csv: "/path/to/source_parameters_latte_output.csv"
+  source_output_dir: "/path/to/analysis/output/gradient_source"
+
+travel_time_analysis:
+  enabled: true
+  input_csv: "/path/to/synthetic_travel_times_latte_output.csv"
+  output_dir: "/path/to/analysis/output/travel_time"
+
+velocity_analysis:
+  enabled: true
+  model1_csv: "/path/to/velocity_cartesian_initial.csv"
+  model2_csv: "/path/to/velocity_cartesian_latte_output.csv"
+  output_dir: "/path/to/analysis/output/velocity_comparison"
+
+distance_analysis:
+  enabled: true
+  travel_time_csv: "/path/to/synthetic_travel_times_latte_output.csv"
+  station_csv: "/path/to/preprocessed/coordinate_transform/stations_cartesian.csv"
+  events_csv: "/path/to/preprocessed/coordinate_transform/events_cartesian.csv"
+  output_dir: "/path/to/analysis/output/distance_analysis"
+
+short_distance_analysis:
+  enabled: true
+  travel_time_csv: "/path/to/synthetic_travel_times_latte_output.csv"
+  station_csv: "/path/to/preprocessed/coordinate_transform/stations_cartesian.csv"
+  events_csv: "/path/to/preprocessed/coordinate_transform/events_cartesian.csv"
+  output_dir: "/path/to/analysis/output/short_distance_analysis"
+  distance_cutoff_km: 20.0
+
+source_analysis:
+  enabled: true
+  input_csv: "/path/to/source_parameters_latte_output.csv"
+  output_dir: "/path/to/analysis/output/source_analysis"
+
+dws_analysis:
+  enabled: true
+  input_hdf5: "/path/to/dws_values.h5"
+  output_dir: "/path/to/analysis/output/dws_analysis"
+
+raypath_analysis:
+  enabled: true
+  input_cache: "/path/to/ray_paths/ray_paths.h5"
+  output_dir: "/path/to/analysis/output/raypaths"
+
+ray_density_analysis:
+  enabled: true
+  input_cache: "/path/to/ray_paths/ray_paths.h5"
+  output_dir: "/path/to/analysis/output/ray_density"
+  grid:
+    nx: 401
+    ny: 361
+    nz: 43
+    dx: 0.5
+    dy: 0.5
+    dz: 0.5
+
+tradeoff_analysis:
+  enabled: true
+  output_dir: "/path/to/analysis/output/tradeoff_analysis"
+  initial_model_csv: "/path/to/velocity_cartesian_initial.csv"
+  inversion_analysis_dir: "/path/to/per_iteration_postprocess_outputs"
