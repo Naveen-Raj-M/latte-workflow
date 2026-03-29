@@ -432,6 +432,16 @@ ray_density_analysis:
 tradeoff_analysis:
   enabled: false
 
+  # iteration: auto-discovers iteration_*/ dirs; parameter: uses manually specified entries
+  x_axis_mode: "iteration"             # iteration | parameter
+
+  # Parameter sweep settings — used only when x_axis_mode = "parameter"
+  parameter_mode:
+    parameter_name: "step_max"          # label used on plots and in the text report
+    p_wave_entries: []                  # list of {parameter_value, directory_name, iteration}
+    s_wave_entries: []                  # list of {parameter_value, directory_name, iteration}
+    make_report: true                   # true = write parameter -> model_variance text report
+
   # Y-axis mode
   y_axis_mode: "data_misfit"            # data_misfit | rms
 

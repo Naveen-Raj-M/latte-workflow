@@ -319,6 +319,173 @@ def _annotate_iterations(
         )
 
 
+def _annotate_parameter_values(
+    ax: plt.Axes,
+    x_vals: np.ndarray,
+    y_vals: np.ndarray,
+    param_vals: np.ndarray,
+    plot_style: Dict[str, Any],
+    color: str = 'black',
+) -> None:
+    """Annotate each data point with its parameter value."""
+    fontsize = max(6, plot_style.get('tick_size', 10) - 2)
+    for x, y, pv in zip(x_vals, y_vals, param_vals):
+        label = f"{pv:g}" if isinstance(pv, (int, float)) else str(pv)
+        ax.annotate(
+            label,
+            (x, y),
+            textcoords='offset points',
+            xytext=(4, 4),
+            fontsize=fontsize,
+            color=color,
+            ha='left',
+        )
+
+
+def create_parameter_tradeoff_plot(
+    df_p: Optional[pd.DataFrame],
+    df_s: Optional[pd.DataFrame],
+    parameter_name: str,
+    config: Dict[str, Any],
+    output_path: Path,
+) -> None:
+    """
+    Create and save a parameter sweep tradeoff plot.
+
+    X-axis: model variance (Vp for P-wave, Vs for S-wave).
+    Y-axis: RMS traveltime residual.
+    Points are annotated with their parameter value.
+
+    Args:
+        df_p: P-wave parameter tradeoff table (or None / empty).
+        df_s: S-wave parameter tradeoff table (or None / empty).
+        parameter_name: Name of the swept parameter used in labels.
+        config: Full configuration dictionary.
+        output_path: Full path including filename.
+    """
+    has_p = df_p is not None and not df_p.empty and df_p['rms'].notna().any()
+    has_s = df_s is not None and not df_s.empty and df_s['rms'].notna().any()
+
+    if not has_p and not has_s:
+        logger.warning("No parameter tradeoff data available for plotting")
+        return
+
+    tcfg = config.get('tradeoff_analysis', {})
+    plot_cfg = tcfg.get('plot', {})
+    analysis_cfg = config.get('analysis', {})
+
+    output_format = analysis_cfg.get('output_format', 'png')
+    dpi = analysis_cfg.get('dpi', 300)
+    plot_style = analysis_cfg.get('plot_style', {})
+
+    global_colors = get_color_scheme(analysis_cfg)
+    colors = _resolve_colors(plot_cfg, global_colors)
+
+    fig_width = plot_cfg.get('figure_width', 10)
+    fig_height = plot_cfg.get('figure_height', 8)
+    marker_style = plot_cfg.get('marker_style', 'o')
+    marker_size = plot_style.get('marker_size', 6)
+    line_width = plot_style.get('line_width', 2)
+    show_grid = plot_cfg.get('show_grid', True)
+    show_param_labels = plot_cfg.get('show_iteration_labels', True)
+    use_log_x = plot_cfg.get('use_log_scale_x', False)
+    use_log_y = plot_cfg.get('use_log_scale_y', False)
+
+    use_pct = bool(tcfg.get('model_variance', {}).get('use_percentage_change', False))
+    units = "%" if use_pct else "km/s"
+
+    def _draw_curve(
+        ax: plt.Axes,
+        x_vals: np.ndarray,
+        y_vals: np.ndarray,
+        param_vals: np.ndarray,
+        color: str,
+        phase_label: str,
+        x_label_str: str,
+        y_label_str: str,
+    ) -> None:
+        ax.plot(
+            x_vals, y_vals,
+            marker=marker_style,
+            markersize=marker_size,
+            linewidth=line_width,
+            color=color,
+            alpha=plot_style.get('alpha', 0.85),
+            label=phase_label,
+        )
+        if show_param_labels:
+            _annotate_parameter_values(ax, x_vals, y_vals, param_vals, plot_style)
+        if use_log_x:
+            ax.set_xscale('log')
+        if use_log_y:
+            ax.set_yscale('log')
+        ax.set_xlabel(x_label_str, fontsize=plot_style.get('label_size', 14))
+        ax.set_ylabel(y_label_str, fontsize=plot_style.get('label_size', 14))
+        if show_grid:
+            ax.grid(
+                True,
+                alpha=plot_style.get('grid_alpha', 0.3),
+                color=global_colors.get('grid_color', '#cccccc'),
+            )
+        ax.legend(fontsize=plot_style.get('legend_size', 12))
+
+    title = f"Parameter Tradeoff: {parameter_name}"
+
+    if has_p and has_s:
+        fig, (ax_p, ax_s) = plt.subplots(1, 2, figsize=(fig_width, fig_height))
+        _draw_curve(
+            ax_p,
+            df_p['model_variance_vp'].values,
+            df_p['rms'].values,
+            df_p['parameter_value'].values,
+            colors['vp'], 'P-wave',
+            f"Vp Model Variance ({units})",
+            "P-wave RMS Residual (s)",
+        )
+        _draw_curve(
+            ax_s,
+            df_s['model_variance_vs'].values,
+            df_s['rms'].values,
+            df_s['parameter_value'].values,
+            colors['vs'], 'S-wave',
+            f"Vs Model Variance ({units})",
+            "S-wave RMS Residual (s)",
+        )
+        fig.suptitle(title, fontsize=plot_style.get('title_size', 16))
+    else:
+        fig, ax = plt.subplots(figsize=(fig_width, fig_height))
+        if has_p:
+            _draw_curve(
+                ax,
+                df_p['model_variance_vp'].values,
+                df_p['rms'].values,
+                df_p['parameter_value'].values,
+                colors['vp'], 'P-wave',
+                f"Vp Model Variance ({units})",
+                "P-wave RMS Residual (s)",
+            )
+        else:
+            _draw_curve(
+                ax,
+                df_s['model_variance_vs'].values,
+                df_s['rms'].values,
+                df_s['parameter_value'].values,
+                colors['vs'], 'S-wave',
+                f"Vs Model Variance ({units})",
+                "S-wave RMS Residual (s)",
+            )
+        ax.set_title(title, fontsize=plot_style.get('title_size', 16))
+
+    fig.tight_layout()
+
+    output_path = Path(output_path)
+    if not output_path.suffix:
+        output_path = output_path.with_suffix(f'.{output_format}')
+
+    save_figure(fig, output_path, output_format=output_format, dpi=dpi)
+    logger.info(f"Saved parameter tradeoff plot: {output_path}")
+
+
 def create_all_tradeoff_plots(
     tradeoff_results: Dict[str, Any],
     config: Dict[str, Any],

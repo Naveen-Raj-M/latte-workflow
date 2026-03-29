@@ -377,6 +377,130 @@ def assemble_tradeoff_table(
     return df
 
 
+def assemble_parameter_tradeoff_table(
+    processed_entries: List[Dict[str, Any]],
+) -> pd.DataFrame:
+    """
+    Assemble processed parameter sweep entries into a tradeoff DataFrame.
+
+    Args:
+        processed_entries: List of dicts with keys:
+            parameter_value, directory_name, iteration,
+            model_variance_vp, model_variance_vs, model_variance_max, rms.
+
+    Returns:
+        DataFrame sorted by parameter_value. Empty DataFrame if no valid entries.
+    """
+    _cols = [
+        'parameter_value', 'directory_name', 'iteration',
+        'model_variance_vp', 'model_variance_vs', 'model_variance_max', 'rms',
+    ]
+    if not processed_entries:
+        logger.warning("No parameter entries to assemble into tradeoff table")
+        return pd.DataFrame(columns=_cols)
+
+    rows = []
+    skipped = []
+    for e in processed_entries:
+        if e.get('model_variance_vp') is None or e.get('model_variance_vs') is None:
+            skipped.append(e.get('parameter_value'))
+            continue
+        rows.append({
+            'parameter_value':    e['parameter_value'],
+            'directory_name':     e['directory_name'],
+            'iteration':          e['iteration'],
+            'model_variance_vp':  e['model_variance_vp'],
+            'model_variance_vs':  e['model_variance_vs'],
+            'model_variance_max': e['model_variance_max'],
+            'rms':                e.get('rms'),
+        })
+
+    if skipped:
+        logger.warning(
+            f"Skipped {len(skipped)} parameter entries due to missing model variance: "
+            f"{skipped}"
+        )
+
+    if not rows:
+        logger.warning("Parameter tradeoff table is empty – no complete entries found")
+        return pd.DataFrame(columns=_cols)
+
+    df = pd.DataFrame(rows).sort_values('parameter_value').reset_index(drop=True)
+    logger.info(
+        f"Parameter tradeoff table: {len(df)} entries, "
+        f"parameter range [{df['parameter_value'].min()}, {df['parameter_value'].max()}]"
+    )
+    return df
+
+
+def write_parameter_report(
+    parameter_name: str,
+    p_table: Optional[pd.DataFrame],
+    s_table: Optional[pd.DataFrame],
+    report_path: "Path",
+) -> None:
+    """
+    Write a plain text report mapping parameter values to model variance.
+
+    Args:
+        parameter_name: Name of the swept parameter (e.g., "step_max").
+        p_table: P-wave parameter tradeoff DataFrame (or None/empty).
+        s_table: S-wave parameter tradeoff DataFrame (or None/empty).
+        report_path: Full path for the output .txt file.
+    """
+    from pathlib import Path as _Path
+    from datetime import datetime
+
+    report_path = _Path(report_path)
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+
+    col_w = max(len(parameter_name), 14)
+    sep = "=" * 72
+
+    lines = [
+        "Parameter Tradeoff Report",
+        sep,
+        f"Parameter : {parameter_name}",
+        f"Generated : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        "",
+    ]
+
+    def _write_section(df: pd.DataFrame, phase_label: str, variance_col: str) -> None:
+        lines.append(f"{phase_label} RESULTS")
+        lines.append("-" * 72)
+        hdr = (
+            f"  {parameter_name:<{col_w}}"
+            f"  {'directory_name':<28}"
+            f"  {'iter':>6}"
+            f"  {variance_col:>20}"
+            f"  {'rms':>14}"
+        )
+        lines.append(hdr)
+        lines.append("-" * 72)
+        for _, row in df.iterrows():
+            mv = row.get(variance_col)
+            rms = row.get('rms')
+            mv_str = f"{mv:.6f}" if mv is not None else "n/a"
+            rms_str = f"{rms:.6f}" if rms is not None else "n/a"
+            lines.append(
+                f"  {row['parameter_value']:<{col_w}.6g}"
+                f"  {str(row['directory_name']):<28}"
+                f"  {int(row['iteration']):>6}"
+                f"  {mv_str:>20}"
+                f"  {rms_str:>14}"
+            )
+        lines.append("")
+
+    if p_table is not None and not p_table.empty:
+        _write_section(p_table, "P-WAVE", "model_variance_vp")
+
+    if s_table is not None and not s_table.empty:
+        _write_section(s_table, "S-WAVE", "model_variance_vs")
+
+    report_path.write_text('\n'.join(lines) + '\n')
+    logger.info(f"Parameter tradeoff report written: {report_path}")
+
+
 def detect_elbow(
     x_values: np.ndarray,
     y_values: np.ndarray,

@@ -452,6 +452,40 @@ def load_velocity_model_for_iteration(
     return df
 
 
+def build_parameter_entry_path(
+    base_path: str,
+    directory_name: str,
+    iteration: int,
+) -> Path:
+    """
+    Build and validate the directory path for a parameter sweep entry.
+
+    Path construction: <base_path>/<directory_name>/iteration_<iteration>/
+
+    Args:
+        base_path: Root directory (inversion_base_path or inversion_analysis_dir).
+        directory_name: Subdirectory name for this parameter run.
+        iteration: Iteration number.
+
+    Returns:
+        Path object pointing to the constructed iteration directory.
+
+    Raises:
+        FileNotFoundError: If the constructed path does not exist.
+        NotADirectoryError: If the constructed path is not a directory.
+    """
+    path = Path(base_path) / directory_name / f"iteration_{iteration}"
+    if not path.exists():
+        raise FileNotFoundError(
+            f"Parameter entry directory not found: {path} "
+            f"(base_path={base_path}, directory_name={directory_name}, "
+            f"iteration={iteration})"
+        )
+    if not path.is_dir():
+        raise NotADirectoryError(f"Parameter entry path is not a directory: {path}")
+    return path
+
+
 def load_initial_velocity_model(
     csv_path: Optional[str],
     hdf5_path: Optional[str],

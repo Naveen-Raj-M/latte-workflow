@@ -25,6 +25,7 @@ from utils.logging_utils import ProcessTimer
 
 from .tradeoff_data import (
     discover_iteration_dirs,
+    build_parameter_entry_path,
     load_data_misfit,
     load_initial_velocity_model,
     load_traveltime_residuals_for_iteration,
@@ -39,11 +40,120 @@ from .tradeoff_statistics import (
     build_depth_layer_mask,
     compute_model_variance_for_mask,
     assemble_tradeoff_table,
+    assemble_parameter_tradeoff_table,
+    write_parameter_report,
     detect_elbow,
 )
-from .tradeoff_plots import create_all_tradeoff_plots
+from .tradeoff_plots import create_all_tradeoff_plots, create_parameter_tradeoff_plot
 
 logger = logging.getLogger(__name__)
+
+
+def _process_parameter_entries(
+    entries_cfg: List[Dict[str, Any]],
+    phase: str,
+    inversion_base_path: str,
+    inversion_analysis_dir: str,
+    traveltime_csv_pattern: str,
+    df_initial: pd.DataFrame,
+    mask_main: np.ndarray,
+    use_percentage_change: bool,
+    aggregation: str,
+    velocity_dataset: str,
+    min_residual_threshold: float,
+    max_residual_threshold: float,
+) -> List[Dict[str, Any]]:
+    """
+    Process parameter sweep entries: load traveltime CSVs and velocity models,
+    compute RMS and model variance per entry.
+
+    Args:
+        entries_cfg: List of dicts from config, each with keys
+            parameter_value, directory_name, iteration.
+        phase: Phase mode for RMS computation ('p' or 's').
+        inversion_base_path: Root dir for traveltime CSV subdirs.
+        inversion_analysis_dir: Root dir for velocity model subdirs.
+        traveltime_csv_pattern: Glob pattern for traveltime CSV files.
+        df_initial: Initial velocity model DataFrame.
+        mask_main: Spatial mask for model variance computation.
+        use_percentage_change: Compute variance as percentage if True.
+        aggregation: 'mean' or 'max' aggregation for variance.
+        velocity_dataset: HDF5 dataset name for velocity models.
+        min_residual_threshold: Lower bound for RMS computation (s).
+        max_residual_threshold: Upper bound for RMS computation (s).
+
+    Returns:
+        List of processed result dicts with keys:
+            parameter_value, directory_name, iteration,
+            model_variance_vp, model_variance_vs, model_variance_max, rms.
+    """
+    processed = []
+
+    for entry_cfg in entries_cfg:
+        param_val = float(entry_cfg['parameter_value'])
+        dir_name = str(entry_cfg['directory_name'])
+        iteration = int(entry_cfg['iteration'])
+
+        result: Dict[str, Any] = {
+            'parameter_value':    param_val,
+            'directory_name':     dir_name,
+            'iteration':          iteration,
+            'model_variance_vp':  None,
+            'model_variance_vs':  None,
+            'model_variance_max': None,
+            'rms':                None,
+        }
+
+        # Load traveltime CSV and compute RMS
+        try:
+            tt_dir = build_parameter_entry_path(inversion_base_path, dir_name, iteration)
+            df_tt = load_traveltime_residuals_for_iteration(tt_dir, traveltime_csv_pattern)
+            if df_tt is not None:
+                rms_dict = compute_rms_for_iteration(
+                    df_tt, phase,
+                    min_residual_threshold, max_residual_threshold,
+                )
+                key = next(iter(rms_dict))
+                result['rms'] = rms_dict.get(key)
+        except (FileNotFoundError, NotADirectoryError) as e:
+            logger.warning(
+                f"Parameter entry (val={param_val}, dir={dir_name}, iter={iteration}): "
+                f"traveltime dir – {e}"
+            )
+
+        # Load velocity model and compute model variance
+        try:
+            vel_dir = build_parameter_entry_path(inversion_analysis_dir, dir_name, iteration)
+            df_inverted = load_velocity_model_for_iteration(vel_dir, velocity_dataset)
+            if df_inverted is not None:
+                try:
+                    _validate_grid_alignment(df_initial, df_inverted, iteration)
+                    var = compute_model_variance_for_mask(
+                        df_initial, df_inverted, mask_main,
+                        use_percentage_change=use_percentage_change,
+                        aggregation=aggregation,
+                    )
+                    result['model_variance_vp'] = var['vp']
+                    result['model_variance_vs'] = var['vs']
+                    result['model_variance_max'] = var['max']
+                    units = "%" if use_percentage_change else "km/s"
+                    logger.debug(
+                        f"Entry (val={param_val}): "
+                        f"vp_var={var['vp']:.6f}, vs_var={var['vs']:.6f} {units}"
+                    )
+                except ValueError as e:
+                    logger.error(
+                        f"Parameter entry (val={param_val}, dir={dir_name}): {e}"
+                    )
+        except (FileNotFoundError, NotADirectoryError) as e:
+            logger.warning(
+                f"Parameter entry (val={param_val}, dir={dir_name}, iter={iteration}): "
+                f"velocity dir – {e}"
+            )
+
+        processed.append(result)
+
+    return processed
 
 
 def _parse_bound_pair(
@@ -228,6 +338,137 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
             f"Unknown model_variance.region: '{region}'. "
             "Valid options: 'full', 'z_bounded', 'depth_layer'"
         )
+
+    # ------------------------------------------------------------------ #
+    # PARAMETER MODE – process parameter sweep and return early           #
+    # ------------------------------------------------------------------ #
+    x_axis_mode = tcfg.get('x_axis_mode', 'iteration')
+
+    if x_axis_mode not in ('iteration', 'parameter'):
+        raise ValueError(
+            f"Unknown x_axis_mode: '{x_axis_mode}'. "
+            "Valid options: 'iteration', 'parameter'"
+        )
+
+    if x_axis_mode == 'parameter':
+        if region == 'depth_layer':
+            raise ValueError(
+                "x_axis_mode='parameter' does not support "
+                "model_variance.region='depth_layer'. Use 'full' or 'z_bounded'."
+            )
+
+        pm_cfg = tcfg.get('parameter_mode', {})
+        parameter_name = pm_cfg.get('parameter_name', 'parameter')
+        p_entries_cfg = pm_cfg.get('p_wave_entries') or []
+        s_entries_cfg = pm_cfg.get('s_wave_entries') or []
+        make_report = bool(pm_cfg.get('make_report', True))
+
+        if not p_entries_cfg and not s_entries_cfg:
+            raise ValueError(
+                "x_axis_mode='parameter' requires at least one entry in "
+                "parameter_mode.p_wave_entries or parameter_mode.s_wave_entries"
+            )
+
+        inversion_base_path = tcfg.get('inversion_base_path')
+        if not inversion_base_path:
+            raise ValueError(
+                "inversion_base_path must be set when x_axis_mode='parameter'"
+            )
+
+        inversion_analysis_dir = tcfg.get('inversion_analysis_dir')
+        if not inversion_analysis_dir:
+            raise ValueError(
+                "inversion_analysis_dir must be set when x_axis_mode='parameter'"
+            )
+
+        traveltime_pattern = tcfg.get(
+            'traveltime_csv_pattern', 'travel_time_residuals*.csv'
+        )
+
+        logger.info("=" * 60)
+        logger.info("PARAMETER SWEEP MODE")
+        logger.info("=" * 60)
+        logger.info(f"Parameter:        {parameter_name}")
+        logger.info(f"P-wave entries:   {len(p_entries_cfg)}")
+        logger.info(f"S-wave entries:   {len(s_entries_cfg)}")
+
+        df_p: Optional[pd.DataFrame] = None
+        df_s: Optional[pd.DataFrame] = None
+
+        if p_entries_cfg:
+            with ProcessTimer("Processing P-wave parameter entries"):
+                p_processed = _process_parameter_entries(
+                    entries_cfg=p_entries_cfg,
+                    phase='p',
+                    inversion_base_path=inversion_base_path,
+                    inversion_analysis_dir=inversion_analysis_dir,
+                    traveltime_csv_pattern=traveltime_pattern,
+                    df_initial=df_initial,
+                    mask_main=mask_main,
+                    use_percentage_change=use_percentage_change,
+                    aggregation=aggregation,
+                    velocity_dataset=velocity_dataset,
+                    min_residual_threshold=min_residual_threshold,
+                    max_residual_threshold=max_residual_threshold,
+                )
+            df_p = assemble_parameter_tradeoff_table(p_processed)
+
+        if s_entries_cfg:
+            with ProcessTimer("Processing S-wave parameter entries"):
+                s_processed = _process_parameter_entries(
+                    entries_cfg=s_entries_cfg,
+                    phase='s',
+                    inversion_base_path=inversion_base_path,
+                    inversion_analysis_dir=inversion_analysis_dir,
+                    traveltime_csv_pattern=traveltime_pattern,
+                    df_initial=df_initial,
+                    mask_main=mask_main,
+                    use_percentage_change=use_percentage_change,
+                    aggregation=aggregation,
+                    velocity_dataset=velocity_dataset,
+                    min_residual_threshold=min_residual_threshold,
+                    max_residual_threshold=max_residual_threshold,
+                )
+            df_s = assemble_parameter_tradeoff_table(s_processed)
+
+        # Save statistics CSV
+        if df_p is not None and not df_p.empty:
+            p_stats_file = stats_dir / f"parameter_tradeoff_{parameter_name}_p.csv"
+            df_p.to_csv(p_stats_file, index=False)
+            logger.info(f"Saved P-wave parameter statistics: {p_stats_file}")
+
+        if df_s is not None and not df_s.empty:
+            s_stats_file = stats_dir / f"parameter_tradeoff_{parameter_name}_s.csv"
+            df_s.to_csv(s_stats_file, index=False)
+            logger.info(f"Saved S-wave parameter statistics: {s_stats_file}")
+
+        # Write text report
+        if make_report:
+            report_file = reports_dir / f"parameter_tradeoff_{parameter_name}.txt"
+            write_parameter_report(
+                parameter_name=parameter_name,
+                p_table=df_p,
+                s_table=df_s,
+                report_path=report_file,
+            )
+
+        # Create plots
+        with ProcessTimer("Creating parameter tradeoff plot"):
+            output_format = analysis_cfg.get('output_format', 'png')
+            plot_path = plots_dir / f"parameter_tradeoff_{parameter_name}.{output_format}"
+            create_parameter_tradeoff_plot(
+                df_p=df_p,
+                df_s=df_s,
+                parameter_name=parameter_name,
+                config=config,
+                output_path=plot_path,
+            )
+
+        return {
+            'config': tcfg,
+            'parameter_table_p': df_p,
+            'parameter_table_s': df_s,
+        }
 
     # ------------------------------------------------------------------ #
     # PHASE 4 – LOAD Y-AXIS DATA                                          #
