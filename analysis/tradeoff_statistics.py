@@ -185,38 +185,36 @@ def compute_model_variance_for_mask(
     """
     Compute model variance for vp and vs at selected grid points.
 
-    Two value formulas:
+    Value formulas (use_percentage_change=False):
+        mean:           mean(|Δv|)              [km/s]
+        max:            max(|Δv|)               [km/s]
+        model_variance: mean((Δv)²)             [(km/s)²]
 
-    Absolute (use_percentage_change=False):
-        values = |v_initial - v_inverted|   [km/s]
+    Value formulas (use_percentage_change=True):
+        mean:           mean(|Δv| / |v_init|) × 100            [%]
+        max:            max(|Δv| / |v_init|)  × 100            [%]
+        model_variance: mean((Δv / v_init)²)  × 10000          [%²]
 
-    Percentage (use_percentage_change=True):
-        values = |v_initial - v_inverted| / |v_initial| * 100   [%]
-
-        Grid points where |v_initial| < 1e-6 km/s are excluded from the
-        percentage computation. A WARNING is logged if any are found.
-
-    Two aggregation modes (aggregation):
-        "mean"  variance = mean(values)
-        "max"   variance = max(values)
+        Grid points where |v_initial| < 1e-6 km/s are excluded from
+        percentage computations. A WARNING is logged if any are found.
 
     Args:
         df_initial: Initial velocity model DataFrame.
         df_inverted: Inverted velocity model DataFrame for one iteration.
         mask: Boolean selection mask for grid points to include.
-        use_percentage_change: If True, compute percentage change.
-        aggregation: "mean" or "max".
+        use_percentage_change: If True, compute percentage-based metrics.
+        aggregation: "mean", "max", or "model_variance".
 
     Returns:
         Dict with keys: 'vp', 'vs', 'max'.
-        Units are km/s when use_percentage_change=False, % otherwise.
 
     Raises:
         ValueError: If mask selects zero points or aggregation is invalid.
     """
-    if aggregation not in ('mean', 'max'):
+    if aggregation not in ('mean', 'max', 'model_variance'):
         raise ValueError(
-            f"Invalid aggregation: '{aggregation}'. Valid options: 'mean', 'max'"
+            f"Invalid aggregation: '{aggregation}'. "
+            "Valid options: 'mean', 'max', 'model_variance'"
         )
     n_selected = int(mask.sum())
     if n_selected == 0:
@@ -230,8 +228,10 @@ def compute_model_variance_for_mask(
     vp_inv = df_inverted['vp'].values[mask]
     vs_inv = df_inverted['vs'].values[mask]
 
-    vp_abs_diff = np.abs(vp_init - vp_inv)
-    vs_abs_diff = np.abs(vs_init - vs_inv)
+    vp_diff = vp_init - vp_inv
+    vs_diff = vs_init - vs_inv
+    vp_abs_diff = np.abs(vp_diff)
+    vs_abs_diff = np.abs(vs_diff)
 
     if use_percentage_change:
         # Exclude near-zero initial velocities to avoid division by ~0
@@ -263,17 +263,28 @@ def compute_model_variance_for_mask(
                 "cannot compute percentage model variance."
             )
 
-        agg = np.max if aggregation == 'max' else np.mean
-        variance_vp = float(
-            agg(vp_abs_diff[vp_valid] / np.abs(vp_init[vp_valid])) * 100.0
-        )
-        variance_vs = float(
-            agg(vs_abs_diff[vs_valid] / np.abs(vs_init[vs_valid])) * 100.0
-        )
+        vp_rel = vp_abs_diff[vp_valid] / np.abs(vp_init[vp_valid])
+        vs_rel = vs_abs_diff[vs_valid] / np.abs(vs_init[vs_valid])
+
+        if aggregation == 'max':
+            variance_vp = float(np.max(vp_rel) * 100.0)
+            variance_vs = float(np.max(vs_rel) * 100.0)
+        elif aggregation == 'mean':
+            variance_vp = float(np.mean(vp_rel) * 100.0)
+            variance_vs = float(np.mean(vs_rel) * 100.0)
+        else:  # model_variance: mean((Δv/v_init)²) × 100²
+            variance_vp = float(np.mean(vp_rel ** 2) * 10000.0)
+            variance_vs = float(np.mean(vs_rel ** 2) * 10000.0)
     else:
-        agg = np.max if aggregation == 'max' else np.mean
-        variance_vp = float(agg(vp_abs_diff))
-        variance_vs = float(agg(vs_abs_diff))
+        if aggregation == 'max':
+            variance_vp = float(np.max(vp_abs_diff))
+            variance_vs = float(np.max(vs_abs_diff))
+        elif aggregation == 'mean':
+            variance_vp = float(np.mean(vp_abs_diff))
+            variance_vs = float(np.mean(vs_abs_diff))
+        else:  # model_variance: mean((Δv)²)
+            variance_vp = float(np.mean(vp_diff ** 2))
+            variance_vs = float(np.mean(vs_diff ** 2))
 
     variance_max = max(variance_vp, variance_vs)
     return {'vp': variance_vp, 'vs': variance_vs, 'max': variance_max}
@@ -499,6 +510,143 @@ def write_parameter_report(
 
     report_path.write_text('\n'.join(lines) + '\n')
     logger.info(f"Parameter tradeoff report written: {report_path}")
+
+
+def write_general_report(
+    config: Dict[str, Any],
+    tradeoff_results: Dict[str, Any],
+    report_path: "Path",
+) -> None:
+    """
+    Write a comprehensive plain-text report for the tradeoff analysis run.
+
+    Includes evaluation mode, all configuration parameters, paths, and a
+    full table of computed values per iteration (or per depth layer).
+
+    Args:
+        config: Full configuration dictionary.
+        tradeoff_results: Dict returned by the main orchestration loop.
+        report_path: Full path for the output .txt file.
+    """
+    from pathlib import Path as _Path
+    from datetime import datetime
+
+    report_path = _Path(report_path)
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+
+    tcfg = config.get('tradeoff_analysis', {})
+    mv_cfg = tcfg.get('model_variance', {})
+
+    x_axis_mode        = tcfg.get('x_axis_mode', 'iteration')
+    y_axis_mode        = tcfg.get('y_axis_mode', 'data_misfit')
+    phase_mode         = tcfg.get('phase_mode', 'both')
+    rms_comparison     = tcfg.get('rms_comparison_mode', 'ground_truth')
+    region             = mv_cfg.get('region', 'full')
+    aggregation        = mv_cfg.get('aggregation', 'mean')
+    use_pct            = mv_cfg.get('use_percentage_change', False)
+    velocity_dataset   = tcfg.get('velocity_dataset', 'velocity')
+    use_normalized     = tcfg.get('use_normalized_misfit', False)
+
+    sep  = "=" * 72
+    sep2 = "-" * 72
+
+    lines = [
+        "Tradeoff Analysis Report",
+        sep,
+        f"Generated              : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        sep,
+        "",
+        "CONFIGURATION",
+        sep2,
+        f"  X-axis mode          : {x_axis_mode}",
+        f"  Y-axis mode          : {y_axis_mode}",
+    ]
+
+    if y_axis_mode == 'data_misfit':
+        lines.append(f"  Use normalized misfit : {use_normalized}")
+    elif y_axis_mode in ('rms', 'data_variance'):
+        lines.append(f"  Phase mode           : {phase_mode}")
+        lines.append(f"  RMS comparison mode  : {rms_comparison}")
+        thresh_lo = tcfg.get('min_residual_threshold', -50.0)
+        thresh_hi = tcfg.get('max_residual_threshold',  50.0)
+        lines.append(f"  Residual thresholds  : [{thresh_lo}, {thresh_hi}] s")
+
+    lines += [
+        f"  Region               : {region}",
+        f"  Aggregation          : {aggregation}",
+        f"  Use percentage change: {use_pct}",
+        f"  Velocity dataset     : {velocity_dataset}",
+    ]
+
+    if region == 'z_bounded':
+        lines.append(f"  Z bounds             : {mv_cfg.get('z_bounds')}")
+    elif region == 'depth_layer':
+        lines.append(f"  Depth layers (km)    : {mv_cfg.get('depth_layers')}")
+        lines.append(f"  Depth tolerance (km) : {mv_cfg.get('depth_tolerance_km')}")
+
+    x_lo = mv_cfg.get('x_bounds', [None, None])
+    y_lo = mv_cfg.get('y_bounds', [None, None])
+    if any(b is not None for b in x_lo):
+        lines.append(f"  X bounds             : {x_lo}")
+    if any(b is not None for b in y_lo):
+        lines.append(f"  Y bounds             : {y_lo}")
+
+    lines += [
+        "",
+        "PATHS",
+        sep2,
+    ]
+
+    path_fields = [
+        ('initial_model_hdf5',      'Initial model HDF5      '),
+        ('initial_model_csv',       'Initial model CSV       '),
+        ('inversion_base_path',     'Inversion base path     '),
+        ('inversion_analysis_dir',  'Inversion analysis dir  '),
+        ('data_misfit_file_path',   'Data misfit file        '),
+        ('method1_csv',             'Method 1 CSV            '),
+        ('output_dir',              'Output directory        '),
+    ]
+    for key, label in path_fields:
+        val = tcfg.get(key)
+        if val:
+            lines.append(f"  {label}: {val}")
+
+    lines.append("")
+
+    # --- Computed values ---
+    if 'tradeoff_table' in tradeoff_results:
+        df = tradeoff_results['tradeoff_table']
+        if not df.empty:
+            lines += [
+                "COMPUTED VALUES",
+                sep2,
+                f"  Iterations processed : {len(df)}",
+                f"  Iteration range      : [{int(df['iteration'].min())}, "
+                f"{int(df['iteration'].max())}]",
+                "",
+            ]
+            lines.append(df.to_string(index=False))
+        else:
+            lines += ["COMPUTED VALUES", sep2, "  (no data)"]
+
+    elif 'by_depth' in tradeoff_results:
+        by_depth = tradeoff_results['by_depth']
+        lines += ["COMPUTED VALUES (per depth layer)", sep2]
+        for depth_km in sorted(by_depth.keys()):
+            df = by_depth[depth_km]
+            lines.append(f"\n  Z = {depth_km:.2f} km")
+            lines.append("  " + "-" * 40)
+            if not df.empty:
+                lines.append(f"  Iterations processed : {len(df)}")
+                lines.append(f"  Iteration range      : [{int(df['iteration'].min())}, "
+                             f"{int(df['iteration'].max())}]")
+                lines.append("")
+                lines.append(df.to_string(index=False))
+            else:
+                lines.append("  (no data)")
+
+    report_path.write_text('\n'.join(lines) + '\n')
+    logger.info(f"Tradeoff analysis report written: {report_path}")
 
 
 def detect_elbow(

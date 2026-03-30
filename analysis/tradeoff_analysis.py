@@ -42,6 +42,7 @@ from .tradeoff_statistics import (
     assemble_tradeoff_table,
     assemble_parameter_tradeoff_table,
     write_parameter_report,
+    write_general_report,
     detect_elbow,
 )
 from .tradeoff_plots import create_all_tradeoff_plots, create_parameter_tradeoff_plot
@@ -230,6 +231,7 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
     for d in (plots_dir, stats_dir, reports_dir):
         ensure_directory_exists(d)
 
+    write_report = bool(tcfg.get('write_report', True))
     y_axis_mode = tcfg.get('y_axis_mode', 'data_misfit')
     phase_mode = tcfg.get('phase_mode', 'both')
     rms_comparison_mode = tcfg.get('rms_comparison_mode', 'ground_truth')
@@ -241,10 +243,10 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
     max_residual_threshold = tcfg.get('max_residual_threshold', 50.0)
     use_percentage_change = bool(mv_cfg.get('use_percentage_change', False))
     aggregation = mv_cfg.get('aggregation', 'mean')
-    if aggregation not in ('mean', 'max'):
+    if aggregation not in ('mean', 'max', 'model_variance'):
         raise ValueError(
             f"Invalid model_variance.aggregation: '{aggregation}'. "
-            "Valid options: 'mean', 'max'"
+            "Valid options: 'mean', 'max', 'model_variance'"
         )
 
     logger.info("=" * 60)
@@ -361,7 +363,6 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
         parameter_name = pm_cfg.get('parameter_name', 'parameter')
         p_entries_cfg = pm_cfg.get('p_wave_entries') or []
         s_entries_cfg = pm_cfg.get('s_wave_entries') or []
-        make_report = bool(pm_cfg.get('make_report', True))
 
         if not p_entries_cfg and not s_entries_cfg:
             raise ValueError(
@@ -443,7 +444,7 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
             logger.info(f"Saved S-wave parameter statistics: {s_stats_file}")
 
         # Write text report
-        if make_report:
+        if write_report:
             report_file = reports_dir / f"parameter_tradeoff_{parameter_name}.txt"
             write_parameter_report(
                 parameter_name=parameter_name,
@@ -484,12 +485,18 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
         for _, row in df_misfit.iterrows():
             y_dict[int(row['iteration'])] = float(row['y_value'])
 
-    elif y_axis_mode == 'rms':
-        with ProcessTimer("Loading traveltime residuals per iteration"):
+    elif y_axis_mode in ('rms', 'data_variance'):
+        stat_mode = 'data_variance' if y_axis_mode == 'data_variance' else 'rms'
+        timer_label = (
+            "Loading traveltime residuals per iteration (data variance)"
+            if y_axis_mode == 'data_variance'
+            else "Loading traveltime residuals per iteration"
+        )
+        with ProcessTimer(timer_label):
             inversion_base = tcfg.get('inversion_base_path')
             if not inversion_base:
                 raise ValueError(
-                    "inversion_base_path must be set when y_axis_mode = 'rms'"
+                    f"inversion_base_path must be set when y_axis_mode = '{y_axis_mode}'"
                 )
             tt_iter_dirs = discover_iteration_dirs(inversion_base)
 
@@ -516,10 +523,11 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
                     rms_dict = compute_method_comparison_rms_for_iteration(
                         df_method1, iter_dir, method2_pattern,
                         phase_mode, min_residual_threshold, max_residual_threshold,
+                        stat_mode=stat_mode,
                     )
                     if rms_dict is None:
                         logger.warning(
-                            f"Iteration {idx}: skipping – method comparison RMS failed"
+                            f"Iteration {idx}: skipping – method comparison failed"
                         )
                         continue
                     y_dict[idx] = rms_dict
@@ -541,12 +549,13 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
                     rms_dict = compute_rms_for_iteration(
                         df_tt, phase_mode,
                         min_residual_threshold, max_residual_threshold,
+                        stat_mode=stat_mode,
                     )
                     y_dict[idx] = rms_dict
     else:
         raise ValueError(
             f"Unknown y_axis_mode: '{y_axis_mode}'. "
-            "Valid options: 'data_misfit', 'rms'"
+            "Valid options: 'data_misfit', 'rms', 'data_variance'"
         )
 
     logger.info(f"Y-axis data loaded for {len(y_dict)} iterations")
@@ -760,7 +769,14 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
                     f"Z={depth_km:.2f} km: {len(df_d)} iterations, "
                     f"model_variance_max range "
                     f"[{df_d['model_variance_max'].min():.6f}, "
-                    f"{df_d['model_variance_max'].max():.6f}] km/s"
+                    f"{df_d['model_variance_max'].max():.6f}]"
                 )
+
+    # ------------------------------------------------------------------ #
+    # PHASE 10 – WRITE REPORT                                             #
+    # ------------------------------------------------------------------ #
+    if write_report:
+        report_file = reports_dir / "tradeoff_analysis_report.txt"
+        write_general_report(config, results, report_file)
 
     return results

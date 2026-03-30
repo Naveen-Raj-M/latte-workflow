@@ -195,23 +195,31 @@ def compute_rms_for_iteration(
     phase_mode: str,
     min_residual_threshold: float = -50.0,
     max_residual_threshold: float = 50.0,
+    stat_mode: str = 'rms',
 ) -> Dict[str, Optional[float]]:
     """
-    Compute RMS traveltime residual(s) for one iteration.
+    Compute traveltime statistic(s) for one iteration.
 
-    Formula: rms = sqrt(mean(residual_s**2))
+    stat_mode='rms':          sqrt(mean(residual_s²))
+    stat_mode='data_variance': mean(residual_s²)   [MSE, units s²]
 
     Args:
         df: Traveltime residuals DataFrame with columns [residual_s, phase].
         phase_mode: One of "both", "p", "s", "separate".
         min_residual_threshold: Minimum residual_s to include (seconds).
         max_residual_threshold: Maximum residual_s to include (seconds).
+        stat_mode: 'rms' (default) or 'data_variance'.
 
     Returns:
-        Dict with RMS values per curve key:
+        Dict with values per curve key:
             "both"/"p"/"s" → {'combined'/'p'/'s': float_or_None}
             "separate"     → {'p': float_or_None, 's': float_or_None}
     """
+    if stat_mode not in ('rms', 'data_variance'):
+        raise ValueError(
+            f"Invalid stat_mode: '{stat_mode}'. Valid options: 'rms', 'data_variance'"
+        )
+
     # Apply thresholds
     df_filtered = df[
         (df['residual_s'] >= min_residual_threshold)
@@ -222,7 +230,8 @@ def compute_rms_for_iteration(
         residuals = subset['residual_s'].dropna().values
         if len(residuals) == 0:
             return None
-        return float(np.sqrt(np.mean(residuals ** 2)))
+        mse = float(np.mean(residuals ** 2))
+        return mse if stat_mode == 'data_variance' else float(np.sqrt(mse))
 
     if phase_mode == 'both':
         rms_val = _rms(df_filtered)
@@ -305,13 +314,15 @@ def compute_method_comparison_rms_for_iteration(
     phase_mode: str,
     min_residual_threshold: float = -50.0,
     max_residual_threshold: float = 50.0,
+    stat_mode: str = 'rms',
 ) -> Optional[Dict[str, Optional[float]]]:
     """
-    Compute RMS for method comparison for a single iteration.
+    Compute traveltime statistic for method comparison for a single iteration.
 
     Loads the Method 2 CSV from the iteration directory, merges with the
     static Method 1 DataFrame on (event_id, station, phase), computes
-    residuals (Method2.synthetic_tt - Method1.synthetic_tt), and returns RMS.
+    residuals (Method2.synthetic_tt - Method1.synthetic_tt), and returns
+    the requested statistic.
 
     Args:
         method1_df: Static Method 1 DataFrame with columns
@@ -321,9 +332,10 @@ def compute_method_comparison_rms_for_iteration(
         phase_mode: One of "both", "p", "s", "separate".
         min_residual_threshold: Minimum residual to include (seconds).
         max_residual_threshold: Maximum residual to include (seconds).
+        stat_mode: 'rms' or 'data_variance'.
 
     Returns:
-        Dict with RMS values per curve key (same format as compute_rms_for_iteration),
+        Dict with values per curve key (same format as compute_rms_for_iteration),
         or None if loading or merging fails.
     """
     candidates = sorted(iteration_dir.glob(method2_csv_pattern))
@@ -384,6 +396,7 @@ def compute_method_comparison_rms_for_iteration(
         phase_mode,
         min_residual_threshold,
         max_residual_threshold,
+        stat_mode=stat_mode,
     )
 
 

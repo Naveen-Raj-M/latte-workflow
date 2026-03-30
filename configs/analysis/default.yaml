@@ -432,6 +432,9 @@ ray_density_analysis:
 tradeoff_analysis:
   enabled: false
 
+  # Write a detailed report regardless of mode (evaluation settings, paths, computed values)
+  write_report: true
+
   # iteration: auto-discovers iteration_*/ dirs; parameter: uses manually specified entries
   x_axis_mode: "iteration"             # iteration | parameter
 
@@ -440,10 +443,9 @@ tradeoff_analysis:
     parameter_name: "step_max"          # label used on plots and in the text report
     p_wave_entries: []                  # list of {parameter_value, directory_name, iteration}
     s_wave_entries: []                  # list of {parameter_value, directory_name, iteration}
-    make_report: true                   # true = write parameter -> model_variance text report
 
   # Y-axis mode
-  y_axis_mode: "data_misfit"            # data_misfit | rms
+  y_axis_mode: "data_misfit"            # data_misfit | rms | data_variance (mean squared residual, s²)
 
   # data_misfit mode: reads a 3-column whitespace-separated file
   # Columns: iteration | data_misfit | normalized_data_misfit
@@ -480,7 +482,7 @@ tradeoff_analysis:
     x_bounds: [null, null]             # [x_min, x_max] km; optional spatial clip before variance
     y_bounds: [null, null]             # [y_min, y_max] km; optional spatial clip before variance
     use_percentage_change: false       # true = mean(|Δv| / |v_initial|) × 100  (%)
-    aggregation: "mean"                # mean | max — aggregation over selected grid points
+    aggregation: "mean"                # mean | max | model_variance — aggregation over selected grid points
 
   output_dir: "${paths.output_base_dir}/tradeoff_analysis"
 

@@ -44,15 +44,40 @@ def _resolve_colors(
     return {'vp': vp_color, 'vs': vs_color}
 
 
+def _auto_x_label(aggregation: str, use_pct: bool) -> str:
+    """Derive automatic X-axis label from aggregation mode and units."""
+    if use_pct:
+        units, units_sq = "%", "%\u00b2"
+    else:
+        units, units_sq = "km/s", "(km/s)\u00b2"
+
+    if aggregation == 'max':
+        return f"Max Model Variation ({units})"
+    elif aggregation == 'mean':
+        return f"Average Model Variation ({units})"
+    elif aggregation == 'model_variance':
+        return f"Model Variance ({units_sq})"
+    else:
+        return f"Model Variation ({units})"
+
+
 def _auto_y_label(y_axis_mode: str, phase_mode: str, use_normalized: bool) -> str:
     """Derive automatic Y-axis label from mode settings."""
     if y_axis_mode == 'data_misfit':
         return "Normalized Data Misfit" if use_normalized else "Data Misfit"
+    if y_axis_mode == 'data_variance':
+        labels = {
+            'both':     "Combined Data Variance (s\u00b2)",
+            'p':        "P-wave Data Variance (s\u00b2)",
+            's':        "S-wave Data Variance (s\u00b2)",
+            'separate': "Data Variance (s\u00b2)",
+        }
+        return labels.get(phase_mode, "Data Variance (s\u00b2)")
     # rms mode
     labels = {
-        'both': "Combined RMS Residual (s)",
-        'p': "P-wave RMS Residual (s)",
-        's': "S-wave RMS Residual (s)",
+        'both':     "Combined RMS Residual (s)",
+        'p':        "P-wave RMS Residual (s)",
+        's':        "S-wave RMS Residual (s)",
         'separate': "RMS Residual (s)",
     }
     return labels.get(phase_mode, "RMS Residual (s)")
@@ -64,6 +89,7 @@ def create_tradeoff_plot(
     output_path: Path,
     title: str = "Tradeoff Curve",
     depth_label: Optional[str] = None,
+    single_phase: Optional[str] = None,
 ) -> None:
     """
     Create and save a single tradeoff plot.
@@ -74,6 +100,9 @@ def create_tradeoff_plot(
         output_path: Full path including filename (extension added if missing).
         title: Plot title.
         depth_label: Optional string like "Z = 15.0 km" for depth_layer mode.
+        single_phase: If 'p' or 's', force a single-axis plot for that phase only
+            (used when phase_mode='separate' to generate individual P/S files).
+            None (default) uses phase_mode from config.
     """
     if df.empty:
         logger.warning(f"Tradeoff table is empty – skipping plot: {output_path}")
@@ -108,11 +137,82 @@ def create_tradeoff_plot(
     highlight_optimal = plot_cfg.get('highlight_optimal', False)
 
     use_pct = bool(tcfg.get('model_variance', {}).get('use_percentage_change', False))
-    default_x_label = "Model Variance (%)" if use_pct else "Model Variance (km/s)"
-    x_label = plot_cfg.get('x_label') or default_x_label
+    aggregation = tcfg.get('model_variance', {}).get('aggregation', 'mean')
+    x_label = plot_cfg.get('x_label') or _auto_x_label(aggregation, use_pct)
     y_label = plot_cfg.get('y_label') or _auto_y_label(y_axis_mode, phase_mode, use_normalized)
 
     iterations = df['iteration'].values
+
+    # single_phase forces a one-axis plot for the given phase regardless of phase_mode
+    if single_phase is not None and single_phase in ('p', 's') and (
+        'rms_p' in df.columns and 'rms_s' in df.columns
+    ):
+        x_col = 'model_variance_vp' if single_phase == 'p' else 'model_variance_vs'
+        y_col = 'rms_p' if single_phase == 'p' else 'rms_s'
+        phase_label = 'P-wave' if single_phase == 'p' else 'S-wave'
+        color = colors['vp'] if single_phase == 'p' else colors['vs']
+        y_label_phase = (
+            f"{phase_label} RMS Residual (s)"
+            if y_axis_mode != 'data_variance'
+            else f"{phase_label} Data Variance (s\u00b2)"
+        )
+
+        fig, ax = plt.subplots(figsize=(fig_width, fig_height))
+        x_vals = df[x_col].values
+        y_vals = df[y_col].values
+
+        if color_by_iter:
+            _plot_colormap_curve(
+                ax, x_vals, y_vals, iterations, marker_style, marker_size,
+                line_width, colormap_name, plot_style,
+            )
+        else:
+            ax.plot(
+                x_vals, y_vals,
+                marker=marker_style, markersize=marker_size, linewidth=line_width,
+                color=color, alpha=plot_style.get('alpha', 0.85), label=phase_label,
+            )
+
+        if show_iter_labels:
+            _annotate_iterations(ax, x_vals, y_vals, iterations, plot_style)
+
+        if highlight_optimal and len(x_vals) >= 3:
+            elbow_idx = detect_elbow(x_vals, y_vals)
+            ax.plot(
+                x_vals[elbow_idx], y_vals[elbow_idx],
+                marker='*', markersize=marker_size * 3,
+                color='gold', markeredgecolor='black', markeredgewidth=0.8,
+                zorder=5, label=f"Optimal (iter {iterations[elbow_idx]})",
+            )
+            ax.legend(fontsize=plot_style.get('legend_size', 12))
+
+        if use_log_x:
+            ax.set_xscale('log')
+        if use_log_y:
+            ax.set_yscale('log')
+
+        ax.set_xlabel(x_label, fontsize=plot_style.get('label_size', 14))
+        ax.set_ylabel(y_label_phase, fontsize=plot_style.get('label_size', 14))
+        ax.set_title(title, fontsize=plot_style.get('title_size', 16))
+
+        if show_grid:
+            ax.grid(True, alpha=plot_style.get('grid_alpha', 0.3),
+                    color=global_colors.get('grid_color', '#cccccc'))
+
+        if depth_label:
+            ax.text(
+                0.98, 0.98, depth_label, transform=ax.transAxes,
+                ha='right', va='top', fontsize=plot_style.get('legend_size', 12),
+                bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.8),
+            )
+
+        fig.tight_layout()
+        output_path = Path(output_path)
+        if not output_path.suffix:
+            output_path = output_path.with_suffix(f'.{output_format}')
+        save_figure(fig, output_path, output_format=output_format, dpi=dpi)
+        logger.info(f"Saved tradeoff plot: {output_path}")
+        return
 
     if phase_mode == 'separate' and 'rms_p' in df.columns and 'rms_s' in df.columns:
         # ── Separate subplots: P (left) and S (right) ──────────────────────
@@ -518,6 +618,9 @@ def create_all_tradeoff_plots(
 
     saved_paths = []
 
+    phase_mode = tcfg.get('phase_mode', 'both')
+    has_separate = phase_mode == 'separate'
+
     if region in ('full', 'z_bounded'):
         df = tradeoff_results.get('tradeoff_table')
         if df is None or df.empty:
@@ -525,10 +628,24 @@ def create_all_tradeoff_plots(
             return saved_paths
 
         region_label = "Full Model" if region == 'full' else "Z-bounded Region"
-        title = f"Data Misfit vs Model Variance Tradeoff\n({region_label})"
-        output_path = plots_dir / f"tradeoff_curve.{output_format}"
-        create_tradeoff_plot(df, config, output_path, title=title)
-        saved_paths.append(output_path)
+
+        if has_separate and 'rms_p' in df.columns and 'rms_s' in df.columns:
+            for phase_char, phase_label in (('p', 'P'), ('s', 'S')):
+                title = (
+                    f"Data Misfit vs Model Variance Tradeoff\n"
+                    f"({region_label}, {phase_label}-wave)"
+                )
+                output_path = plots_dir / f"tradeoff_curve_{phase_label}.{output_format}"
+                create_tradeoff_plot(
+                    df, config, output_path, title=title,
+                    single_phase=phase_char,
+                )
+                saved_paths.append(output_path)
+        else:
+            title = f"Data Misfit vs Model Variance Tradeoff\n({region_label})"
+            output_path = plots_dir / f"tradeoff_curve.{output_format}"
+            create_tradeoff_plot(df, config, output_path, title=title)
+            saved_paths.append(output_path)
 
     elif region == 'depth_layer':
         by_depth = tradeoff_results.get('by_depth', {})
@@ -542,14 +659,33 @@ def create_all_tradeoff_plots(
                 continue
 
             depth_label = f"Z = {depth_km:.2f} km"
-            title = f"Data Misfit vs Model Variance Tradeoff\n({depth_label})"
-            fname = f"tradeoff_curve_depth_{depth_km:.2f}km.{output_format}"
-            output_path = plots_dir / fname
-            create_tradeoff_plot(
-                df, config, output_path,
-                title=title, depth_label=depth_label,
-            )
-            saved_paths.append(output_path)
+
+            if has_separate and 'rms_p' in df.columns and 'rms_s' in df.columns:
+                for phase_char, phase_label in (('p', 'P'), ('s', 'S')):
+                    title = (
+                        f"Data Misfit vs Model Variance Tradeoff\n"
+                        f"({depth_label}, {phase_label}-wave)"
+                    )
+                    fname = (
+                        f"tradeoff_curve_depth_{depth_km:.2f}km_{phase_label}"
+                        f".{output_format}"
+                    )
+                    output_path = plots_dir / fname
+                    create_tradeoff_plot(
+                        df, config, output_path,
+                        title=title, depth_label=depth_label,
+                        single_phase=phase_char,
+                    )
+                    saved_paths.append(output_path)
+            else:
+                title = f"Data Misfit vs Model Variance Tradeoff\n({depth_label})"
+                fname = f"tradeoff_curve_depth_{depth_km:.2f}km.{output_format}"
+                output_path = plots_dir / fname
+                create_tradeoff_plot(
+                    df, config, output_path,
+                    title=title, depth_label=depth_label,
+                )
+                saved_paths.append(output_path)
 
     logger.info(f"Created {len(saved_paths)} tradeoff plot(s) in {plots_dir}")
     return saved_paths
