@@ -265,10 +265,11 @@ def create_tradeoff_plot(
                 ax.set_yscale('log')
 
             ax.set_xlabel(x_label, fontsize=plot_style.get('label_size', 14))
-            ax.set_ylabel(
-                f"{phase_label} RMS Residual (s)",
-                fontsize=plot_style.get('label_size', 14),
-            )
+            if y_axis_mode == 'data_variance':
+                phase_y_lbl = f"{phase_label} Data Variance (s\u00b2)"
+            else:
+                phase_y_lbl = f"{phase_label} RMS Residual (s)"
+            ax.set_ylabel(phase_y_lbl, fontsize=plot_style.get('label_size', 14))
 
             if show_grid:
                 ax.grid(
@@ -492,7 +493,29 @@ def create_parameter_tradeoff_plot(
     use_log_y = plot_cfg.get('use_log_scale_y', False)
 
     use_pct = bool(tcfg.get('model_variance', {}).get('use_percentage_change', False))
-    units = "%" if use_pct else "km/s"
+    aggregation = tcfg.get('model_variance', {}).get('aggregation', 'mean')
+    y_axis_mode = tcfg.get('y_axis_mode', 'rms')
+
+    # X-axis labels (wave-type specific, aggregation-aware)
+    units     = "%" if use_pct else "km/s"
+    units_sq  = "%\u00b2" if use_pct else "(km/s)\u00b2"
+    if aggregation == 'model_variance':
+        x_label_vp = f"Vp Model Variance ({units_sq})"
+        x_label_vs = f"Vs Model Variance ({units_sq})"
+    elif aggregation == 'max':
+        x_label_vp = f"Max Vp Model Variation ({units})"
+        x_label_vs = f"Max Vs Model Variation ({units})"
+    else:  # mean
+        x_label_vp = f"Average Vp Model Variation ({units})"
+        x_label_vs = f"Average Vs Model Variation ({units})"
+
+    # Y-axis labels (y_axis_mode-aware)
+    if y_axis_mode == 'data_variance':
+        y_label_p = f"P-wave Data Variance (s\u00b2)"
+        y_label_s = f"S-wave Data Variance (s\u00b2)"
+    else:
+        y_label_p = "P-wave RMS Residual (s)"
+        y_label_s = "S-wave RMS Residual (s)"
 
     def _draw_curve(
         ax: plt.Axes,
@@ -503,6 +526,7 @@ def create_parameter_tradeoff_plot(
         phase_label: str,
         x_label_str: str,
         y_label_str: str,
+        title_str: str,
     ) -> None:
         ax.plot(
             x_vals, y_vals,
@@ -521,6 +545,7 @@ def create_parameter_tradeoff_plot(
             ax.set_yscale('log')
         ax.set_xlabel(x_label_str, fontsize=plot_style.get('label_size', 14))
         ax.set_ylabel(y_label_str, fontsize=plot_style.get('label_size', 14))
+        ax.set_title(title_str, fontsize=plot_style.get('title_size', 16))
         if show_grid:
             ax.grid(
                 True,
@@ -529,61 +554,42 @@ def create_parameter_tradeoff_plot(
             )
         ax.legend(fontsize=plot_style.get('legend_size', 12))
 
-    title = f"Parameter Tradeoff: {parameter_name}"
-
-    if has_p and has_s:
-        fig, (ax_p, ax_s) = plt.subplots(1, 2, figsize=(fig_width, fig_height))
-        _draw_curve(
-            ax_p,
-            df_p['model_variance_vp'].values,
-            df_p['rms'].values,
-            df_p['parameter_value'].values,
-            colors['vp'], 'P-wave',
-            f"Vp Model Variance ({units})",
-            "P-wave RMS Residual (s)",
-        )
-        _draw_curve(
-            ax_s,
-            df_s['model_variance_vs'].values,
-            df_s['rms'].values,
-            df_s['parameter_value'].values,
-            colors['vs'], 'S-wave',
-            f"Vs Model Variance ({units})",
-            "S-wave RMS Residual (s)",
-        )
-        fig.suptitle(title, fontsize=plot_style.get('title_size', 16))
-    else:
-        fig, ax = plt.subplots(figsize=(fig_width, fig_height))
-        if has_p:
-            _draw_curve(
-                ax,
-                df_p['model_variance_vp'].values,
-                df_p['rms'].values,
-                df_p['parameter_value'].values,
-                colors['vp'], 'P-wave',
-                f"Vp Model Variance ({units})",
-                "P-wave RMS Residual (s)",
-            )
-        else:
-            _draw_curve(
-                ax,
-                df_s['model_variance_vs'].values,
-                df_s['rms'].values,
-                df_s['parameter_value'].values,
-                colors['vs'], 'S-wave',
-                f"Vs Model Variance ({units})",
-                "S-wave RMS Residual (s)",
-            )
-        ax.set_title(title, fontsize=plot_style.get('title_size', 16))
-
-    fig.tight_layout()
-
     output_path = Path(output_path)
     if not output_path.suffix:
         output_path = output_path.with_suffix(f'.{output_format}')
 
-    save_figure(fig, output_path, output_format=output_format, dpi=dpi)
-    logger.info(f"Saved parameter tradeoff plot: {output_path}")
+    base_stem = output_path.stem
+    out_dir   = output_path.parent
+    ext       = output_path.suffix
+
+    def _save_single(df: pd.DataFrame, x_col: str, x_lbl: str, y_lbl: str,
+                     color: str, phase_label: str, suffix: str) -> None:
+        fig, ax = plt.subplots(figsize=(fig_width, fig_height))
+        title_str = f"Parameter Tradeoff: {parameter_name} ({phase_label})"
+        _draw_curve(
+            ax,
+            df[x_col].values,
+            df['rms'].values,
+            df['parameter_value'].values,
+            color, phase_label, x_lbl, y_lbl, title_str,
+        )
+        fig.tight_layout()
+        out = out_dir / f"{base_stem}{suffix}{ext}"
+        save_figure(fig, out, output_format=output_format, dpi=dpi)
+        logger.info(f"Saved parameter tradeoff plot: {out}")
+
+    if has_p and has_s:
+        # Separate files for P and S
+        _save_single(df_p, 'model_variance_vp', x_label_vp, y_label_p,
+                     colors['vp'], 'P-wave', '_P')
+        _save_single(df_s, 'model_variance_vs', x_label_vs, y_label_s,
+                     colors['vs'], 'S-wave', '_S')
+    elif has_p:
+        _save_single(df_p, 'model_variance_vp', x_label_vp, y_label_p,
+                     colors['vp'], 'P-wave', '')
+    else:
+        _save_single(df_s, 'model_variance_vs', x_label_vs, y_label_s,
+                     colors['vs'], 'S-wave', '')
 
 
 def create_all_tradeoff_plots(

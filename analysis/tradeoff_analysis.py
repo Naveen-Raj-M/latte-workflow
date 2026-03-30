@@ -63,25 +63,27 @@ def _process_parameter_entries(
     velocity_dataset: str,
     min_residual_threshold: float,
     max_residual_threshold: float,
+    stat_mode: str = 'rms',
 ) -> List[Dict[str, Any]]:
     """
     Process parameter sweep entries: load traveltime CSVs and velocity models,
-    compute RMS and model variance per entry.
+    compute y-axis statistic and model variance per entry.
 
     Args:
         entries_cfg: List of dicts from config, each with keys
             parameter_value, directory_name, iteration.
-        phase: Phase mode for RMS computation ('p' or 's').
+        phase: Phase mode for y-axis computation ('p' or 's').
         inversion_base_path: Root dir for traveltime CSV subdirs.
         inversion_analysis_dir: Root dir for velocity model subdirs.
         traveltime_csv_pattern: Glob pattern for traveltime CSV files.
         df_initial: Initial velocity model DataFrame.
         mask_main: Spatial mask for model variance computation.
         use_percentage_change: Compute variance as percentage if True.
-        aggregation: 'mean' or 'max' aggregation for variance.
+        aggregation: 'mean', 'max', or 'model_variance' aggregation for variance.
         velocity_dataset: HDF5 dataset name for velocity models.
-        min_residual_threshold: Lower bound for RMS computation (s).
-        max_residual_threshold: Upper bound for RMS computation (s).
+        min_residual_threshold: Lower bound for y-axis computation (s).
+        max_residual_threshold: Upper bound for y-axis computation (s).
+        stat_mode: 'rms' or 'data_variance' — controls y-axis statistic.
 
     Returns:
         List of processed result dicts with keys:
@@ -113,6 +115,7 @@ def _process_parameter_entries(
                 rms_dict = compute_rms_for_iteration(
                     df_tt, phase,
                     min_residual_threshold, max_residual_threshold,
+                    stat_mode=stat_mode,
                 )
                 key = next(iter(rms_dict))
                 result['rms'] = rms_dict.get(key)
@@ -393,6 +396,8 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
         logger.info(f"P-wave entries:   {len(p_entries_cfg)}")
         logger.info(f"S-wave entries:   {len(s_entries_cfg)}")
 
+        param_stat_mode = 'data_variance' if y_axis_mode == 'data_variance' else 'rms'
+
         df_p: Optional[pd.DataFrame] = None
         df_s: Optional[pd.DataFrame] = None
 
@@ -411,6 +416,7 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
                     velocity_dataset=velocity_dataset,
                     min_residual_threshold=min_residual_threshold,
                     max_residual_threshold=max_residual_threshold,
+                    stat_mode=param_stat_mode,
                 )
             df_p = assemble_parameter_tradeoff_table(p_processed)
 
@@ -429,6 +435,7 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
                     velocity_dataset=velocity_dataset,
                     min_residual_threshold=min_residual_threshold,
                     max_residual_threshold=max_residual_threshold,
+                    stat_mode=param_stat_mode,
                 )
             df_s = assemble_parameter_tradeoff_table(s_processed)
 
