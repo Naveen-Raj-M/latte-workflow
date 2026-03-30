@@ -869,10 +869,10 @@ def _validate_tradeoff_config(cfg: DictConfig) -> None:
 
     # y_axis_mode
     y_mode = tcfg.get('y_axis_mode', 'data_misfit')
-    if y_mode not in ('data_misfit', 'rms'):
+    if y_mode not in ('data_misfit', 'rms', 'data_variance'):
         logger.error(
             f"Invalid tradeoff_analysis y_axis_mode: '{y_mode}'. "
-            "Valid options: 'data_misfit', 'rms'"
+            "Valid options: 'data_misfit', 'rms', 'data_variance'"
         )
         sys.exit(1)
 
