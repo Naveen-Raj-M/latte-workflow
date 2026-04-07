@@ -96,48 +96,78 @@ def _get_y_formula(y_axis_mode: str, phase_mode: str, use_normalized: bool) -> s
     return f"sqrt(mean(residual_s\u00b2))  [s]  ({phase_desc})"
 
 
-def _get_column_descriptions(
-    phase_mode: str,
+def _build_col_names(
     aggregation: str,
     use_pct: bool,
+    phase_mode: str,
     y_axis_mode: str,
     use_normalized: bool,
-) -> Dict[str, str]:
+) -> Dict[str, Optional[str]]:
     """
-    Return a dict mapping each statistics column name to a human-readable description.
-    Descriptions match what is plotted on each axis.
+    Return the exact column names used in the statistics DataFrame / CSV.
+
+    The names encode aggregation, units, and phase so the CSV is self-describing.
+
+    Keys always present:
+        'x'    — primary X column (combined for 'both', vp for 'p'/'separate', vs for 's')
+        'x_vs' — secondary X column for Vs (only set when phase_mode='separate')
+        'y'    — Y column for non-separate modes (None when phase_mode='separate')
+        'y_p'  — P-wave Y column (only set when phase_mode='separate')
+        'y_s'  — S-wave Y column (only set when phase_mode='separate')
     """
-    units = "%" if use_pct else "km/s"
-    units_sq = "%\u00b2" if use_pct else "(km/s)\u00b2"
-    x_formula = _get_x_formula(aggregation, use_pct)
+    # Aggregation prefix
+    agg_prefix = {
+        'mean':           'mean_var',
+        'max':            'max_var',
+        'model_variance': 'model_var',
+        'rms_variation':  'rms_var',
+    }.get(aggregation, aggregation)
 
-    agg_label = {
-        'mean':           f"mean(|\u0394vp|)  [{units}]",
-        'max':            f"max(|\u0394vp|)   [{units}]",
-        'model_variance': f"mean((\u0394vp)\u00b2)  [{units_sq}]",
-        'rms_variation':  f"sqrt(mean((\u0394vp)\u00b2))  [{units}]",
-    }
-    agg_label_vs = {k: v.replace('vp', 'vs') for k, v in agg_label.items()}
-
-    col_vp = agg_label.get(aggregation, f"Vp model variation [{units}]")
-    col_vs = agg_label_vs.get(aggregation, f"Vs model variation [{units}]")
-
-    y_formula = _get_y_formula(y_axis_mode, phase_mode, use_normalized)
-
-    descriptions: Dict[str, str] = {
-        'iteration':          "Inversion iteration index",
-        'model_variance_vp':  f"Vp X-axis metric: {col_vp}  |  formula: {x_formula}",
-        'model_variance_vs':  f"Vs X-axis metric: {col_vs}  |  formula: {x_formula.replace('vp', 'vs')}",
-        'model_variance_max': "max(model_variance_vp, model_variance_vs)  — used as X-axis when phase_mode != 'separate'",
-    }
-
-    if phase_mode == 'separate':
-        descriptions['rms_p'] = f"P-wave Y-axis metric: {y_formula}"
-        descriptions['rms_s'] = f"S-wave Y-axis metric: {y_formula}"
+    # Units suffix
+    if aggregation == 'model_variance':
+        units = 'pct_sq' if use_pct else 'km_s_sq'
     else:
-        descriptions['y_value'] = f"Y-axis metric: {y_formula}"
+        units = 'pct' if use_pct else 'km_s'
 
-    return descriptions
+    # X column names
+    if phase_mode == 'both':
+        x     = f"{agg_prefix}_combined_{units}"
+        x_vs  = None
+    elif phase_mode == 'p':
+        x     = f"{agg_prefix}_vp_{units}"
+        x_vs  = None
+    elif phase_mode == 's':
+        x     = f"{agg_prefix}_vs_{units}"
+        x_vs  = None
+    else:  # separate
+        x     = f"{agg_prefix}_vp_{units}"
+        x_vs  = f"{agg_prefix}_vs_{units}"
+
+    # Y column names
+    if y_axis_mode == 'data_misfit':
+        y     = 'data_misfit_norm' if use_normalized else 'data_misfit'
+        y_p   = None
+        y_s   = None
+    elif y_axis_mode == 'data_variance':
+        if phase_mode == 'separate':
+            y, y_p, y_s = None, 'data_var_p_s2', 'data_var_s_s2'
+        elif phase_mode == 'p':
+            y, y_p, y_s = 'data_var_p_s2', None, None
+        elif phase_mode == 's':
+            y, y_p, y_s = 'data_var_s_s2', None, None
+        else:  # both
+            y, y_p, y_s = 'data_var_combined_s2', None, None
+    else:  # rms
+        if phase_mode == 'separate':
+            y, y_p, y_s = None, 'rms_p_sec', 'rms_s_sec'
+        elif phase_mode == 'p':
+            y, y_p, y_s = 'rms_p_sec', None, None
+        elif phase_mode == 's':
+            y, y_p, y_s = 'rms_s_sec', None, None
+        else:  # both
+            y, y_p, y_s = 'rms_combined_sec', None, None
+
+    return {'x': x, 'x_vs': x_vs, 'y': y, 'y_p': y_p, 'y_s': y_s}
 
 
 def validate_spatial_bounds(
@@ -417,8 +447,8 @@ def compute_model_variance_for_mask(
             variance_vp = float(np.mean(vp_diff ** 2))
             variance_vs = float(np.mean(vs_diff ** 2))
 
-    variance_max = max(variance_vp, variance_vs)
-    return {'vp': variance_vp, 'vs': variance_vs, 'max': variance_max}
+    variance_combined = (variance_vp + variance_vs) / 2.0
+    return {'vp': variance_vp, 'vs': variance_vs, 'combined': variance_combined}
 
 
 def assemble_tradeoff_table(
@@ -426,38 +456,55 @@ def assemble_tradeoff_table(
     y_values: Dict[int, Any],
     vp_variances: Dict[int, float],
     vs_variances: Dict[int, float],
+    combined_variances: Dict[int, float],
     phase_mode: str,
+    aggregation: str = 'mean',
+    use_pct: bool = False,
+    y_axis_mode: str = 'data_misfit',
+    use_normalized: bool = False,
 ) -> pd.DataFrame:
     """
-    Assemble per-iteration statistics into a single tradeoff DataFrame.
+    Assemble per-iteration statistics into a tradeoff DataFrame.
 
-    For all modes except phase_mode=="separate":
-        Columns: [iteration, y_value, model_variance_vp, model_variance_vs,
-                  model_variance_max]
+    Column names are derived from config so the CSV is self-describing:
+        phase_mode='both'     → [iteration, <x_combined>, <y_combined>]
+        phase_mode='p'        → [iteration, <x_vp>, <y_p>]
+        phase_mode='s'        → [iteration, <x_vs>, <y_s>]
+        phase_mode='separate' → [iteration, <x_vp>, <x_vs>, <y_p>, <y_s>]
 
-    For phase_mode=="separate":
-        Columns: [iteration, rms_p, rms_s, model_variance_vp, model_variance_vs,
-                  model_variance_max]
+    The X-axis value for phase_mode='both' is the mean of Vp and Vs metrics;
+    for 'p'/'s'/'separate' it is the per-wave metric directly.
 
     Args:
-        iteration_indices: Ordered list of iteration integers to include.
-        y_values: Mapping from iteration → y value(s).
-                  For non-separate: {iter: float}
-                  For separate:     {iter: {'p': float, 's': float}}
-        vp_variances: Mapping from iteration → vp variance.
-        vs_variances: Mapping from iteration → vs variance.
-        phase_mode: Determines column naming for separate phase mode.
+        iteration_indices:  Ordered list of iteration integers to include.
+        y_values:           {iter: float} or {iter: {'p': float, 's': float}}.
+        vp_variances:       {iter: vp metric}.
+        vs_variances:       {iter: vs metric}.
+        combined_variances: {iter: mean(vp, vs) metric} — used for phase_mode='both'.
+        phase_mode:         'both' | 'p' | 's' | 'separate'.
+        aggregation:        'mean' | 'max' | 'model_variance' | 'rms_variation'.
+        use_pct:            Whether metrics are in %.
+        y_axis_mode:        'data_misfit' | 'rms' | 'data_variance'.
+        use_normalized:     Whether data_misfit is normalized.
 
     Returns:
         DataFrame sorted ascending by iteration. Rows with missing data excluded.
     """
+    cols = _build_col_names(aggregation, use_pct, phase_mode, y_axis_mode, use_normalized)
+    x_col   = cols['x']
+    x_vs_col = cols['x_vs']
+    y_col   = cols['y']
+    y_p_col = cols['y_p']
+    y_s_col = cols['y_s']
+
     rows = []
     skipped = []
 
     for idx in iteration_indices:
-        vp_var = vp_variances.get(idx)
-        vs_var = vs_variances.get(idx)
-        y_val = y_values.get(idx)
+        vp_var   = vp_variances.get(idx)
+        vs_var   = vs_variances.get(idx)
+        comb_var = combined_variances.get(idx)
+        y_val    = y_values.get(idx)
 
         if vp_var is None or vs_var is None:
             skipped.append(idx)
@@ -469,16 +516,15 @@ def assemble_tradeoff_table(
                 continue
             rows.append({
                 'iteration': idx,
-                'rms_p': y_val['p'],
-                'rms_s': y_val['s'],
-                'model_variance_vp': vp_var,
-                'model_variance_vs': vs_var,
-                'model_variance_max': max(vp_var, vs_var),
+                x_col:    vp_var,
+                x_vs_col: vs_var,
+                y_p_col:  y_val['p'],
+                y_s_col:  y_val['s'],
             })
         else:
-            # For non-separate modes, y_val may be a dict with one key or a scalar
+            # Resolve scalar y
             if isinstance(y_val, dict):
-                key = next(iter(y_val))  # 'combined', 'p', or 's'
+                key = next(iter(y_val))
                 scalar_y = y_val.get(key)
             else:
                 scalar_y = y_val
@@ -487,12 +533,18 @@ def assemble_tradeoff_table(
                 skipped.append(idx)
                 continue
 
+            # X value: combined mean for 'both', per-wave for 'p'/'s'
+            if phase_mode == 'both':
+                x_val = comb_var if comb_var is not None else (vp_var + vs_var) / 2.0
+            elif phase_mode == 's':
+                x_val = vs_var
+            else:  # 'p'
+                x_val = vp_var
+
             rows.append({
                 'iteration': idx,
-                'y_value': scalar_y,
-                'model_variance_vp': vp_var,
-                'model_variance_vs': vs_var,
-                'model_variance_max': max(vp_var, vs_var),
+                x_col:  x_val,
+                y_col:  scalar_y,
             })
 
     if skipped:
@@ -502,14 +554,11 @@ def assemble_tradeoff_table(
 
     if not rows:
         logger.warning("Tradeoff table is empty – no complete iteration data found")
-        # Return empty DataFrame with correct columns
         if phase_mode == 'separate':
-            cols = ['iteration', 'rms_p', 'rms_s', 'model_variance_vp',
-                    'model_variance_vs', 'model_variance_max']
+            empty_cols = ['iteration', x_col, x_vs_col, y_p_col, y_s_col]
         else:
-            cols = ['iteration', 'y_value', 'model_variance_vp',
-                    'model_variance_vs', 'model_variance_max']
-        return pd.DataFrame(columns=cols)
+            empty_cols = ['iteration', x_col, y_col]
+        return pd.DataFrame(columns=empty_cols)
 
     df = pd.DataFrame(rows).sort_values('iteration').reset_index(drop=True)
     logger.info(
@@ -575,95 +624,12 @@ def assemble_parameter_tradeoff_table(
     return df
 
 
-def write_statistics_csv(
-    df: pd.DataFrame,
-    csv_path: Path,
-    config: Dict[str, Any],
-    depth_km: Optional[float] = None,
-) -> None:
-    """
-    Write the tradeoff statistics DataFrame to CSV with a metadata comment header.
-
-    The header lines (prefixed with ``#``) document the plot title, axis labels,
-    formulas, phase mode, and column descriptions so the CSV is self-contained.
-    Re-read with ``pd.read_csv(path, comment='#')``.
-
-    Args:
-        df: Tradeoff statistics DataFrame.
-        csv_path: Destination file path.
-        config: Full configuration dictionary.
-        depth_km: If set, include depth-layer context in the header.
-    """
-    from datetime import datetime
-
+def write_statistics_csv(df: pd.DataFrame, csv_path: Path) -> None:
+    """Write the tradeoff statistics DataFrame to CSV. Column names are self-describing."""
     csv_path = Path(csv_path)
     csv_path.parent.mkdir(parents=True, exist_ok=True)
-
-    tcfg = config.get('tradeoff_analysis', {})
-    mv_cfg = tcfg.get('model_variance', {})
-
-    y_axis_mode  = tcfg.get('y_axis_mode', 'data_misfit')
-    phase_mode   = tcfg.get('phase_mode', 'both')
-    aggregation  = mv_cfg.get('aggregation', 'mean')
-    use_pct      = mv_cfg.get('use_percentage_change', False)
-    use_normalized = tcfg.get('use_normalized_misfit', False)
-    region       = mv_cfg.get('region', 'full')
-
-    x_label   = tcfg.get('plot', {}).get('x_label') or _get_x_label(aggregation, use_pct)
-    x_formula = _get_x_formula(aggregation, use_pct)
-    y_label   = tcfg.get('plot', {}).get('y_label') or _get_y_label(y_axis_mode, phase_mode, use_normalized)
-    y_formula = _get_y_formula(y_axis_mode, phase_mode, use_normalized)
-    col_desc  = _get_column_descriptions(phase_mode, aggregation, use_pct, y_axis_mode, use_normalized)
-
-    region_label = {'full': 'Full Model', 'z_bounded': 'Z-bounded Region'}.get(region, 'Depth Layer')
-    if depth_km is not None:
-        region_label = f"Depth Layer Z = {depth_km:.2f} km"
-
-    if phase_mode == 'separate':
-        plot_title = (
-            f"Data Misfit vs Model Variance Tradeoff ({region_label}, P-wave)  /  "
-            f"Data Misfit vs Model Variance Tradeoff ({region_label}, S-wave)"
-        )
-    else:
-        plot_title = f"Data Misfit vs Model Variance Tradeoff ({region_label})"
-
-    _phase_desc = {
-        'both':     "both — P and S residuals pooled; single combined y-axis value",
-        'p':        "p — P-wave residuals only",
-        's':        "s — S-wave residuals only",
-        'separate': "separate — rms_p and rms_s columns hold independent P/S values",
-    }.get(phase_mode, phase_mode)
-
-    meta = [
-        f"# TRADEOFF STATISTICS",
-        f"# Generated     : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-        f"# Plot title    : {plot_title}",
-        f"#",
-        f"# X-axis label  : {x_label}",
-        f"# X-axis formula: Δv = v_initial − v_inverted",
-        f"#                 {x_formula}",
-        f"#",
-        f"# Y-axis label  : {y_label}",
-        f"# Y-axis formula: {y_formula}",
-        f"#",
-        f"# Phase mode    : {_phase_desc}",
-        f"# Y-axis mode   : {y_axis_mode}",
-        f"# Aggregation   : {aggregation}",
-        f"# Percentage    : {use_pct}",
-        f"#",
-        f"# COLUMN DESCRIPTIONS",
-    ]
-    for col, desc in col_desc.items():
-        meta.append(f"#   {col:<28}: {desc}")
-    meta.append(f"#")
-    meta.append(f"# NOTE: re-read with pd.read_csv(path, comment='#')")
-    meta.append(f"#")
-
-    with open(csv_path, 'w') as fh:
-        fh.write('\n'.join(meta) + '\n')
-        fh.write(df.to_csv(index=False))
-
-    logger.info(f"Saved statistics CSV with metadata header: {csv_path}")
+    df.to_csv(csv_path, index=False)
+    logger.info(f"Saved tradeoff statistics: {csv_path}")
 
 
 def write_parameter_report(
@@ -773,6 +739,9 @@ def write_general_report(
     y_label   = tcfg.get('plot', {}).get('y_label') or _get_y_label(y_axis_mode, phase_mode, use_normalized)
     y_formula = _get_y_formula(y_axis_mode, phase_mode, use_normalized)
 
+    # Column names that appear in the CSV (derived from config)
+    cols = _build_col_names(aggregation, use_pct, phase_mode, y_axis_mode, use_normalized)
+
     # Derive plot title (mirrors create_all_tradeoff_plots logic)
     if region == 'full':
         region_label = "Full Model"
@@ -788,11 +757,6 @@ def write_general_report(
     else:
         plot_title = f"Data Misfit vs Model Variance Tradeoff ({region_label})"
 
-    # Column descriptions keyed to the statistics CSV
-    col_desc = _get_column_descriptions(
-        phase_mode, aggregation, use_pct, y_axis_mode, use_normalized
-    )
-
     sep  = "=" * 72
     sep2 = "-" * 72
 
@@ -800,7 +764,16 @@ def write_general_report(
         'both':     "both  (P and S residuals combined into a single y-axis value)",
         'p':        "p     (P-wave residuals only)",
         's':        "s     (S-wave residuals only)",
-        'separate': "separate  (P and S plotted on separate axes; rms_p / rms_s columns)",
+        'separate': "separate  (P and S plotted on separate axes)",
+    }.get(phase_mode, phase_mode)
+
+    _phase_plot_note = {
+        'both':     ("P and S residuals pooled; X-axis is mean(Vp metric, Vs metric); "
+                     "one curve plotted."),
+        'p':        "P-wave residuals only; X-axis is Vp metric; one curve plotted.",
+        's':        "S-wave residuals only; X-axis is Vs metric; one curve plotted.",
+        'separate': ("P and S residuals computed independently; two curves plotted, "
+                     "one per wave type."),
     }.get(phase_mode, phase_mode)
 
     lines = [
@@ -844,20 +817,6 @@ def write_general_report(
     if any(b is not None for b in y_lo):
         lines.append(f"  Y bounds             : {y_lo}")
 
-    # Phase interpretation note for PLOT DETAILS
-    _phase_plot_note = {
-        'both':     ("Both P and S residuals are pooled together and a single combined "
-                     "RMS/variance is computed.  One curve is plotted; the X-axis uses "
-                     "max(model_variance_vp, model_variance_vs)."),
-        'p':        ("Only P-wave residuals are used.  One curve is plotted; the X-axis "
-                     "uses model_variance_vp."),
-        's':        ("Only S-wave residuals are used.  One curve is plotted; the X-axis "
-                     "uses model_variance_vs."),
-        'separate': ("P and S residuals are computed independently.  Two curves are "
-                     "plotted (one per wave type); columns rms_p / rms_s in the CSV "
-                     "hold the respective Y-axis values."),
-    }.get(phase_mode, phase_mode)
-
     lines += [
         "",
         "PLOT DETAILS",
@@ -880,16 +839,29 @@ def write_general_report(
         tol = mv_cfg.get('depth_tolerance_km', 0.5)
         lines.append("")
         for d in depth_layers:
-            lines.append(f"    Depth layer plot   : Z = {d} km (±{tol} km)  →  "
+            lines.append(f"    Depth layer plot   : Z = {d} km (\u00b1{tol} km)  \u2192  "
                          f"tradeoff_curve_depth_{float(d):.2f}km.*")
 
     lines += [
         "",
-        "COLUMN DESCRIPTIONS  (statistics CSV)",
+        "CSV COLUMNS  (statistics CSV)",
         sep2,
     ]
-    for col, desc in col_desc.items():
-        lines.append(f"  {col:<28} : {desc}")
+    if phase_mode == 'separate':
+        lines += [
+            f"  iteration            : inversion iteration index",
+            f"  {cols['x']:<28} : X-axis Vp metric  ({x_formula})",
+            f"  {cols['x_vs']:<28} : X-axis Vs metric  ({x_formula})",
+            f"  {cols['y_p']:<28} : Y-axis P-wave metric  ({y_formula})",
+            f"  {cols['y_s']:<28} : Y-axis S-wave metric  ({y_formula})",
+        ]
+    else:
+        x_phase = {'both': 'combined mean(Vp, Vs)', 'p': 'Vp', 's': 'Vs'}.get(phase_mode, 'X')
+        lines += [
+            f"  iteration            : inversion iteration index",
+            f"  {cols['x']:<28} : X-axis metric  {x_phase}  ({x_formula})",
+            f"  {cols['y']:<28} : Y-axis metric  ({y_formula})",
+        ]
 
     lines += [
         "",
@@ -913,13 +885,6 @@ def write_general_report(
 
     lines.append("")
 
-    # Build a short column legend line (matches the CSV header)
-    def _column_legend_lines(col_desc_map: Dict[str, str]) -> List[str]:
-        out = ["  Column legend:"]
-        for col, desc in col_desc_map.items():
-            out.append(f"    {col:<28} : {desc}")
-        return out
-
     # --- Computed values ---
     if 'tradeoff_table' in tradeoff_results:
         df = tradeoff_results['tradeoff_table']
@@ -931,10 +896,8 @@ def write_general_report(
                 f"  Iteration range      : [{int(df['iteration'].min())}, "
                 f"{int(df['iteration'].max())}]",
                 "",
+                df.to_string(index=False),
             ]
-            lines += _column_legend_lines(col_desc)
-            lines.append("")
-            lines.append(df.to_string(index=False))
         else:
             lines += ["COMPUTED VALUES", sep2, "  (no data)"]
 
@@ -949,8 +912,6 @@ def write_general_report(
                 lines.append(f"  Iterations processed : {len(df)}")
                 lines.append(f"  Iteration range      : [{int(df['iteration'].min())}, "
                              f"{int(df['iteration'].max())}]")
-                lines.append("")
-                lines += _column_legend_lines(col_desc)
                 lines.append("")
                 lines.append(df.to_string(index=False))
             else:

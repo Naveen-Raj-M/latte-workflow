@@ -51,76 +51,6 @@ from .tradeoff_plots import create_all_tradeoff_plots, create_parameter_tradeoff
 logger = logging.getLogger(__name__)
 
 
-def _write_parameter_stats_csv(
-    df: pd.DataFrame,
-    csv_path: Path,
-    config: Dict[str, Any],
-    parameter_name: str,
-    phase: str,
-) -> None:
-    """Write a parameter-sweep statistics CSV with a metadata comment header."""
-    from datetime import datetime
-
-    tcfg = config.get('tradeoff_analysis', {})
-    mv_cfg = tcfg.get('model_variance', {})
-    aggregation = mv_cfg.get('aggregation', 'mean')
-    use_pct     = mv_cfg.get('use_percentage_change', False)
-    y_axis_mode = tcfg.get('y_axis_mode', 'rms')
-
-    from .tradeoff_statistics import _get_x_label, _get_x_formula
-
-    units    = "%" if use_pct else "km/s"
-    units_sq = "%²" if use_pct else "(km/s)²"
-    phase_label = "P-wave" if phase == 'p' else "S-wave"
-    var_col     = 'model_variance_vp' if phase == 'p' else 'model_variance_vs'
-    x_label     = (f"{phase_label} " + _get_x_label(aggregation, use_pct))
-    x_formula   = _get_x_formula(aggregation, use_pct)
-    y_label     = (f"{phase_label} Data Variance (s²)" if y_axis_mode == 'data_variance'
-                   else f"{phase_label} RMS Residual (s)")
-    y_formula   = ("mean(residual_s²) [s²]" if y_axis_mode == 'data_variance'
-                   else "sqrt(mean(residual_s²)) [s]")
-
-    col_desc = {
-        'parameter_value':    f"Swept parameter ({parameter_name}) — X-axis of parameter plot",
-        'directory_name':     "Inversion run directory name",
-        'iteration':          "Iteration index used for this entry",
-        var_col:              f"{phase_label} X-axis metric: {x_formula}",
-        'model_variance_max': "max(model_variance_vp, model_variance_vs)",
-        'rms':                f"{phase_label} Y-axis metric: {y_formula}",
-    }
-
-    plot_title = f"Parameter Tradeoff: {parameter_name} ({phase_label})"
-
-    meta = [
-        f"# PARAMETER TRADEOFF STATISTICS  ({phase_label})",
-        f"# Generated       : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-        f"# Plot title      : {plot_title}",
-        f"# Parameter swept : {parameter_name}",
-        f"#",
-        f"# X-axis label    : {x_label}",
-        f"# X-axis formula  : Δv = v_initial − v_inverted",
-        f"#                   {x_formula}",
-        f"#",
-        f"# Y-axis label    : {y_label}",
-        f"# Y-axis formula  : {y_formula}  ({phase_label} residuals only)",
-        f"#",
-        f"# COLUMN DESCRIPTIONS",
-    ]
-    for col, desc in col_desc.items():
-        meta.append(f"#   {col:<28}: {desc}")
-    meta.append(f"#")
-    meta.append(f"# NOTE: re-read with pd.read_csv(path, comment='#')")
-    meta.append(f"#")
-
-    csv_path = Path(csv_path)
-    csv_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(csv_path, 'w') as fh:
-        fh.write('\n'.join(meta) + '\n')
-        fh.write(df.to_csv(index=False))
-
-    logger.info(f"Saved parameter statistics CSV with metadata header: {csv_path}")
-
-
 def _process_parameter_entries(
     entries_cfg: List[Dict[str, Any]],
     phase: str,
@@ -208,9 +138,9 @@ def _process_parameter_entries(
                         use_percentage_change=use_percentage_change,
                         aggregation=aggregation,
                     )
-                    result['model_variance_vp'] = var['vp']
-                    result['model_variance_vs'] = var['vs']
-                    result['model_variance_max'] = var['max']
+                    result['model_variance_vp']  = var['vp']
+                    result['model_variance_vs']  = var['vs']
+                    result['model_variance_max'] = var['combined']
                     units = "%" if use_percentage_change else "km/s"
                     logger.debug(
                         f"Entry (val={param_val}): "
@@ -513,11 +443,13 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
         # Save statistics CSV
         if df_p is not None and not df_p.empty:
             p_stats_file = stats_dir / f"parameter_tradeoff_{parameter_name}_p.csv"
-            _write_parameter_stats_csv(df_p, p_stats_file, config, parameter_name, 'p')
+            df_p.to_csv(p_stats_file, index=False)
+            logger.info(f"Saved P-wave parameter statistics: {p_stats_file}")
 
         if df_s is not None and not df_s.empty:
             s_stats_file = stats_dir / f"parameter_tradeoff_{parameter_name}_s.csv"
-            _write_parameter_stats_csv(df_s, s_stats_file, config, parameter_name, 's')
+            df_s.to_csv(s_stats_file, index=False)
+            logger.info(f"Saved S-wave parameter statistics: {s_stats_file}")
 
         # Write text report
         if write_report:
@@ -679,11 +611,13 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
     # Build a lookup for velocity dirs
     vel_dir_map = {i: p for i, p in vel_iter_dirs}
 
-    vp_variances: Dict[int, float] = {}
-    vs_variances: Dict[int, float] = {}
-    # Per-depth variant
-    vp_variances_by_depth: Dict[float, Dict[int, float]] = {d: {} for d in depth_layers}
-    vs_variances_by_depth: Dict[float, Dict[int, float]] = {d: {} for d in depth_layers}
+    vp_variances:       Dict[int, float] = {}
+    vs_variances:       Dict[int, float] = {}
+    combined_variances: Dict[int, float] = {}
+    # Per-depth variants
+    vp_variances_by_depth:       Dict[float, Dict[int, float]] = {d: {} for d in depth_layers}
+    vs_variances_by_depth:       Dict[float, Dict[int, float]] = {d: {} for d in depth_layers}
+    combined_variances_by_depth: Dict[float, Dict[int, float]] = {d: {} for d in depth_layers}
 
     with ProcessTimer("Computing model variance per iteration"):
         for idx in tqdm(common_iterations, desc="Model variance", unit="iter"):
@@ -709,12 +643,13 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
                         use_percentage_change=use_percentage_change,
                         aggregation=aggregation,
                     )
-                    vp_variances[idx] = var['vp']
-                    vs_variances[idx] = var['vs']
+                    vp_variances[idx]       = var['vp']
+                    vs_variances[idx]       = var['vs']
+                    combined_variances[idx] = var['combined']
                     units = "%" if use_percentage_change else "km/s"
                     logger.debug(
                         f"Iteration {idx}: vp_var={var['vp']:.6f}, "
-                        f"vs_var={var['vs']:.6f} {units}"
+                        f"vs_var={var['vs']:.6f}, combined={var['combined']:.6f} {units}"
                     )
                 except ValueError as e:
                     logger.error(f"Iteration {idx}: {e}")
@@ -729,39 +664,51 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
                             use_percentage_change=use_percentage_change,
                             aggregation=aggregation,
                         )
-                        vp_variances_by_depth[depth_km][idx] = var_d['vp']
-                        vs_variances_by_depth[depth_km][idx] = var_d['vs']
+                        vp_variances_by_depth[depth_km][idx]       = var_d['vp']
+                        vs_variances_by_depth[depth_km][idx]       = var_d['vs']
+                        combined_variances_by_depth[depth_km][idx] = var_d['combined']
                         any_succeeded = True
                     except ValueError as e:
                         logger.error(
                             f"Iteration {idx}, depth {depth_km:.2f} km: {e}"
                         )
                 if any_succeeded:
-                    # Use max across depths for the combined variance store
-                    # (needed for assembling the combined table if depth_layer)
-                    vp_variances[idx] = max(
-                        vp_variances_by_depth[d].get(idx, 0.0)
-                        for d in depth_layers if d in masks
-                    )
-                    vs_variances[idx] = max(
-                        vs_variances_by_depth[d].get(idx, 0.0)
-                        for d in depth_layers if d in masks
-                    )
+                    vp_variances[idx] = float(np.mean([
+                        vp_variances_by_depth[d][idx]
+                        for d in depth_layers if idx in vp_variances_by_depth.get(d, {})
+                    ]))
+                    vs_variances[idx] = float(np.mean([
+                        vs_variances_by_depth[d][idx]
+                        for d in depth_layers if idx in vs_variances_by_depth.get(d, {})
+                    ]))
+                    combined_variances[idx] = float(np.mean([
+                        combined_variances_by_depth[d][idx]
+                        for d in depth_layers if idx in combined_variances_by_depth.get(d, {})
+                    ]))
 
     # ------------------------------------------------------------------ #
     # PHASE 6 – ASSEMBLE TRADEOFF TABLES                                  #
     # ------------------------------------------------------------------ #
     results: Dict[str, Any] = {'config': tcfg}
 
+    _table_kwargs = dict(
+        y_values=y_dict,
+        phase_mode=phase_mode,
+        aggregation=aggregation,
+        use_pct=use_percentage_change,
+        y_axis_mode=y_axis_mode,
+        use_normalized=tcfg.get('use_normalized_misfit', False),
+    )
+
     all_indices = sorted(set(vp_variances.keys()) & set(vs_variances.keys()))
 
     if region in ('full', 'z_bounded'):
         df_tradeoff = assemble_tradeoff_table(
             iteration_indices=all_indices,
-            y_values=y_dict,
             vp_variances=vp_variances,
             vs_variances=vs_variances,
-            phase_mode=phase_mode,
+            combined_variances=combined_variances,
+            **_table_kwargs,
         )
         results['tradeoff_table'] = df_tradeoff
 
@@ -770,10 +717,10 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
         for depth_km in sorted(masks.keys()):
             df_d = assemble_tradeoff_table(
                 iteration_indices=sorted(vp_variances_by_depth[depth_km].keys()),
-                y_values=y_dict,
                 vp_variances=vp_variances_by_depth[depth_km],
                 vs_variances=vs_variances_by_depth[depth_km],
-                phase_mode=phase_mode,
+                combined_variances=combined_variances_by_depth[depth_km],
+                **_table_kwargs,
             )
             by_depth[depth_km] = df_d
         results['by_depth'] = by_depth
@@ -783,12 +730,12 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
     # ------------------------------------------------------------------ #
     if region in ('full', 'z_bounded'):
         stats_file = stats_dir / "tradeoff_statistics.csv"
-        write_statistics_csv(results['tradeoff_table'], stats_file, config)
+        write_statistics_csv(results['tradeoff_table'], stats_file)
 
     elif region == 'depth_layer':
         for depth_km, df_d in results.get('by_depth', {}).items():
             stats_file = stats_dir / f"tradeoff_statistics_depth_{depth_km:.2f}km.csv"
-            write_statistics_csv(df_d, stats_file, config, depth_km=depth_km)
+            write_statistics_csv(df_d, stats_file)
 
     # ------------------------------------------------------------------ #
     # PHASE 8 – CREATE PLOTS                                              #
@@ -803,6 +750,14 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
     logger.info("TRADEOFF ANALYSIS SUMMARY")
     logger.info("=" * 60)
 
+    from .tradeoff_statistics import _build_col_names as _bcn
+    _cols = _bcn(
+        aggregation, use_percentage_change, phase_mode, y_axis_mode,
+        tcfg.get('use_normalized_misfit', False),
+    )
+    _x_col = _cols['x']
+    _y_col = _cols['y'] or _cols['y_p']  # y_p for separate mode
+
     if region in ('full', 'z_bounded'):
         df_out = results.get('tradeoff_table', pd.DataFrame())
         if not df_out.empty:
@@ -811,24 +766,21 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
                 f"Iteration range: [{df_out['iteration'].min()}, "
                 f"{df_out['iteration'].max()}]"
             )
-            logger.info(
-                f"Model variance (max) range: "
-                f"[{df_out['model_variance_max'].min():.6f}, "
-                f"{df_out['model_variance_max'].max():.6f}] km/s"
-            )
-
-            if 'y_value' in df_out.columns:
+            if _x_col in df_out.columns:
                 logger.info(
-                    f"Y-axis ({y_axis_mode}) range: "
-                    f"[{df_out['y_value'].min():.6e}, {df_out['y_value'].max():.6e}]"
+                    f"X-axis ({_x_col}) range: "
+                    f"[{df_out[_x_col].min():.6f}, {df_out[_x_col].max():.6f}]"
+                )
+            if _y_col and _y_col in df_out.columns:
+                logger.info(
+                    f"Y-axis ({_y_col}) range: "
+                    f"[{df_out[_y_col].min():.6e}, {df_out[_y_col].max():.6e}]"
                 )
 
             if tcfg.get('plot', {}).get('highlight_optimal', False):
-                x_col = 'model_variance_max'
-                y_col = 'y_value' if 'y_value' in df_out.columns else 'rms_p'
-                if x_col in df_out.columns and y_col in df_out.columns:
+                if _x_col in df_out.columns and _y_col and _y_col in df_out.columns:
                     elbow_idx = detect_elbow(
-                        df_out[x_col].values, df_out[y_col].values
+                        df_out[_x_col].values, df_out[_y_col].values
                     )
                     elbow_iter = df_out['iteration'].iloc[elbow_idx]
                     logger.info(f"Optimal (elbow) iteration: {elbow_iter}")
@@ -836,11 +788,13 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
     elif region == 'depth_layer':
         for depth_km, df_d in results.get('by_depth', {}).items():
             if not df_d.empty:
+                x_range = (
+                    f"[{df_d[_x_col].min():.6f}, {df_d[_x_col].max():.6f}]"
+                    if _x_col in df_d.columns else "n/a"
+                )
                 logger.info(
                     f"Z={depth_km:.2f} km: {len(df_d)} iterations, "
-                    f"model_variance_max range "
-                    f"[{df_d['model_variance_max'].min():.6f}, "
-                    f"{df_d['model_variance_max'].max():.6f}]"
+                    f"{_x_col} range {x_range}"
                 )
 
     # ------------------------------------------------------------------ #

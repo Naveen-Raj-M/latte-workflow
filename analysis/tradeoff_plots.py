@@ -20,7 +20,7 @@ import pandas as pd
 from utils.io_utils import ensure_directory_exists
 from utils.plot_utils import save_figure, get_color_scheme
 
-from .tradeoff_statistics import detect_elbow
+from .tradeoff_statistics import detect_elbow, _build_col_names
 
 logger = logging.getLogger(__name__)
 
@@ -143,17 +143,18 @@ def create_tradeoff_plot(
     x_label = plot_cfg.get('x_label') or _auto_x_label(aggregation, use_pct)
     y_label = plot_cfg.get('y_label') or _auto_y_label(y_axis_mode, phase_mode, use_normalized)
 
+    # Resolve column names from config (same derivation used when building the table)
+    cols = _build_col_names(aggregation, use_pct, phase_mode, y_axis_mode, use_normalized)
+
     iterations = df['iteration'].values
 
-    # single_phase forces a one-axis plot for the given phase regardless of phase_mode
-    if single_phase is not None and single_phase in ('p', 's') and (
-        'rms_p' in df.columns and 'rms_s' in df.columns
-    ):
-        x_col = 'model_variance_vp' if single_phase == 'p' else 'model_variance_vs'
-        y_col = 'rms_p' if single_phase == 'p' else 'rms_s'
+    # single_phase: render one curve for 'p' or 's' from a 'separate' table
+    if single_phase is not None and single_phase in ('p', 's') and cols['x_vs'] is not None:
+        x_col       = cols['x'] if single_phase == 'p' else cols['x_vs']
+        y_col       = cols['y_p'] if single_phase == 'p' else cols['y_s']
         phase_label = 'P-wave' if single_phase == 'p' else 'S-wave'
-        color = colors['vp'] if single_phase == 'p' else colors['vs']
-        y_label_phase = (
+        color       = colors['vp'] if single_phase == 'p' else colors['vs']
+        y_label_phase = y_label if phase_mode != 'separate' else (
             f"{phase_label} RMS Residual (s)"
             if y_axis_mode != 'data_variance'
             else f"{phase_label} Data Variance (s\u00b2)"
@@ -216,13 +217,13 @@ def create_tradeoff_plot(
         logger.info(f"Saved tradeoff plot: {output_path}")
         return
 
-    if phase_mode == 'separate' and 'rms_p' in df.columns and 'rms_s' in df.columns:
+    if phase_mode == 'separate' and cols['x_vs'] is not None:
         # ── Separate subplots: P (left) and S (right) ──────────────────────
         fig, (ax_p, ax_s) = plt.subplots(1, 2, figsize=(fig_width, fig_height))
 
         for ax, x_col, y_col, color, phase_label in [
-            (ax_p, 'model_variance_vp', 'rms_p', colors['vp'], 'P-wave'),
-            (ax_s, 'model_variance_vs', 'rms_s', colors['vs'], 'S-wave'),
+            (ax_p, cols['x'],    cols['y_p'], colors['vp'], 'P-wave'),
+            (ax_s, cols['x_vs'], cols['y_s'], colors['vs'], 'S-wave'),
         ]:
             x_vals = df[x_col].values
             y_vals = df[y_col].values
@@ -295,9 +296,9 @@ def create_tradeoff_plot(
         # ── Single axes ─────────────────────────────────────────────────────
         fig, ax = plt.subplots(figsize=(fig_width, fig_height))
 
-        # Single curve
-        x_col = 'model_variance_max'
-        y_col = 'y_value'
+        # Single curve — x is combined/vp/vs depending on phase_mode
+        x_col = cols['x']
+        y_col = cols['y']
         x_vals = df[x_col].values
         y_vals = df[y_col].values
 
@@ -630,7 +631,13 @@ def create_all_tradeoff_plots(
     saved_paths = []
 
     phase_mode = tcfg.get('phase_mode', 'both')
-    has_separate = phase_mode == 'separate'
+    mv_cfg = tcfg.get('model_variance', {})
+    aggregation = mv_cfg.get('aggregation', 'mean')
+    use_pct = bool(mv_cfg.get('use_percentage_change', False))
+    y_axis_mode = tcfg.get('y_axis_mode', 'data_misfit')
+    use_normalized = tcfg.get('use_normalized_misfit', False)
+    cols = _build_col_names(aggregation, use_pct, phase_mode, y_axis_mode, use_normalized)
+    has_separate = phase_mode == 'separate' and cols['x_vs'] is not None
 
     if region in ('full', 'z_bounded'):
         df = tradeoff_results.get('tradeoff_table')
@@ -640,7 +647,7 @@ def create_all_tradeoff_plots(
 
         region_label = "Full Model" if region == 'full' else "Z-bounded Region"
 
-        if has_separate and 'rms_p' in df.columns and 'rms_s' in df.columns:
+        if has_separate:
             for phase_char, phase_label in (('p', 'P'), ('s', 'S')):
                 title = (
                     f"Data Misfit vs Model Variance Tradeoff\n"
@@ -671,7 +678,7 @@ def create_all_tradeoff_plots(
 
             depth_label = f"Z = {depth_km:.2f} km"
 
-            if has_separate and 'rms_p' in df.columns and 'rms_s' in df.columns:
+            if has_separate:
                 for phase_char, phase_label in (('p', 'P'), ('s', 'S')):
                     title = (
                         f"Data Misfit vs Model Variance Tradeoff\n"
