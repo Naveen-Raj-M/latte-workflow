@@ -482,7 +482,7 @@ tradeoff_analysis:
     x_bounds: [null, null]             # [x_min, x_max] km; optional spatial clip before variance
     y_bounds: [null, null]             # [y_min, y_max] km; optional spatial clip before variance
     use_percentage_change: false       # true = mean(|Δv| / |v_initial|) × 100  (%)
-    aggregation: "mean"                # mean | max | model_variance — aggregation over selected grid points
+    aggregation: "mean"                # mean | max | model_variance | rms_variation — aggregation over selected grid points
 
   output_dir: "${paths.output_base_dir}/tradeoff_analysis"
 
