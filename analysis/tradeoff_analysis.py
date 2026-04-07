@@ -246,10 +246,10 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
     max_residual_threshold = tcfg.get('max_residual_threshold', 50.0)
     use_percentage_change = bool(mv_cfg.get('use_percentage_change', False))
     aggregation = mv_cfg.get('aggregation', 'mean')
-    if aggregation not in ('mean', 'max', 'model_variance'):
+    if aggregation not in ('mean', 'max', 'model_variance', 'rms_variation'):
         raise ValueError(
             f"Invalid model_variance.aggregation: '{aggregation}'. "
-            "Valid options: 'mean', 'max', 'model_variance'"
+            "Valid options: 'mean', 'max', 'model_variance', 'rms_variation'"
         )
 
     logger.info("=" * 60)

@@ -57,6 +57,8 @@ def _auto_x_label(aggregation: str, use_pct: bool) -> str:
         return f"Average Model Variation ({units})"
     elif aggregation == 'model_variance':
         return f"Model Variance ({units_sq})"
+    elif aggregation == 'rms_variation':
+        return f"RMS Model Variation ({units})"
     else:
         return f"Model Variation ({units})"
 
@@ -505,6 +507,9 @@ def create_parameter_tradeoff_plot(
     elif aggregation == 'max':
         x_label_vp = f"Max Vp Model Variation ({units})"
         x_label_vs = f"Max Vs Model Variation ({units})"
+    elif aggregation == 'rms_variation':
+        x_label_vp = f"Vp RMS Model Variation ({units})"
+        x_label_vs = f"Vs RMS Model Variation ({units})"
     else:  # mean
         x_label_vp = f"Average Vp Model Variation ({units})"
         x_label_vs = f"Average Vs Model Variation ({units})"

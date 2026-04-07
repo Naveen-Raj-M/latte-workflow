@@ -189,11 +189,13 @@ def compute_model_variance_for_mask(
         mean:           mean(|Δv|)              [km/s]
         max:            max(|Δv|)               [km/s]
         model_variance: mean((Δv)²)             [(km/s)²]
+        rms_variation:  sqrt(mean((Δv)²))       [km/s]
 
     Value formulas (use_percentage_change=True):
-        mean:           mean(|Δv| / |v_init|) × 100            [%]
-        max:            max(|Δv| / |v_init|)  × 100            [%]
-        model_variance: mean((Δv / v_init)²)  × 10000          [%²]
+        mean:           mean(|Δv| / |v_init|) × 100                    [%]
+        max:            max(|Δv| / |v_init|)  × 100                    [%]
+        model_variance: mean((Δv / v_init)²)  × 10000                  [%²]
+        rms_variation:  100 × sqrt(mean((Δv / v_init)²))               [%]
 
         Grid points where |v_initial| < 1e-6 km/s are excluded from
         percentage computations. A WARNING is logged if any are found.
@@ -211,10 +213,10 @@ def compute_model_variance_for_mask(
     Raises:
         ValueError: If mask selects zero points or aggregation is invalid.
     """
-    if aggregation not in ('mean', 'max', 'model_variance'):
+    if aggregation not in ('mean', 'max', 'model_variance', 'rms_variation'):
         raise ValueError(
             f"Invalid aggregation: '{aggregation}'. "
-            "Valid options: 'mean', 'max', 'model_variance'"
+            "Valid options: 'mean', 'max', 'model_variance', 'rms_variation'"
         )
     n_selected = int(mask.sum())
     if n_selected == 0:
@@ -272,6 +274,9 @@ def compute_model_variance_for_mask(
         elif aggregation == 'mean':
             variance_vp = float(np.mean(vp_rel) * 100.0)
             variance_vs = float(np.mean(vs_rel) * 100.0)
+        elif aggregation == 'rms_variation':  # 100 × sqrt(mean((Δv/v_init)²))
+            variance_vp = float(np.sqrt(np.mean(vp_rel ** 2)) * 100.0)
+            variance_vs = float(np.sqrt(np.mean(vs_rel ** 2)) * 100.0)
         else:  # model_variance: mean((Δv/v_init)²) × 100²
             variance_vp = float(np.mean(vp_rel ** 2) * 10000.0)
             variance_vs = float(np.mean(vs_rel ** 2) * 10000.0)
@@ -282,6 +287,9 @@ def compute_model_variance_for_mask(
         elif aggregation == 'mean':
             variance_vp = float(np.mean(vp_abs_diff))
             variance_vs = float(np.mean(vs_abs_diff))
+        elif aggregation == 'rms_variation':  # sqrt(mean((Δv)²))
+            variance_vp = float(np.sqrt(np.mean(vp_diff ** 2)))
+            variance_vs = float(np.sqrt(np.mean(vs_diff ** 2)))
         else:  # model_variance: mean((Δv)²)
             variance_vp = float(np.mean(vp_diff ** 2))
             variance_vs = float(np.mean(vs_diff ** 2))
