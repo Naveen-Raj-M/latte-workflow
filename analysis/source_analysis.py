@@ -240,10 +240,12 @@ def compute_source_corrections(df: pd.DataFrame,
     try:
         metadata_dir = config['source_analysis'].get('origin_time_metadata_dir',
                                                      config.get('model_dir', ''))
-        origin_time_metadata = load_origin_time_metadata(metadata_dir)
-        origin_time_mode = origin_time_metadata['mode']
+        
+        if metadata_dir:
+            origin_time_metadata = load_origin_time_metadata(metadata_dir)
+            origin_time_mode = origin_time_metadata['mode']
 
-        logger.info(f"Origin time mode from preprocessing: {origin_time_mode}")
+            logger.info(f"Origin time mode from preprocessing: {origin_time_mode}")\
 
         # Calculate delta_time_s based on mode
         # For both "fixed" and "unix_epoch" modes, the delta is simply corrected - initial
