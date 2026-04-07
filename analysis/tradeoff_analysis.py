@@ -43,11 +43,82 @@ from .tradeoff_statistics import (
     assemble_parameter_tradeoff_table,
     write_parameter_report,
     write_general_report,
+    write_statistics_csv,
     detect_elbow,
 )
 from .tradeoff_plots import create_all_tradeoff_plots, create_parameter_tradeoff_plot
 
 logger = logging.getLogger(__name__)
+
+
+def _write_parameter_stats_csv(
+    df: pd.DataFrame,
+    csv_path: Path,
+    config: Dict[str, Any],
+    parameter_name: str,
+    phase: str,
+) -> None:
+    """Write a parameter-sweep statistics CSV with a metadata comment header."""
+    from datetime import datetime
+
+    tcfg = config.get('tradeoff_analysis', {})
+    mv_cfg = tcfg.get('model_variance', {})
+    aggregation = mv_cfg.get('aggregation', 'mean')
+    use_pct     = mv_cfg.get('use_percentage_change', False)
+    y_axis_mode = tcfg.get('y_axis_mode', 'rms')
+
+    from .tradeoff_statistics import _get_x_label, _get_x_formula
+
+    units    = "%" if use_pct else "km/s"
+    units_sq = "%²" if use_pct else "(km/s)²"
+    phase_label = "P-wave" if phase == 'p' else "S-wave"
+    var_col     = 'model_variance_vp' if phase == 'p' else 'model_variance_vs'
+    x_label     = (f"{phase_label} " + _get_x_label(aggregation, use_pct))
+    x_formula   = _get_x_formula(aggregation, use_pct)
+    y_label     = (f"{phase_label} Data Variance (s²)" if y_axis_mode == 'data_variance'
+                   else f"{phase_label} RMS Residual (s)")
+    y_formula   = ("mean(residual_s²) [s²]" if y_axis_mode == 'data_variance'
+                   else "sqrt(mean(residual_s²)) [s]")
+
+    col_desc = {
+        'parameter_value':    f"Swept parameter ({parameter_name}) — X-axis of parameter plot",
+        'directory_name':     "Inversion run directory name",
+        'iteration':          "Iteration index used for this entry",
+        var_col:              f"{phase_label} X-axis metric: {x_formula}",
+        'model_variance_max': "max(model_variance_vp, model_variance_vs)",
+        'rms':                f"{phase_label} Y-axis metric: {y_formula}",
+    }
+
+    plot_title = f"Parameter Tradeoff: {parameter_name} ({phase_label})"
+
+    meta = [
+        f"# PARAMETER TRADEOFF STATISTICS  ({phase_label})",
+        f"# Generated       : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        f"# Plot title      : {plot_title}",
+        f"# Parameter swept : {parameter_name}",
+        f"#",
+        f"# X-axis label    : {x_label}",
+        f"# X-axis formula  : Δv = v_initial − v_inverted",
+        f"#                   {x_formula}",
+        f"#",
+        f"# Y-axis label    : {y_label}",
+        f"# Y-axis formula  : {y_formula}  ({phase_label} residuals only)",
+        f"#",
+        f"# COLUMN DESCRIPTIONS",
+    ]
+    for col, desc in col_desc.items():
+        meta.append(f"#   {col:<28}: {desc}")
+    meta.append(f"#")
+    meta.append(f"# NOTE: re-read with pd.read_csv(path, comment='#')")
+    meta.append(f"#")
+
+    csv_path = Path(csv_path)
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(csv_path, 'w') as fh:
+        fh.write('\n'.join(meta) + '\n')
+        fh.write(df.to_csv(index=False))
+
+    logger.info(f"Saved parameter statistics CSV with metadata header: {csv_path}")
 
 
 def _process_parameter_entries(
@@ -442,13 +513,11 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
         # Save statistics CSV
         if df_p is not None and not df_p.empty:
             p_stats_file = stats_dir / f"parameter_tradeoff_{parameter_name}_p.csv"
-            df_p.to_csv(p_stats_file, index=False)
-            logger.info(f"Saved P-wave parameter statistics: {p_stats_file}")
+            _write_parameter_stats_csv(df_p, p_stats_file, config, parameter_name, 'p')
 
         if df_s is not None and not df_s.empty:
             s_stats_file = stats_dir / f"parameter_tradeoff_{parameter_name}_s.csv"
-            df_s.to_csv(s_stats_file, index=False)
-            logger.info(f"Saved S-wave parameter statistics: {s_stats_file}")
+            _write_parameter_stats_csv(df_s, s_stats_file, config, parameter_name, 's')
 
         # Write text report
         if write_report:
@@ -714,17 +783,12 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
     # ------------------------------------------------------------------ #
     if region in ('full', 'z_bounded'):
         stats_file = stats_dir / "tradeoff_statistics.csv"
-        results['tradeoff_table'].to_csv(stats_file, index=False)
-        logger.info(f"Saved tradeoff statistics: {stats_file}")
+        write_statistics_csv(results['tradeoff_table'], stats_file, config)
 
     elif region == 'depth_layer':
         for depth_km, df_d in results.get('by_depth', {}).items():
             stats_file = stats_dir / f"tradeoff_statistics_depth_{depth_km:.2f}km.csv"
-            df_d.to_csv(stats_file, index=False)
-            logger.info(
-                f"Saved depth-layer tradeoff statistics (Z={depth_km:.2f} km): "
-                f"{stats_file}"
-            )
+            write_statistics_csv(df_d, stats_file, config, depth_km=depth_km)
 
     # ------------------------------------------------------------------ #
     # PHASE 8 – CREATE PLOTS                                              #
