@@ -164,15 +164,25 @@ def prepare_method_comparison_data(df1: pd.DataFrame, df2: pd.DataFrame,
     """
     logger.info(f"Method 1 events: {len(df1)}")
     logger.info(f"Method 2 events: {len(df2)}")
-    
+
     # Merge on event_id
     merge_key = 'event_id'
-    
+
     if merge_key not in df1.columns:
         raise ValueError(f"Missing '{merge_key}' column in Method 1 data")
     if merge_key not in df2.columns:
         raise ValueError(f"Missing '{merge_key}' column in Method 2 data")
-    
+
+    # Deduplicate on merge key to prevent cartesian product explosion
+    dup1 = df1[merge_key].duplicated().sum()
+    dup2 = df2[merge_key].duplicated().sum()
+    if dup1 > 0:
+        logger.warning(f"Method 1 has {dup1} duplicate event_ids — keeping first occurrence")
+        df1 = df1.drop_duplicates(subset=[merge_key], keep='first')
+    if dup2 > 0:
+        logger.warning(f"Method 2 has {dup2} duplicate event_ids — keeping first occurrence")
+        df2 = df2.drop_duplicates(subset=[merge_key], keep='first')
+
     logger.info(f"Merging datasets on key: {merge_key}")
     df_merged = pd.merge(
         df1, df2,
@@ -232,9 +242,7 @@ def compute_source_corrections(df: pd.DataFrame,
     """
     logger.info(f"Computing corrections for {len(df)} events")
     logger.info(f"Comparison mode: {comparison_mode}")
-    
-    df = df.copy()
-    
+
     # Temporal correction
     # Load origin time metadata to handle different origin time modes
     try:
