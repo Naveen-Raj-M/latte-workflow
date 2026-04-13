@@ -334,6 +334,8 @@ def compute_model_variance_for_mask(
     mask: np.ndarray,
     use_percentage_change: bool = False,
     aggregation: str = 'mean',
+    exclude_zero_change: bool = False,
+    zero_change_tolerance: float = 1e-6,
 ) -> Dict[str, float]:
     """
     Compute model variance for vp and vs at selected grid points.
@@ -353,18 +355,32 @@ def compute_model_variance_for_mask(
         Grid points where |v_initial| < 1e-6 km/s are excluded from
         percentage computations. A WARNING is logged if any are found.
 
+    When aggregation='rms_variation' and exclude_zero_change=True, grid
+    points whose |Δv| <= zero_change_tolerance (km/s) are excluded from
+    the RMS computation at each call.  The number of points actually used
+    is returned as 'n_used_vp' and 'n_used_vs' in the result dict so it
+    can be tracked per iteration.
+
     Args:
         df_initial: Initial velocity model DataFrame.
         df_inverted: Inverted velocity model DataFrame for one iteration.
         mask: Boolean selection mask for grid points to include.
         use_percentage_change: If True, compute percentage-based metrics.
-        aggregation: "mean", "max", or "model_variance".
+        aggregation: "mean", "max", "model_variance", or "rms_variation".
+        exclude_zero_change: If True and aggregation='rms_variation', omit
+            grid points where |Δv| <= zero_change_tolerance from the RMS.
+        zero_change_tolerance: Absolute velocity-change threshold (km/s)
+            below which a node is considered unchanged.  Used only when
+            exclude_zero_change=True and aggregation='rms_variation'.
 
     Returns:
-        Dict with keys: 'vp', 'vs', 'max'.
+        Dict with keys: 'vp', 'vs', 'combined', 'n_used_vp', 'n_used_vs'.
+        n_used_* reflect the number of grid points included in the
+        computation (after any zero-change filtering).
 
     Raises:
-        ValueError: If mask selects zero points or aggregation is invalid.
+        ValueError: If mask selects zero points, aggregation is invalid,
+            or exclude_zero_change filters out all points.
     """
     if aggregation not in ('mean', 'max', 'model_variance', 'rms_variation'):
         raise ValueError(
@@ -422,33 +438,106 @@ def compute_model_variance_for_mask(
         vs_rel = vs_abs_diff[vs_valid] / np.abs(vs_init[vs_valid])
 
         if aggregation == 'max':
+            n_used_vp = int(vp_valid.sum())
+            n_used_vs = int(vs_valid.sum())
             variance_vp = float(np.max(vp_rel) * 100.0)
             variance_vs = float(np.max(vs_rel) * 100.0)
         elif aggregation == 'mean':
+            n_used_vp = int(vp_valid.sum())
+            n_used_vs = int(vs_valid.sum())
             variance_vp = float(np.mean(vp_rel) * 100.0)
             variance_vs = float(np.mean(vs_rel) * 100.0)
         elif aggregation == 'rms_variation':  # 100 × sqrt(mean((Δv/v_init)²))
-            variance_vp = float(np.sqrt(np.mean(vp_rel ** 2)) * 100.0)
-            variance_vs = float(np.sqrt(np.mean(vs_rel ** 2)) * 100.0)
+            if exclude_zero_change:
+                # Exclude zero-change nodes (within the already-valid subset)
+                vp_nonzero = vp_abs_diff[vp_valid] > zero_change_tolerance
+                vs_nonzero = vs_abs_diff[vs_valid] > zero_change_tolerance
+                n_used_vp = int(vp_nonzero.sum())
+                n_used_vs = int(vs_nonzero.sum())
+                if n_used_vp == 0:
+                    raise ValueError(
+                        f"All valid Vp grid points have |Δvp| <= {zero_change_tolerance} km/s "
+                        "(zero-change tolerance); cannot compute rms_variation."
+                    )
+                if n_used_vs == 0:
+                    raise ValueError(
+                        f"All valid Vs grid points have |Δvs| <= {zero_change_tolerance} km/s "
+                        "(zero-change tolerance); cannot compute rms_variation."
+                    )
+                vp_rel_used = vp_rel[vp_nonzero]
+                vs_rel_used = vs_rel[vs_nonzero]
+                logger.debug(
+                    f"rms_variation (pct, exclude_zero): "
+                    f"Vp {n_used_vp}/{int(vp_valid.sum())} pts used, "
+                    f"Vs {n_used_vs}/{int(vs_valid.sum())} pts used "
+                    f"(tol={zero_change_tolerance} km/s)"
+                )
+            else:
+                n_used_vp = int(vp_valid.sum())
+                n_used_vs = int(vs_valid.sum())
+                vp_rel_used = vp_rel
+                vs_rel_used = vs_rel
+            variance_vp = float(np.sqrt(np.mean(vp_rel_used ** 2)) * 100.0)
+            variance_vs = float(np.sqrt(np.mean(vs_rel_used ** 2)) * 100.0)
         else:  # model_variance: mean((Δv/v_init)²) × 100²
+            n_used_vp = int(vp_valid.sum())
+            n_used_vs = int(vs_valid.sum())
             variance_vp = float(np.mean(vp_rel ** 2) * 10000.0)
             variance_vs = float(np.mean(vs_rel ** 2) * 10000.0)
     else:
         if aggregation == 'max':
+            n_used_vp = n_selected
+            n_used_vs = n_selected
             variance_vp = float(np.max(vp_abs_diff))
             variance_vs = float(np.max(vs_abs_diff))
         elif aggregation == 'mean':
+            n_used_vp = n_selected
+            n_used_vs = n_selected
             variance_vp = float(np.mean(vp_abs_diff))
             variance_vs = float(np.mean(vs_abs_diff))
         elif aggregation == 'rms_variation':  # sqrt(mean((Δv)²))
-            variance_vp = float(np.sqrt(np.mean(vp_diff ** 2)))
-            variance_vs = float(np.sqrt(np.mean(vs_diff ** 2)))
+            if exclude_zero_change:
+                vp_nonzero = vp_abs_diff > zero_change_tolerance
+                vs_nonzero = vs_abs_diff > zero_change_tolerance
+                n_used_vp = int(vp_nonzero.sum())
+                n_used_vs = int(vs_nonzero.sum())
+                if n_used_vp == 0:
+                    raise ValueError(
+                        f"All Vp grid points have |Δvp| <= {zero_change_tolerance} km/s "
+                        "(zero-change tolerance); cannot compute rms_variation."
+                    )
+                if n_used_vs == 0:
+                    raise ValueError(
+                        f"All Vs grid points have |Δvs| <= {zero_change_tolerance} km/s "
+                        "(zero-change tolerance); cannot compute rms_variation."
+                    )
+                logger.debug(
+                    f"rms_variation (exclude_zero): "
+                    f"Vp {n_used_vp}/{n_selected} pts used, "
+                    f"Vs {n_used_vs}/{n_selected} pts used "
+                    f"(tol={zero_change_tolerance} km/s)"
+                )
+                variance_vp = float(np.sqrt(np.mean(vp_diff[vp_nonzero] ** 2)))
+                variance_vs = float(np.sqrt(np.mean(vs_diff[vs_nonzero] ** 2)))
+            else:
+                n_used_vp = n_selected
+                n_used_vs = n_selected
+                variance_vp = float(np.sqrt(np.mean(vp_diff ** 2)))
+                variance_vs = float(np.sqrt(np.mean(vs_diff ** 2)))
         else:  # model_variance: mean((Δv)²)
+            n_used_vp = n_selected
+            n_used_vs = n_selected
             variance_vp = float(np.mean(vp_diff ** 2))
             variance_vs = float(np.mean(vs_diff ** 2))
 
     variance_combined = (variance_vp + variance_vs) / 2.0
-    return {'vp': variance_vp, 'vs': variance_vs, 'combined': variance_combined}
+    return {
+        'vp': variance_vp,
+        'vs': variance_vs,
+        'combined': variance_combined,
+        'n_used_vp': n_used_vp,
+        'n_used_vs': n_used_vs,
+    }
 
 
 def assemble_tradeoff_table(
@@ -462,6 +551,8 @@ def assemble_tradeoff_table(
     use_pct: bool = False,
     y_axis_mode: str = 'data_misfit',
     use_normalized: bool = False,
+    n_used_vp_values: Optional[Dict[int, int]] = None,
+    n_used_vs_values: Optional[Dict[int, int]] = None,
 ) -> pd.DataFrame:
     """
     Assemble per-iteration statistics into a tradeoff DataFrame.
@@ -486,6 +577,11 @@ def assemble_tradeoff_table(
         use_pct:            Whether metrics are in %.
         y_axis_mode:        'data_misfit' | 'rms' | 'data_variance'.
         use_normalized:     Whether data_misfit is normalized.
+        n_used_vp_values:   Optional {iter: int} of Vp grid points used in
+                            the variance computation (after zero-change filtering).
+                            When provided, a 'n_used_vp' column is added.
+        n_used_vs_values:   Optional {iter: int} of Vs grid points used.
+                            When provided, a 'n_used_vs' column is added.
 
     Returns:
         DataFrame sorted ascending by iteration. Rows with missing data excluded.
@@ -514,13 +610,18 @@ def assemble_tradeoff_table(
             if not isinstance(y_val, dict) or y_val.get('p') is None or y_val.get('s') is None:
                 skipped.append(idx)
                 continue
-            rows.append({
+            row: Dict[str, Any] = {
                 'iteration': idx,
                 x_col:    vp_var,
                 x_vs_col: vs_var,
                 y_p_col:  y_val['p'],
                 y_s_col:  y_val['s'],
-            })
+            }
+            if n_used_vp_values is not None:
+                row['n_used_vp'] = n_used_vp_values.get(idx)
+            if n_used_vs_values is not None:
+                row['n_used_vs'] = n_used_vs_values.get(idx)
+            rows.append(row)
         else:
             # Resolve scalar y
             if isinstance(y_val, dict):
@@ -541,11 +642,16 @@ def assemble_tradeoff_table(
             else:  # 'p'
                 x_val = vp_var
 
-            rows.append({
+            row = {
                 'iteration': idx,
                 x_col:  x_val,
                 y_col:  scalar_y,
-            })
+            }
+            if n_used_vp_values is not None:
+                row['n_used_vp'] = n_used_vp_values.get(idx)
+            if n_used_vs_values is not None:
+                row['n_used_vs'] = n_used_vs_values.get(idx)
+            rows.append(row)
 
     if skipped:
         logger.warning(
@@ -797,12 +903,25 @@ def write_general_report(
         thresh_hi = tcfg.get('max_residual_threshold',  50.0)
         lines.append(f"  Residual thresholds  : [{thresh_lo}, {thresh_hi}] s")
 
+    exclude_zero_change    = mv_cfg.get('exclude_zero_change', False)
+    zero_change_tolerance  = mv_cfg.get('zero_change_tolerance', 1e-6)
+
     lines += [
         f"  Region               : {region}",
         f"  Aggregation          : {aggregation}",
         f"  Use percentage change: {use_pct}",
         f"  Velocity dataset     : {velocity_dataset}",
     ]
+
+    if aggregation == 'rms_variation':
+        lines.append(f"  Exclude zero change  : {exclude_zero_change}")
+        if exclude_zero_change:
+            lines.append(f"  Zero change tol (km/s): {zero_change_tolerance}")
+            lines.append(
+                "  Note: n_used_vp / n_used_vs in the data table show how many "
+                "grid points were included in each RMS computation after removing "
+                "nodes with |Δv| <= tolerance."
+            )
 
     if region == 'z_bounded':
         lines.append(f"  Z bounds             : {mv_cfg.get('z_bounds')}")

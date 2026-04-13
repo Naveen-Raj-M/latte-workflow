@@ -65,6 +65,8 @@ def _process_parameter_entries(
     min_residual_threshold: float,
     max_residual_threshold: float,
     stat_mode: str = 'rms',
+    exclude_zero_change: bool = False,
+    zero_change_tolerance: float = 1e-6,
 ) -> List[Dict[str, Any]]:
     """
     Process parameter sweep entries: load traveltime CSVs and velocity models,
@@ -137,6 +139,8 @@ def _process_parameter_entries(
                         df_initial, df_inverted, mask_main,
                         use_percentage_change=use_percentage_change,
                         aggregation=aggregation,
+                        exclude_zero_change=exclude_zero_change,
+                        zero_change_tolerance=zero_change_tolerance,
                     )
                     result['model_variance_vp']  = var['vp']
                     result['model_variance_vs']  = var['vs']
@@ -252,6 +256,8 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
             f"Invalid model_variance.aggregation: '{aggregation}'. "
             "Valid options: 'mean', 'max', 'model_variance', 'rms_variation'"
         )
+    exclude_zero_change   = bool(mv_cfg.get('exclude_zero_change', False))
+    zero_change_tolerance = float(mv_cfg.get('zero_change_tolerance', 1e-6))
 
     logger.info("=" * 60)
     logger.info("TRADEOFF ANALYSIS CONFIGURATION")
@@ -418,6 +424,8 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
                     min_residual_threshold=min_residual_threshold,
                     max_residual_threshold=max_residual_threshold,
                     stat_mode=param_stat_mode,
+                    exclude_zero_change=exclude_zero_change,
+                    zero_change_tolerance=zero_change_tolerance,
                 )
             df_p = assemble_parameter_tradeoff_table(p_processed)
 
@@ -437,6 +445,8 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
                     min_residual_threshold=min_residual_threshold,
                     max_residual_threshold=max_residual_threshold,
                     stat_mode=param_stat_mode,
+                    exclude_zero_change=exclude_zero_change,
+                    zero_change_tolerance=zero_change_tolerance,
                 )
             df_s = assemble_parameter_tradeoff_table(s_processed)
 
@@ -614,10 +624,14 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
     vp_variances:       Dict[int, float] = {}
     vs_variances:       Dict[int, float] = {}
     combined_variances: Dict[int, float] = {}
+    n_used_vp_values:   Dict[int, int]   = {}
+    n_used_vs_values:   Dict[int, int]   = {}
     # Per-depth variants
     vp_variances_by_depth:       Dict[float, Dict[int, float]] = {d: {} for d in depth_layers}
     vs_variances_by_depth:       Dict[float, Dict[int, float]] = {d: {} for d in depth_layers}
     combined_variances_by_depth: Dict[float, Dict[int, float]] = {d: {} for d in depth_layers}
+    n_used_vp_by_depth: Dict[float, Dict[int, int]] = {d: {} for d in depth_layers}
+    n_used_vs_by_depth: Dict[float, Dict[int, int]] = {d: {} for d in depth_layers}
 
     with ProcessTimer("Computing model variance per iteration"):
         for idx in tqdm(common_iterations, desc="Model variance", unit="iter"):
@@ -642,14 +656,19 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
                         df_initial, df_inverted, mask_main,
                         use_percentage_change=use_percentage_change,
                         aggregation=aggregation,
+                        exclude_zero_change=exclude_zero_change,
+                        zero_change_tolerance=zero_change_tolerance,
                     )
                     vp_variances[idx]       = var['vp']
                     vs_variances[idx]       = var['vs']
                     combined_variances[idx] = var['combined']
+                    n_used_vp_values[idx]   = var['n_used_vp']
+                    n_used_vs_values[idx]   = var['n_used_vs']
                     units = "%" if use_percentage_change else "km/s"
                     logger.debug(
                         f"Iteration {idx}: vp_var={var['vp']:.6f}, "
-                        f"vs_var={var['vs']:.6f}, combined={var['combined']:.6f} {units}"
+                        f"vs_var={var['vs']:.6f}, combined={var['combined']:.6f} {units} "
+                        f"(n_used_vp={var['n_used_vp']}, n_used_vs={var['n_used_vs']})"
                     )
                 except ValueError as e:
                     logger.error(f"Iteration {idx}: {e}")
@@ -663,10 +682,14 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
                             df_initial, df_inverted, mask_d,
                             use_percentage_change=use_percentage_change,
                             aggregation=aggregation,
+                            exclude_zero_change=exclude_zero_change,
+                            zero_change_tolerance=zero_change_tolerance,
                         )
                         vp_variances_by_depth[depth_km][idx]       = var_d['vp']
                         vs_variances_by_depth[depth_km][idx]       = var_d['vs']
                         combined_variances_by_depth[depth_km][idx] = var_d['combined']
+                        n_used_vp_by_depth[depth_km][idx]          = var_d['n_used_vp']
+                        n_used_vs_by_depth[depth_km][idx]          = var_d['n_used_vs']
                         any_succeeded = True
                     except ValueError as e:
                         logger.error(
@@ -700,6 +723,12 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
         use_normalized=tcfg.get('use_normalized_misfit', False),
     )
 
+    # Include n_used columns only when rms_variation with zero-change filtering
+    _n_used_kwargs: Dict[str, Any] = {}
+    if aggregation == 'rms_variation' and exclude_zero_change:
+        _n_used_kwargs['n_used_vp_values'] = n_used_vp_values
+        _n_used_kwargs['n_used_vs_values'] = n_used_vs_values
+
     all_indices = sorted(set(vp_variances.keys()) & set(vs_variances.keys()))
 
     if region in ('full', 'z_bounded'):
@@ -709,18 +738,24 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
             vs_variances=vs_variances,
             combined_variances=combined_variances,
             **_table_kwargs,
+            **_n_used_kwargs,
         )
         results['tradeoff_table'] = df_tradeoff
 
     elif region == 'depth_layer':
         by_depth: Dict[float, pd.DataFrame] = {}
         for depth_km in sorted(masks.keys()):
+            _n_used_depth_kwargs: Dict[str, Any] = {}
+            if aggregation == 'rms_variation' and exclude_zero_change:
+                _n_used_depth_kwargs['n_used_vp_values'] = n_used_vp_by_depth[depth_km]
+                _n_used_depth_kwargs['n_used_vs_values'] = n_used_vs_by_depth[depth_km]
             df_d = assemble_tradeoff_table(
                 iteration_indices=sorted(vp_variances_by_depth[depth_km].keys()),
                 vp_variances=vp_variances_by_depth[depth_km],
                 vs_variances=vs_variances_by_depth[depth_km],
                 combined_variances=combined_variances_by_depth[depth_km],
                 **_table_kwargs,
+                **_n_used_depth_kwargs,
             )
             by_depth[depth_km] = df_d
         results['by_depth'] = by_depth

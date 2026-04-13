@@ -484,6 +484,10 @@ tradeoff_analysis:
     use_percentage_change: false       # true = mean(|Δv| / |v_initial|) × 100  (%)
     aggregation: "mean"                # mean | max | model_variance | rms_variation — aggregation over selected grid points
 
+    # Zero-change node exclusion — applies only when aggregation = rms_variation
+    exclude_zero_change: false         # true = skip nodes with no velocity change from RMS
+    zero_change_tolerance: 1.0e-6      # km/s; absolute velocity-change threshold for exclusion
+
   output_dir: "${paths.output_base_dir}/tradeoff_analysis"
 
   # Plot settings
