@@ -67,6 +67,9 @@ def _process_parameter_entries(
     stat_mode: str = 'rms',
     exclude_zero_change: bool = False,
     zero_change_tolerance: float = 1e-6,
+    use_log_residuals: bool = False,
+    log_base: str = 'natural',
+    log_residual_epsilon: float = 1e-10,
 ) -> List[Dict[str, Any]]:
     """
     Process parameter sweep entries: load traveltime CSVs and velocity models,
@@ -87,6 +90,9 @@ def _process_parameter_entries(
         min_residual_threshold: Lower bound for y-axis computation (s).
         max_residual_threshold: Upper bound for y-axis computation (s).
         stat_mode: 'rms' or 'data_variance' — controls y-axis statistic.
+        use_log_residuals: If True, apply log to |residual| before squaring.
+        log_base: 'natural' or 'log10'. Used only when use_log_residuals=True.
+        log_residual_epsilon: Small value added to |residual| before log.
 
     Returns:
         List of processed result dicts with keys:
@@ -119,6 +125,9 @@ def _process_parameter_entries(
                     df_tt, phase,
                     min_residual_threshold, max_residual_threshold,
                     stat_mode=stat_mode,
+                    use_log_residuals=use_log_residuals,
+                    log_base=log_base,
+                    log_residual_epsilon=log_residual_epsilon,
                 )
                 key = next(iter(rms_dict))
                 result['rms'] = rms_dict.get(key)
@@ -259,6 +268,16 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
     exclude_zero_change   = bool(mv_cfg.get('exclude_zero_change', False))
     zero_change_tolerance = float(mv_cfg.get('zero_change_tolerance', 1e-6))
 
+    use_log_residuals     = bool(tcfg.get('use_log_residuals', False))
+    log_base              = str(tcfg.get('log_residual_base', 'natural'))
+    log_residual_epsilon  = float(tcfg.get('log_residual_epsilon', 1e-10))
+
+    if use_log_residuals and log_base not in ('natural', 'log10'):
+        raise ValueError(
+            f"Invalid log_residual_base: '{log_base}'. "
+            "Valid options: 'natural', 'log10'"
+        )
+
     logger.info("=" * 60)
     logger.info("TRADEOFF ANALYSIS CONFIGURATION")
     logger.info("=" * 60)
@@ -266,6 +285,8 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
     if y_axis_mode == 'rms':
         logger.info(f"Phase mode:       {phase_mode}")
         logger.info(f"RMS comparison:   {rms_comparison_mode}")
+    if use_log_residuals:
+        logger.info(f"Log residuals:    True (base={log_base}, epsilon={log_residual_epsilon})")
     logger.info(f"Region mode:      {region}")
     logger.info(f"Aggregation:      {aggregation}")
     logger.info(f"Velocity dataset: {velocity_dataset}")
@@ -426,6 +447,9 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
                     stat_mode=param_stat_mode,
                     exclude_zero_change=exclude_zero_change,
                     zero_change_tolerance=zero_change_tolerance,
+                    use_log_residuals=use_log_residuals,
+                    log_base=log_base,
+                    log_residual_epsilon=log_residual_epsilon,
                 )
             df_p = assemble_parameter_tradeoff_table(p_processed)
 
@@ -447,6 +471,9 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
                     stat_mode=param_stat_mode,
                     exclude_zero_change=exclude_zero_change,
                     zero_change_tolerance=zero_change_tolerance,
+                    use_log_residuals=use_log_residuals,
+                    log_base=log_base,
+                    log_residual_epsilon=log_residual_epsilon,
                 )
             df_s = assemble_parameter_tradeoff_table(s_processed)
 
@@ -542,6 +569,9 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
                         df_method1, iter_dir, method2_pattern,
                         phase_mode, min_residual_threshold, max_residual_threshold,
                         stat_mode=stat_mode,
+                        use_log_residuals=use_log_residuals,
+                        log_base=log_base,
+                        log_residual_epsilon=log_residual_epsilon,
                     )
                     if rms_dict is None:
                         logger.warning(
@@ -568,6 +598,9 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
                         df_tt, phase_mode,
                         min_residual_threshold, max_residual_threshold,
                         stat_mode=stat_mode,
+                        use_log_residuals=use_log_residuals,
+                        log_base=log_base,
+                        log_residual_epsilon=log_residual_epsilon,
                     )
                     y_dict[idx] = rms_dict
     else:

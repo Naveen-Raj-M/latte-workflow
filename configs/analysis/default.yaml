@@ -459,6 +459,11 @@ tradeoff_analysis:
   min_residual_threshold: -50.0         # s; lower bound for RMS computation
   max_residual_threshold: 50.0          # s; upper bound for RMS computation
 
+  # Log-residual transform (applies to rms and data_variance y_axis_mode only)
+  use_log_residuals: false              # true = use |log(obs_tt) - log(syn_tt)| instead of residual_s
+  log_residual_base: "natural"          # natural (ln) | log10
+  log_residual_epsilon: 1.0e-10         # travel times below this value are clamped to it before log
+
   # rms comparison mode
   rms_comparison_mode: "ground_truth"   # ground_truth | method_comparison
   method1_csv: null                     # static path to Method 1 traveltime CSV

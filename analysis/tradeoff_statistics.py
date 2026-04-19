@@ -56,19 +56,36 @@ def _get_x_formula(aggregation: str, use_pct: bool) -> str:
     return formulas.get(aggregation, f"unknown aggregation: {aggregation}")
 
 
-def _get_y_label(y_axis_mode: str, phase_mode: str, use_normalized: bool) -> str:
+def _get_y_label(
+    y_axis_mode: str,
+    phase_mode: str,
+    use_normalized: bool,
+    use_log_residuals: bool = False,
+    log_base: str = 'natural',
+) -> str:
     """Return the Y-axis label string matching the plot."""
     if y_axis_mode == 'data_misfit':
         return "Normalized Data Misfit" if use_normalized else "Data Misfit"
+    log_tag = ""
+    if use_log_residuals:
+        log_tag = " [ln]" if log_base == 'natural' else " [log₁₀]"
     if y_axis_mode == 'data_variance':
         labels = {
-            'both':     "Combined Data Variance (s\u00b2)",
-            'p':        "P-wave Data Variance (s\u00b2)",
-            's':        "S-wave Data Variance (s\u00b2)",
-            'separate': "Data Variance (s\u00b2)",
+            'both':     f"Combined Log-Data Variance{log_tag}" if use_log_residuals else "Combined Data Variance (s\u00b2)",
+            'p':        f"P-wave Log-Data Variance{log_tag}" if use_log_residuals else "P-wave Data Variance (s\u00b2)",
+            's':        f"S-wave Log-Data Variance{log_tag}" if use_log_residuals else "S-wave Data Variance (s\u00b2)",
+            'separate': f"Log-Data Variance{log_tag}" if use_log_residuals else "Data Variance (s\u00b2)",
         }
-        return labels.get(phase_mode, "Data Variance (s\u00b2)")
+        return labels.get(phase_mode, f"Log-Data Variance{log_tag}" if use_log_residuals else "Data Variance (s\u00b2)")
     # rms mode
+    if use_log_residuals:
+        labels = {
+            'both':     f"Combined Log-RMS Residual{log_tag}",
+            'p':        f"P-wave Log-RMS Residual{log_tag}",
+            's':        f"S-wave Log-RMS Residual{log_tag}",
+            'separate': f"Log-RMS Residual{log_tag}",
+        }
+        return labels.get(phase_mode, f"Log-RMS Residual{log_tag}")
     labels = {
         'both':     "Combined RMS Residual (s)",
         'p':        "P-wave RMS Residual (s)",
@@ -78,21 +95,30 @@ def _get_y_label(y_axis_mode: str, phase_mode: str, use_normalized: bool) -> str
     return labels.get(phase_mode, "RMS Residual (s)")
 
 
-def _get_y_formula(y_axis_mode: str, phase_mode: str, use_normalized: bool) -> str:
+def _get_y_formula(
+    y_axis_mode: str,
+    phase_mode: str,
+    use_normalized: bool,
+    use_log_residuals: bool = False,
+    log_base: str = 'natural',
+    log_residual_epsilon: float = 1e-10,
+) -> str:
     """Return a human-readable formula string for the Y-axis metric."""
     if y_axis_mode == 'data_misfit':
         if use_normalized:
             return "normalized_data_misfit column from data_misfit.txt (normalized to iteration 0)"
         return "data_misfit column from data_misfit.txt  [absolute]"
-    if y_axis_mode == 'data_variance':
-        phase_desc = {
-            'both': 'all phases', 'p': 'P-wave only', 's': 'S-wave only', 'separate': 'P and S separately',
-        }.get(phase_mode, phase_mode)
-        return f"mean(residual_s\u00b2)  [s\u00b2]  ({phase_desc})"
-    # rms
     phase_desc = {
         'both': 'all phases', 'p': 'P-wave only', 's': 'S-wave only', 'separate': 'P and S separately',
     }.get(phase_mode, phase_mode)
+    if use_log_residuals:
+        log_fn = "ln" if log_base == 'natural' else "log\u2081\u2080"
+        r_expr = f"|{log_fn}(max(obs_tt, \u03b5)) \u2212 {log_fn}(max(syn_tt, \u03b5))|  [\u03b5={log_residual_epsilon}]"
+        if y_axis_mode == 'data_variance':
+            return f"mean(t\u00b2)  where t = {r_expr}  ({phase_desc})"
+        return f"sqrt(mean(t\u00b2))  where t = {r_expr}  ({phase_desc})"
+    if y_axis_mode == 'data_variance':
+        return f"mean(residual_s\u00b2)  [s\u00b2]  ({phase_desc})"
     return f"sqrt(mean(residual_s\u00b2))  [s]  ({phase_desc})"
 
 
@@ -829,21 +855,29 @@ def write_general_report(
     tcfg = config.get('tradeoff_analysis', {})
     mv_cfg = tcfg.get('model_variance', {})
 
-    x_axis_mode        = tcfg.get('x_axis_mode', 'iteration')
-    y_axis_mode        = tcfg.get('y_axis_mode', 'data_misfit')
-    phase_mode         = tcfg.get('phase_mode', 'both')
-    rms_comparison     = tcfg.get('rms_comparison_mode', 'ground_truth')
-    region             = mv_cfg.get('region', 'full')
-    aggregation        = mv_cfg.get('aggregation', 'mean')
-    use_pct            = mv_cfg.get('use_percentage_change', False)
-    velocity_dataset   = tcfg.get('velocity_dataset', 'velocity')
-    use_normalized     = tcfg.get('use_normalized_misfit', False)
+    x_axis_mode           = tcfg.get('x_axis_mode', 'iteration')
+    y_axis_mode           = tcfg.get('y_axis_mode', 'data_misfit')
+    phase_mode            = tcfg.get('phase_mode', 'both')
+    rms_comparison        = tcfg.get('rms_comparison_mode', 'ground_truth')
+    region                = mv_cfg.get('region', 'full')
+    aggregation           = mv_cfg.get('aggregation', 'mean')
+    use_pct               = mv_cfg.get('use_percentage_change', False)
+    velocity_dataset      = tcfg.get('velocity_dataset', 'velocity')
+    use_normalized        = tcfg.get('use_normalized_misfit', False)
+    use_log_residuals     = bool(tcfg.get('use_log_residuals', False))
+    log_base              = str(tcfg.get('log_residual_base', 'natural'))
+    log_residual_epsilon  = float(tcfg.get('log_residual_epsilon', 1e-10))
 
     # Derive axis labels and formulas (mirrors what is rendered on the plot)
     x_label   = tcfg.get('plot', {}).get('x_label') or _get_x_label(aggregation, use_pct)
     x_formula = _get_x_formula(aggregation, use_pct)
-    y_label   = tcfg.get('plot', {}).get('y_label') or _get_y_label(y_axis_mode, phase_mode, use_normalized)
-    y_formula = _get_y_formula(y_axis_mode, phase_mode, use_normalized)
+    y_label   = tcfg.get('plot', {}).get('y_label') or _get_y_label(
+        y_axis_mode, phase_mode, use_normalized, use_log_residuals, log_base
+    )
+    y_formula = _get_y_formula(
+        y_axis_mode, phase_mode, use_normalized,
+        use_log_residuals, log_base, log_residual_epsilon,
+    )
 
     # Column names that appear in the CSV (derived from config)
     cols = _build_col_names(aggregation, use_pct, phase_mode, y_axis_mode, use_normalized)
@@ -902,6 +936,10 @@ def write_general_report(
         thresh_lo = tcfg.get('min_residual_threshold', -50.0)
         thresh_hi = tcfg.get('max_residual_threshold',  50.0)
         lines.append(f"  Residual thresholds  : [{thresh_lo}, {thresh_hi}] s")
+        lines.append(f"  Use log residuals    : {use_log_residuals}")
+        if use_log_residuals:
+            lines.append(f"  Log base             : {log_base}")
+            lines.append(f"  Log epsilon          : {log_residual_epsilon}")
 
     exclude_zero_change    = mv_cfg.get('exclude_zero_change', False)
     zero_change_tolerance  = mv_cfg.get('zero_change_tolerance', 1e-6)

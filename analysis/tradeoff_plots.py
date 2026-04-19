@@ -63,11 +63,28 @@ def _auto_x_label(aggregation: str, use_pct: bool) -> str:
         return f"Model Variation ({units})"
 
 
-def _auto_y_label(y_axis_mode: str, phase_mode: str, use_normalized: bool) -> str:
+def _auto_y_label(
+    y_axis_mode: str,
+    phase_mode: str,
+    use_normalized: bool,
+    use_log_residuals: bool = False,
+    log_base: str = 'natural',
+) -> str:
     """Derive automatic Y-axis label from mode settings."""
     if y_axis_mode == 'data_misfit':
         return "Normalized Data Misfit" if use_normalized else "Data Misfit"
+    log_tag = ""
+    if use_log_residuals:
+        log_tag = " [ln]" if log_base == 'natural' else " [log\u2081\u2080]"
     if y_axis_mode == 'data_variance':
+        if use_log_residuals:
+            labels = {
+                'both':     f"Combined Log-Data Variance{log_tag}",
+                'p':        f"P-wave Log-Data Variance{log_tag}",
+                's':        f"S-wave Log-Data Variance{log_tag}",
+                'separate': f"Log-Data Variance{log_tag}",
+            }
+            return labels.get(phase_mode, f"Log-Data Variance{log_tag}")
         labels = {
             'both':     "Combined Data Variance (s\u00b2)",
             'p':        "P-wave Data Variance (s\u00b2)",
@@ -76,6 +93,14 @@ def _auto_y_label(y_axis_mode: str, phase_mode: str, use_normalized: bool) -> st
         }
         return labels.get(phase_mode, "Data Variance (s\u00b2)")
     # rms mode
+    if use_log_residuals:
+        labels = {
+            'both':     f"Combined Log-RMS Residual{log_tag}",
+            'p':        f"P-wave Log-RMS Residual{log_tag}",
+            's':        f"S-wave Log-RMS Residual{log_tag}",
+            'separate': f"Log-RMS Residual{log_tag}",
+        }
+        return labels.get(phase_mode, f"Log-RMS Residual{log_tag}")
     labels = {
         'both':     "Combined RMS Residual (s)",
         'p':        "P-wave RMS Residual (s)",
@@ -140,8 +165,12 @@ def create_tradeoff_plot(
 
     use_pct = bool(tcfg.get('model_variance', {}).get('use_percentage_change', False))
     aggregation = tcfg.get('model_variance', {}).get('aggregation', 'mean')
+    use_log_residuals = bool(tcfg.get('use_log_residuals', False))
+    log_base = str(tcfg.get('log_residual_base', 'natural'))
     x_label = plot_cfg.get('x_label') or _auto_x_label(aggregation, use_pct)
-    y_label = plot_cfg.get('y_label') or _auto_y_label(y_axis_mode, phase_mode, use_normalized)
+    y_label = plot_cfg.get('y_label') or _auto_y_label(
+        y_axis_mode, phase_mode, use_normalized, use_log_residuals, log_base
+    )
 
     # Resolve column names from config (same derivation used when building the table)
     cols = _build_col_names(aggregation, use_pct, phase_mode, y_axis_mode, use_normalized)
@@ -154,11 +183,21 @@ def create_tradeoff_plot(
         y_col       = cols['y_p'] if single_phase == 'p' else cols['y_s']
         phase_label = 'P-wave' if single_phase == 'p' else 'S-wave'
         color       = colors['vp'] if single_phase == 'p' else colors['vs']
-        y_label_phase = y_label if phase_mode != 'separate' else (
-            f"{phase_label} RMS Residual (s)"
-            if y_axis_mode != 'data_variance'
-            else f"{phase_label} Data Variance (s\u00b2)"
-        )
+        if phase_mode != 'separate':
+            y_label_phase = y_label
+        elif use_log_residuals:
+            log_tag = " [ln]" if log_base == 'natural' else " [log\u2081\u2080]"
+            y_label_phase = (
+                f"{phase_label} Log-Data Variance{log_tag}"
+                if y_axis_mode == 'data_variance'
+                else f"{phase_label} Log-RMS Residual{log_tag}"
+            )
+        else:
+            y_label_phase = (
+                f"{phase_label} RMS Residual (s)"
+                if y_axis_mode != 'data_variance'
+                else f"{phase_label} Data Variance (s\u00b2)"
+            )
 
         fig, ax = plt.subplots(figsize=(fig_width, fig_height))
         x_vals = df[x_col].values
@@ -268,7 +307,14 @@ def create_tradeoff_plot(
                 ax.set_yscale('log')
 
             ax.set_xlabel(x_label, fontsize=plot_style.get('label_size', 14))
-            if y_axis_mode == 'data_variance':
+            if use_log_residuals:
+                _log_tag = " [ln]" if log_base == 'natural' else " [log\u2081\u2080]"
+                phase_y_lbl = (
+                    f"{phase_label} Log-Data Variance{_log_tag}"
+                    if y_axis_mode == 'data_variance'
+                    else f"{phase_label} Log-RMS Residual{_log_tag}"
+                )
+            elif y_axis_mode == 'data_variance':
                 phase_y_lbl = f"{phase_label} Data Variance (s\u00b2)"
             else:
                 phase_y_lbl = f"{phase_label} RMS Residual (s)"

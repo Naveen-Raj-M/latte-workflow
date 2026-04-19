@@ -196,6 +196,9 @@ def compute_rms_for_iteration(
     min_residual_threshold: float = -50.0,
     max_residual_threshold: float = 50.0,
     stat_mode: str = 'rms',
+    use_log_residuals: bool = False,
+    log_base: str = 'natural',
+    log_residual_epsilon: float = 1e-10,
 ) -> Dict[str, Optional[float]]:
     """
     Compute traveltime statistic(s) for one iteration.
@@ -203,12 +206,33 @@ def compute_rms_for_iteration(
     stat_mode='rms':          sqrt(mean(residual_s²))
     stat_mode='data_variance': mean(residual_s²)   [MSE, units s²]
 
+    When use_log_residuals=True, the per-row metric becomes the absolute
+    log-ratio of the observed and synthetic travel times:
+
+        t = |log(max(observed_tt, ε)) − log(max(synthetic_tt, ε))|
+          = |log(max(observed_tt, ε) / max(synthetic_tt, ε))|
+
+    where ε = log_residual_epsilon.  Any travel time below ε is clamped
+    to ε before the log is applied.  The log base is selected by log_base
+    ('natural' → ln, 'log10' → log₁₀).
+
+    Thresholding (min/max_residual_threshold) still applies to residual_s
+    before the statistic is computed, so extreme outliers are excluded.
+
     Args:
-        df: Traveltime residuals DataFrame with columns [residual_s, phase].
+        df: Traveltime residuals DataFrame with columns [residual_s, phase]
+            and, when use_log_residuals=True, also [observed_tt, synthetic_tt].
         phase_mode: One of "both", "p", "s", "separate".
         min_residual_threshold: Minimum residual_s to include (seconds).
         max_residual_threshold: Maximum residual_s to include (seconds).
         stat_mode: 'rms' (default) or 'data_variance'.
+        use_log_residuals: If True, compute |log(observed_tt/synthetic_tt)|
+            instead of residual_s before squaring.
+        log_base: 'natural' (ln) or 'log10' (log₁₀). Used only when
+            use_log_residuals=True.
+        log_residual_epsilon: Travel times below this value are clamped to
+            this value before taking the log.  Used only when
+            use_log_residuals=True.
 
     Returns:
         Dict with values per curve key:
@@ -219,18 +243,42 @@ def compute_rms_for_iteration(
         raise ValueError(
             f"Invalid stat_mode: '{stat_mode}'. Valid options: 'rms', 'data_variance'"
         )
+    if use_log_residuals and log_base not in ('natural', 'log10'):
+        raise ValueError(
+            f"Invalid log_base: '{log_base}'. Valid options: 'natural', 'log10'"
+        )
+    if use_log_residuals:
+        for col in ('observed_tt', 'synthetic_tt'):
+            if col not in df.columns:
+                raise ValueError(
+                    f"use_log_residuals=True requires column '{col}' in the "
+                    "traveltime CSV, but it was not found. "
+                    "Ensure the CSV contains both 'observed_tt' and 'synthetic_tt' columns."
+                )
 
-    # Apply thresholds
+    # Apply residual thresholds before computing the statistic
     df_filtered = df[
         (df['residual_s'] >= min_residual_threshold)
         & (df['residual_s'] <= max_residual_threshold)
     ]
 
     def _rms(subset: pd.DataFrame) -> Optional[float]:
-        residuals = subset['residual_s'].dropna().values
-        if len(residuals) == 0:
-            return None
-        mse = float(np.mean(residuals ** 2))
+        if use_log_residuals:
+            valid = subset[['observed_tt', 'synthetic_tt']].dropna()
+            if len(valid) == 0:
+                return None
+            obs = np.maximum(valid['observed_tt'].values, log_residual_epsilon)
+            syn = np.maximum(valid['synthetic_tt'].values, log_residual_epsilon)
+            if log_base == 'log10':
+                log_res = np.abs(np.log10(obs) - np.log10(syn))
+            else:
+                log_res = np.abs(np.log(obs) - np.log(syn))
+            mse = float(np.mean(log_res ** 2))
+        else:
+            residuals = subset['residual_s'].dropna().values
+            if len(residuals) == 0:
+                return None
+            mse = float(np.mean(residuals ** 2))
         return mse if stat_mode == 'data_variance' else float(np.sqrt(mse))
 
     if phase_mode == 'both':
@@ -315,6 +363,9 @@ def compute_method_comparison_rms_for_iteration(
     min_residual_threshold: float = -50.0,
     max_residual_threshold: float = 50.0,
     stat_mode: str = 'rms',
+    use_log_residuals: bool = False,
+    log_base: str = 'natural',
+    log_residual_epsilon: float = 1e-10,
 ) -> Optional[Dict[str, Optional[float]]]:
     """
     Compute traveltime statistic for method comparison for a single iteration.
@@ -333,6 +384,9 @@ def compute_method_comparison_rms_for_iteration(
         min_residual_threshold: Minimum residual to include (seconds).
         max_residual_threshold: Maximum residual to include (seconds).
         stat_mode: 'rms' or 'data_variance'.
+        use_log_residuals: If True, transform residuals via log before squaring.
+        log_base: 'natural' or 'log10'. Used only when use_log_residuals=True.
+        log_residual_epsilon: Small value added to |residual| before log.
 
     Returns:
         Dict with values per curve key (same format as compute_rms_for_iteration),
@@ -391,12 +445,25 @@ def compute_method_comparison_rms_for_iteration(
         f"RMS={np.sqrt(np.mean(df_merged['residual_s'] ** 2)):.4f} s"
     )
 
+    # For log-residual mode, expose Method 1 as 'observed_tt' and Method 2 as
+    # 'synthetic_tt' so that compute_rms_for_iteration can compute
+    # |log(observed_tt / synthetic_tt)| per matched pair.
+    if use_log_residuals:
+        df_for_rms = df_merged[['residual_s', 'phase']].copy()
+        df_for_rms['observed_tt'] = df_merged['synthetic_tt_m1'].values
+        df_for_rms['synthetic_tt'] = df_merged['synthetic_tt_m2'].values
+    else:
+        df_for_rms = df_merged[['residual_s', 'phase']]
+
     return compute_rms_for_iteration(
-        df_merged[['residual_s', 'phase']],
+        df_for_rms,
         phase_mode,
         min_residual_threshold,
         max_residual_threshold,
         stat_mode=stat_mode,
+        use_log_residuals=use_log_residuals,
+        log_base=log_base,
+        log_residual_epsilon=log_residual_epsilon,
     )
 
 
