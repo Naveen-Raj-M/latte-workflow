@@ -184,21 +184,27 @@ def compute_global_azimuthal_bin_counts(temp_events: dict,
 def apply_global_azimuthal_weights(temp_events: dict,
                                     event_lookup: dict,
                                     bin_size_deg: float = 30.0,
-                                    weight_formula: str = 'inverse_sqrt') -> dict:
+                                    weight_formula: str = 'inverse_sqrt',
+                                    default_weight_p: float = 1.0,
+                                    default_weight_s: float = 1.0) -> dict:
     """Apply global-scale azimuthal weights to all picks.
 
     This computes weights based on the global distribution of picks per station
     per azimuthal bin across ALL events, then applies weights to each pick.
 
     For each pick, the weight is computed as:
-    - 1/sqrt(N) or 1/N where N is the GLOBAL count of picks for that
-      (station, azimuthal_bin) combination across all events.
+    - default_weight_p * 1/sqrt(N) for P picks (or 1/N with 'inverse' formula)
+    - default_weight_s * 1/sqrt(N) for S picks
+    where N is the GLOBAL count of picks for that (station, azimuthal_bin)
+    combination across all events.
 
     Args:
         temp_events: Dictionary of processed events {event_id: event_data}.
         event_lookup: Dictionary of event coordinates {event_id: {x, y, z, ...}}.
         bin_size_deg: Size of azimuthal bins in degrees.
         weight_formula: Formula for computing weights ('inverse_sqrt' or 'inverse').
+        default_weight_p: Base scale factor for P-wave azimuthal weights.
+        default_weight_s: Base scale factor for S-wave azimuthal weights.
 
     Returns:
         Updated temp_events dictionary with global azimuthal weights applied.
@@ -233,13 +239,13 @@ def apply_global_azimuthal_weights(temp_events: dict,
             n = global_bin_counts.get((station_id, bin_idx), 1)
             if n > 0:
                 if weight_formula == 'inverse':
-                    weight = 1.0 / n
+                    az_weight = 1.0 / n
                 else:  # 'inverse_sqrt' (default)
-                    weight = 1.0 / np.sqrt(n)
+                    az_weight = 1.0 / np.sqrt(n)
             else:
-                weight = 1.0
+                az_weight = 1.0
 
-            pick_info['weight'] = weight
+            pick_info['weight'] = default_weight_p * az_weight
             total_weighted += 1
 
         # Apply weights to S picks
@@ -251,19 +257,21 @@ def apply_global_azimuthal_weights(temp_events: dict,
             n = global_bin_counts.get((station_id, bin_idx), 1)
             if n > 0:
                 if weight_formula == 'inverse':
-                    weight = 1.0 / n
+                    az_weight = 1.0 / n
                 else:  # 'inverse_sqrt' (default)
-                    weight = 1.0 / np.sqrt(n)
+                    az_weight = 1.0 / np.sqrt(n)
             else:
-                weight = 1.0
+                az_weight = 1.0
 
-            pick_info['weight'] = weight
+            pick_info['weight'] = default_weight_s * az_weight
             total_weighted += 1
 
     formula_display = "1/sqrt(N)" if weight_formula == 'inverse_sqrt' else "1/N"
+    p_scale_str = f", P scale={default_weight_p}" if default_weight_p != 1.0 else ""
+    s_scale_str = f", S scale={default_weight_s}" if default_weight_s != 1.0 else ""
     logger.info(
         f"Applied global azimuthal weights to {total_weighted} picks "
-        f"(formula={formula_display}, bin_size={bin_size_deg}°)"
+        f"(formula={formula_display}, bin_size={bin_size_deg}°{p_scale_str}{s_scale_str})"
     )
 
     return temp_events
@@ -423,7 +431,15 @@ def _process_single_event(event_id, event_picks, event_lookup, station_lookup,
             # Get initial weight (use default if configured, otherwise pick weight)
             # Azimuthal weighting is applied as a post-processing step
             if geom_config.get('apply_default_weights', False):
-                weight = geom_config.get('default_weight', 1.0)
+                if geom_config.get('separate_weight_p_s', False):
+                    if 'P' in phase_hint:
+                        weight = geom_config.get('default_weight_p', 1.0)
+                    elif 'S' in phase_hint:
+                        weight = geom_config.get('default_weight_s', 1.0)
+                    else:
+                        weight = geom_config.get('default_weight', 1.0)
+                else:
+                    weight = geom_config.get('default_weight', 1.0)
             else:
                 weight = pick.get('weight', 1.0)
 
@@ -543,10 +559,13 @@ def parse_picks_with_cartesian(events_df: pd.DataFrame,
     if geom_config.get('apply_azimuthal_weighting', False):
         bin_size = geom_config.get('azimuthal_bin_size_deg', 30.0)
         weight_formula = geom_config.get('azimuthal_weight_formula', 'inverse_sqrt')
+        default_weight_p = geom_config.get('default_weight_p', 1.0)
+        default_weight_s = geom_config.get('default_weight_s', 1.0)
 
         logger.info("Applying global-scale azimuthal weighting...")
         temp_events = apply_global_azimuthal_weights(
-            temp_events, event_lookup, bin_size, weight_formula
+            temp_events, event_lookup, bin_size, weight_formula,
+            default_weight_p, default_weight_s
         )
 
     # Filter based on phase_type configuration
@@ -640,6 +659,8 @@ def _write_single_event_files(event_item, geom_config, phase_type):
     """
     idx, eid, data = event_item
 
+    separate_weight_p_s = geom_config.get('separate_weight_p_s', False)
+
     # Use P picks for geometry if available, otherwise S picks
     receivers_for_geometry = data['p_picks'] if data['p_picks'] else data['s_picks']
 
@@ -656,10 +677,21 @@ def _write_single_event_files(event_item, geom_config, phase_type):
         out.write(f"{idx}\n\n1\n")
         out.write(f"{ex:.6f} {ey:.6f} {ez:.6f} {origin_time_fmt}\n\n")
         out.write(f"{len(receivers_for_geometry)}\n")
-        for pick in receivers_for_geometry:
-            sx, sy, sz = pick['coords']
-            w = pick['weight']
-            out.write(f"{sx:.6f} {sy:.6f} {sz:.6f} {w:.6f}\n")
+        if separate_weight_p_s:
+            # 5-column format: x y z weight_p weight_s
+            p_picks = data['p_picks']
+            s_picks = data['s_picks']
+            for i, pick in enumerate(receivers_for_geometry):
+                sx, sy, sz = pick['coords']
+                wp = p_picks[i]['weight'] if i < len(p_picks) else 0.0
+                ws = s_picks[i]['weight'] if i < len(s_picks) else 0.0
+                out.write(f"{sx:.6f} {sy:.6f} {sz:.6f} {wp:.6f} {ws:.6f}\n")
+        else:
+            # 4-column format: x y z weight
+            for pick in receivers_for_geometry:
+                sx, sy, sz = pick['coords']
+                w = pick['weight']
+                out.write(f"{sx:.6f} {sy:.6f} {sz:.6f} {w:.6f}\n")
 
     # Write P-wave traveltime binary (if processing P-waves)
     if phase_type in ['both', 'p'] and data['p_picks']:
@@ -1102,9 +1134,17 @@ def create_geometry_and_traveltime_files(config: DictConfig,
     # Log weighting method
     apply_default_weights = geom_config.get('apply_default_weights', False)
     apply_azimuthal_weighting = geom_config.get('apply_azimuthal_weighting', False)
+    separate_weight_p_s = geom_config.get('separate_weight_p_s', False)
+    geom_format = "5-column (x y z wp ws)" if separate_weight_p_s else "4-column (x y z w)"
+    logger.info(f"Geometry file format: {geom_format}")
     if apply_default_weights:
-        default_weight = geom_config.get('default_weight', 1.0)
-        logger.info(f"Weighting method: default weights (weight={default_weight})")
+        if separate_weight_p_s:
+            wp = geom_config.get('default_weight_p', 1.0)
+            ws = geom_config.get('default_weight_s', 1.0)
+            logger.info(f"Weighting method: default weights (weight_p={wp}, weight_s={ws})")
+        else:
+            default_weight = geom_config.get('default_weight', 1.0)
+            logger.info(f"Weighting method: default weights (weight={default_weight})")
     elif apply_azimuthal_weighting:
         bin_size = geom_config.get('azimuthal_bin_size_deg', 30)
         weight_formula = geom_config.get('azimuthal_weight_formula', 'inverse_sqrt')
@@ -1113,6 +1153,10 @@ def create_geometry_and_traveltime_files(config: DictConfig,
         logger.info(f"  - Scale: global (N = picks per station-bin across all events)")
         logger.info(f"  - Bin size: {bin_size}°")
         logger.info(f"  - Weight formula: {formula_display}")
+        if separate_weight_p_s:
+            wp = geom_config.get('default_weight_p', 1.0)
+            ws = geom_config.get('default_weight_s', 1.0)
+            logger.info(f"  - P-wave scale: {wp}, S-wave scale: {ws}")
     else:
         logger.info("Weighting method: original pick weights")
 

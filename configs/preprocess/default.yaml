@@ -105,11 +105,16 @@ geometry_traveltime:
   # apply_default_weights and apply_azimuthal_weighting are mutually exclusive
   apply_default_weights: false
   default_weight: 1.0
+  # true = write 5-column geometry files (x y z weight_p weight_s); false = 4-column (x y z weight)
+  separate_weight_p_s: false
+  default_weight_p: 1.0                  # base P-wave weight; applied as-is or as a scale on azimuthal weights
+  default_weight_s: 1.0                  # base S-wave weight; applied as-is or as a scale on azimuthal weights
   apply_azimuthal_weighting: false
   azimuthal_bin_size_deg: 30              # degrees; 30° creates 12 azimuthal bins
   # Weight formula: inverse_sqrt = 1/sqrt(N), inverse = 1/N
   azimuthal_weight_formula: "inverse_sqrt"
   # Azimuthal weighting uses global scale (pick counts per station-bin across ALL events)
+  # When separate_weight_p_s is true, azimuthal weights are scaled by default_weight_p / default_weight_s
   phase_type: "both"                      # both | p | s
   p_velocity_range_m_s: [500, 10000]      # m/s; picks outside this range are discarded
   s_velocity_range_m_s: [500, 6000]       # m/s; picks outside this range are discarded
