@@ -382,8 +382,9 @@ def create_synthetic_travel_time_csv(config: DictConfig) -> None:
         print(f"  S-wave picks: {len(df_synthetic[df_synthetic['phase'] == 'S'])}")
         
         # Calculate basic statistics
-        rms_error = np.sqrt(np.mean(df_synthetic['residual_s']**2))
-        print(f"  RMS residual: {rms_error:.4f} s")
+        weights = df_synthetic['weight']
+        rms_error = np.sqrt(np.sum(weights * df_synthetic['residual_s']**2) / np.sum(weights))
+        print(f"  Weighted RMS residual: {rms_error:.4f} s")
         
         if corrected_origin_times is not None:
             print(f"  Source correction applied: YES")
@@ -604,9 +605,10 @@ def create_synthetic_travel_time_csv_with_exchange(config: DictConfig) -> None:
         print(f"  S-wave picks: {len(df_output[df_output['phase'] == 'S'])}")
         
         # Statistics
-        rms_error = np.sqrt(np.mean(df_output['residual_s']**2))
+        weights = df_output['weight']
+        rms_error = np.sqrt(np.sum(weights * df_output['residual_s']**2) / np.sum(weights))
         mae = np.mean(np.abs(df_output['residual_s']))
-        print(f"  RMS residual: {rms_error:.4f} s")
+        print(f"  Weighted RMS residual: {rms_error:.4f} s")
         print(f"  MAE residual: {mae:.4f} s")
         
         if corrected_origin_times is not None:

@@ -68,7 +68,9 @@ def _compute_overall_statistics(df: pd.DataFrame, distance_col: str) -> Dict[str
     """Compute overall statistics."""
     distances = df[distance_col]
     residuals = df['residual_s']
-    
+    weights = df['weight']
+    w_sum = weights.sum()
+
     return {
         'count': len(df),
         'unique_events': df['event_id'].nunique(),
@@ -79,7 +81,7 @@ def _compute_overall_statistics(df: pd.DataFrame, distance_col: str) -> Dict[str
         'distance_median': float(distances.median()),
         'residual_mean': float(residuals.mean()),
         'residual_std': float(residuals.std()),
-        'residual_rms': float(np.sqrt(np.mean(residuals**2))),
+        'residual_rms': float(np.sqrt(np.sum(weights * residuals**2) / w_sum)),
         'residual_min': float(residuals.min()),
         'residual_max': float(residuals.max()),
         'residual_median': float(residuals.median())
@@ -91,14 +93,16 @@ def _compute_phase_statistics(phase_data: pd.DataFrame, distance_col: str,
     """Compute statistics for a specific phase."""
     distances = phase_data[distance_col]
     residuals = phase_data['residual_s']
-    
+    weights = phase_data['weight']
+    w_sum = weights.sum()
+
     return {
         'count': len(phase_data),
         'distance_mean': float(distances.mean()),
         'distance_std': float(distances.std()),
         'residual_mean': float(residuals.mean()),
         'residual_std': float(residuals.std()),
-        'residual_rms': float(np.sqrt(np.mean(residuals**2))),
+        'residual_rms': float(np.sqrt(np.sum(weights * residuals**2) / w_sum)),
         'residual_min': float(residuals.min()),
         'residual_max': float(residuals.max()),
         'distance_residual_corr': float(distances.corr(residuals))
@@ -180,12 +184,14 @@ def _compute_cluster_statistics(df: pd.DataFrame, config: Dict[str, Any],
             residuals = cluster_data['residual_s']
             distances = cluster_data[distance_col]
             
+            cluster_weights = cluster_data['weight']
+            cw_sum = cluster_weights.sum()
             cluster_stats[cluster_name] = {
                 'count': len(cluster_data),
                 'description': cluster.get('description', ''),
                 'residual_mean': float(residuals.mean()),
                 'residual_std': float(residuals.std()),
-                'residual_rms': float(np.sqrt(np.mean(residuals**2))),
+                'residual_rms': float(np.sqrt(np.sum(cluster_weights * residuals**2) / cw_sum)),
                 'distance_mean': float(distances.mean()),
                 'unique_events': cluster_data['event_id'].nunique(),
                 'unique_stations': cluster_data['station'].nunique()

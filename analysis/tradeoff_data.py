@@ -262,9 +262,20 @@ def compute_rms_for_iteration(
         & (df['residual_s'] <= max_residual_threshold)
     ]
 
+    def _weighted_mse(values: np.ndarray, weights: Optional[np.ndarray]) -> float:
+        if weights is not None:
+            w_sum = weights.sum()
+            if w_sum > 0:
+                return float(np.sum(weights * values**2) / w_sum)
+        return float(np.mean(values**2))
+
     def _rms(subset: pd.DataFrame) -> Optional[float]:
+        has_weights = 'weight' in subset.columns
         if use_log_residuals:
-            valid = subset[['observed_tt', 'synthetic_tt']].dropna()
+            cols = ['observed_tt', 'synthetic_tt']
+            if has_weights:
+                cols.append('weight')
+            valid = subset[cols].dropna()
             if len(valid) == 0:
                 return None
             obs = np.maximum(valid['observed_tt'].values, log_residual_epsilon)
@@ -273,12 +284,15 @@ def compute_rms_for_iteration(
                 log_res = np.abs(np.log10(obs) - np.log10(syn))
             else:
                 log_res = np.abs(np.log(obs) - np.log(syn))
-            mse = float(np.mean(log_res ** 2))
+            w = valid['weight'].values if has_weights else None
+            mse = _weighted_mse(log_res, w)
         else:
-            residuals = subset['residual_s'].dropna().values
-            if len(residuals) == 0:
+            valid = subset[['residual_s'] + (['weight'] if has_weights else [])].dropna()
+            if len(valid) == 0:
                 return None
-            mse = float(np.mean(residuals ** 2))
+            r = valid['residual_s'].values
+            w = valid['weight'].values if has_weights else None
+            mse = _weighted_mse(r, w)
         return mse if stat_mode == 'data_variance' else float(np.sqrt(mse))
 
     if phase_mode == 'both':

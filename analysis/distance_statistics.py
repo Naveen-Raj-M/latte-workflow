@@ -80,14 +80,16 @@ def _compute_phase_statistics(phase_data: pd.DataFrame, distance_col: str,
     """Compute statistics for a specific phase."""
     phase_distances = phase_data[distance_col]
     phase_residuals = phase_data['residual_s']
-    
+    phase_weights = phase_data['weight']
+    pw_sum = phase_weights.sum()
+
     phase_stats = {
         'count': len(phase_data),
         'distance_mean': float(phase_distances.mean()),
         'residual_distance_correlation': float(phase_distances.corr(phase_residuals)),
         'residual_abs_distance_correlation': float(phase_distances.corr(np.abs(phase_residuals))),
         'mean_residual': float(phase_residuals.mean()),
-        'rms_residual': float(np.sqrt(np.mean(phase_residuals**2)))
+        'rms_residual': float(np.sqrt(np.sum(phase_weights * phase_residuals**2) / pw_sum))
     }
     
     # Fit polynomial if enabled
@@ -111,26 +113,36 @@ def compute_binned_distance_statistics(df: pd.DataFrame, config: Dict[str, Any],
     df_copy['distance_bin'] = pd.cut(df_copy[distance_col], bins=n_bins)
     
     bin_stats = {}
-    
+
+    def _bin_weighted_rms(g):
+        w = g['weight'].values
+        r = g['residual_s'].values
+        w_sum = w.sum()
+        return float(np.sqrt(np.sum(w * r**2) / w_sum)) if w_sum > 0 else float('nan')
+
     # Overall binned statistics
     overall_bins = df_copy.groupby('distance_bin', observed=True).agg({
-        'residual_s': ['count', 'mean', 'std', lambda x: np.sqrt(np.mean(x**2))],
+        'residual_s': ['count', 'mean', 'std'],
         distance_col: 'mean'
     }).round(4)
-    
-    overall_bins.columns = ['count', 'mean_residual', 'std_residual', 'rms_residual', 'mean_distance']
+    overall_bins.columns = ['count', 'mean_residual', 'std_residual', 'mean_distance']
+    overall_bins['rms_residual'] = (
+        df_copy.groupby('distance_bin', observed=True).apply(_bin_weighted_rms).round(4)
+    )
     bin_stats['overall'] = overall_bins.to_dict('index')
-    
+
     # Phase-specific binned statistics
     for phase in ['P', 'S']:
         phase_data = df_copy[df_copy['phase'] == phase]
         if not phase_data.empty:
             phase_bins = phase_data.groupby('distance_bin', observed=True).agg({
-                'residual_s': ['count', 'mean', 'std', lambda x: np.sqrt(np.mean(x**2))],
+                'residual_s': ['count', 'mean', 'std'],
                 distance_col: 'mean'
             }).round(4)
-            
-            phase_bins.columns = ['count', 'mean_residual', 'std_residual', 'rms_residual', 'mean_distance']
+            phase_bins.columns = ['count', 'mean_residual', 'std_residual', 'mean_distance']
+            phase_bins['rms_residual'] = (
+                phase_data.groupby('distance_bin', observed=True).apply(_bin_weighted_rms).round(4)
+            )
             bin_stats[f'{phase.lower()}_wave'] = phase_bins.to_dict('index')
     
     return bin_stats

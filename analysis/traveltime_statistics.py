@@ -30,6 +30,8 @@ def compute_travel_time_statistics(df: pd.DataFrame,
     
     # Overall statistics
     residuals = df['residual_s']
+    weights = df['weight']
+    w_sum = weights.sum()
     stats['overall'] = {
         'count': len(df),
         'mean_residual': float(residuals.mean()),
@@ -37,7 +39,7 @@ def compute_travel_time_statistics(df: pd.DataFrame,
         'median_residual': float(residuals.median()),
         'min_residual': float(residuals.min()),
         'max_residual': float(residuals.max()),
-        'rms_residual': float(np.sqrt(np.mean(residuals**2))),
+        'rms_residual': float(np.sqrt(np.sum(weights * residuals**2) / w_sum)),
         'mae_residual': float(np.mean(np.abs(residuals))),
     }
     
@@ -49,11 +51,13 @@ def compute_travel_time_statistics(df: pd.DataFrame,
             obs_tt = phase_data['observed_tt']
             syn_tt = phase_data['synthetic_tt']
             
+            phase_weights = phase_data['weight']
+            pw_sum = phase_weights.sum()
             stats[f'{phase.lower()}_wave'] = {
                 'count': len(phase_data),
                 'mean_residual': float(phase_residuals.mean()),
                 'std_residual': float(phase_residuals.std()),
-                'rms_residual': float(np.sqrt(np.mean(phase_residuals**2))),
+                'rms_residual': float(np.sqrt(np.sum(phase_weights * phase_residuals**2) / pw_sum)),
                 'mae_residual': float(np.mean(np.abs(phase_residuals))),
                 'mean_observed_tt': float(obs_tt.mean()),
                 'mean_synthetic_tt': float(syn_tt.mean()),
