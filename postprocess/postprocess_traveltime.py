@@ -259,9 +259,9 @@ def create_synthetic_travel_time_csv(config: DictConfig) -> None:
         configured_origin_time = shot_gt_data.iloc[0]['origin_time_s'] if not shot_gt_data.empty else 0.0
 
         # Get corrected origin time if source correction is enabled
-        origin_time_correction = 0.0
+        origin_time_correction = configured_origin_time
         if corrected_origin_times is not None:
-            origin_time_correction = corrected_origin_times.get(shot_id, 0.0)
+            origin_time_correction = corrected_origin_times.get(shot_id, configured_origin_time)
 
         # Process phases based on phase_type
         phases_to_process = []
@@ -306,16 +306,17 @@ def create_synthetic_travel_time_csv(config: DictConfig) -> None:
                 synthetic_tt = synthetic_times[i]
                 observed_tt = gt_row["observed_tt"]
 
-                # STEP 1: Subtract configured origin time from synthetic travel time
-                # Synthetic TT from LATTE binary contains: physical_tt + configured_origin_time
-                # We need to convert it back to physical_tt for comparison with observed_tt (which is already physical)
-                synthetic_tt = synthetic_tt - configured_origin_time
-
-                # STEP 2: Apply source correction if enabled (for source inversion)
-                # This further adjusts both synthetic and observed by the corrected origin time
                 if corrected_origin_times is not None:
-                    synthetic_tt = synthetic_tt - origin_time_correction
-                    observed_tt = observed_tt - origin_time_correction
+                    # Source correction: binary st0 is the absolute corrected origin time.
+                    # del_t shifts the observed TT from the old origin time to the corrected one.
+                    corrected_ot = origin_time_correction
+                    del_t = configured_origin_time - corrected_ot
+                    synthetic_tt = synthetic_tt - corrected_ot
+                    observed_tt = observed_tt + del_t
+                else:
+                    # No source correction: subtract configured origin time.
+                    # Binary contains physical_tt + configured_origin_time.
+                    synthetic_tt = synthetic_tt - configured_origin_time
          
                 # Skip unrealistic synthetic values
                 if synthetic_tt > 1e10:
@@ -537,19 +538,18 @@ def create_synthetic_travel_time_csv_with_exchange(config: DictConfig) -> None:
                     # Get configured origin time for this shot
                     configured_origin_time = gt_row['origin_time_s']
 
-                    # STEP 1: Subtract configured origin time from synthetic travel time
-                    # Synthetic TT from LATTE binary contains: physical_tt + configured_origin_time
-                    # We need to convert it back to physical_tt for comparison with observed_tt (which is already physical)
-                    synthetic_tt = synthetic_tt_raw - configured_origin_time
-
-                    # STEP 2: Apply source correction if enabled (for source inversion)
-                    # This further adjusts both synthetic and observed by the corrected origin time
                     observed_tt = gt_row['observed_tt']
                     if corrected_origin_times is not None:
-                        origin_correction = corrected_origin_times.get(shot_id, 0.0)
-                        synthetic_tt = synthetic_tt - origin_correction
-                        observed_tt = observed_tt - origin_correction
+                        # Source correction: binary st0 is the absolute corrected origin time.
+                        # del_t shifts the observed TT from the old origin time to the corrected one.
+                        origin_correction = corrected_origin_times.get(shot_id, configured_origin_time)
+                        del_t = configured_origin_time - origin_correction
+                        synthetic_tt = synthetic_tt_raw - origin_correction
+                        observed_tt = observed_tt + del_t
                     else:
+                        # No source correction: subtract configured origin time.
+                        # Binary contains physical_tt + configured_origin_time.
+                        synthetic_tt = synthetic_tt_raw - configured_origin_time
                         origin_correction = 0.0
 
                     # Create output record matching ground truth format exactly
