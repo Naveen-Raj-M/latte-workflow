@@ -66,14 +66,17 @@ def create_correction_histograms(df: pd.DataFrame, colors: Dict[str, str],
         comparison_mode: 'ground_truth' or 'method_comparison'
     """
     labels = _get_labels(comparison_mode, config)
-    
-    corrections = [
-        ('delta_time_s', f'Origin Time {labels["shift"]} (s)', '#2E86AB'),
+    params_to_process = config['source_analysis'].get('parameters_to_process', ['sx', 'sy', 'sz', 'st0'])
+
+    corrections = []
+    if 'st0' in params_to_process:
+        corrections.append(('delta_time_s', f'Origin Time {labels["shift"]} (s)', '#2E86AB'))
+    corrections.extend([
         ('delta_depth_km', f'Depth {labels["difference"]} (km)', '#A23B72'),
         ('delta_x_km', f'X {labels["difference"]} (km)', '#F18F01'),
         ('delta_y_km', f'Y {labels["difference"]} (km)', '#C73E1D'),
         ('delta_horiz_km', f'Horizontal {labels["shift"]} (km)', '#6A994E'),
-    ]
+    ])
     
     bins = config['source_analysis'].get('histogram_bins', 50)
     suffix = "_log" if use_log else ""
@@ -140,53 +143,69 @@ def create_scatter_relationships(df: pd.DataFrame, colors: Dict[str, str],
     labels = _get_labels(comparison_mode, config)
     suffix = "_log" if use_log else ""
     scale_note = " (Log Scale)" if use_log else ""
-    
+    params_to_process = config['source_analysis'].get('parameters_to_process', ['sx', 'sy', 'sz', 'st0'])
+    has_st0 = 'st0' in params_to_process
+
     fig, axes = plt.subplots(2, 2, figsize=(12, 10))
-    
+
     # Depth vs horizontal shift
-    axes[0, 0].scatter(df['event_z_transformed'] / 1000, df['delta_horiz_km'], 
-                      alpha=0.6, s=20, color='#2E86AB', 
+    axes[0, 0].scatter(df['event_z_transformed'] / 1000, df['delta_horiz_km'],
+                      alpha=0.6, s=20, color='#2E86AB',
                       edgecolors='black', linewidth=0.3)
     axes[0, 0].set_xlabel('Original Depth (km)', fontsize=10)
     axes[0, 0].set_ylabel(f'Horizontal {labels["shift"]} (km)', fontsize=10)
-    axes[0, 0].set_title(f'Horizontal {labels["difference"]} vs Depth{scale_note}', 
+    axes[0, 0].set_title(f'Horizontal {labels["difference"]} vs Depth{scale_note}',
                         fontsize=11, fontweight='bold')
     if use_log:
         axes[0, 0].set_yscale('log')
     axes[0, 0].grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
-    
+
     # Depth vs depth correction
-    axes[0, 1].scatter(df['event_z_transformed'] / 1000, df['delta_depth_km'], 
+    axes[0, 1].scatter(df['event_z_transformed'] / 1000, df['delta_depth_km'],
                       alpha=0.6, s=20, color='#A23B72',
                       edgecolors='black', linewidth=0.3)
     axes[0, 1].set_xlabel('Original Depth (km)', fontsize=10)
     axes[0, 1].set_ylabel(f'Depth {labels["difference"]} (km)', fontsize=10)
-    axes[0, 1].set_title(f'Depth {labels["difference"]} vs Original Depth{scale_note}', 
+    axes[0, 1].set_title(f'Depth {labels["difference"]} vs Original Depth{scale_note}',
                         fontsize=11, fontweight='bold')
     if use_log:
         axes[0, 1].set_yscale('log')
     axes[0, 1].grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
-    
-    # Horizontal shift vs time shift
-    axes[1, 0].scatter(df['delta_horiz_km'], df['delta_time_s'].abs(), 
-                      alpha=0.6, s=20, color='#6A994E',
-                      edgecolors='black', linewidth=0.3)
-    axes[1, 0].set_xlabel(f'Horizontal {labels["shift"]} (km)', fontsize=10)
-    axes[1, 0].set_ylabel(f'|Time {labels["shift"]}| (s)', fontsize=10)
-    axes[1, 0].set_title(f'Spatial vs Temporal {labels["difference"]}s{scale_note}', 
-                        fontsize=11, fontweight='bold')
-    if use_log:
-        axes[1, 0].set_xscale('log')
-        axes[1, 0].set_yscale('log')
+
+    # Horizontal vs time shift (if st0 processed) or X vs Z (otherwise)
+    if has_st0:
+        axes[1, 0].scatter(df['delta_horiz_km'], df['delta_time_s'].abs(),
+                          alpha=0.6, s=20, color='#6A994E',
+                          edgecolors='black', linewidth=0.3)
+        axes[1, 0].set_xlabel(f'Horizontal {labels["shift"]} (km)', fontsize=10)
+        axes[1, 0].set_ylabel(f'|Time {labels["shift"]}| (s)', fontsize=10)
+        axes[1, 0].set_title(f'Spatial vs Temporal {labels["difference"]}s{scale_note}',
+                            fontsize=11, fontweight='bold')
+        if use_log:
+            axes[1, 0].set_xscale('log')
+            axes[1, 0].set_yscale('log')
+    else:
+        axes[1, 0].scatter(df['delta_x_km'], df['delta_z_km'],
+                          alpha=0.6, s=20, color='#6A994E',
+                          edgecolors='black', linewidth=0.3)
+        axes[1, 0].set_xlabel(f'X {labels["difference"]} (km)', fontsize=10)
+        axes[1, 0].set_ylabel(f'Z {labels["difference"]} (km)', fontsize=10)
+        axes[1, 0].set_title(f'X vs Z {labels["difference"]}s{scale_note}',
+                            fontsize=11, fontweight='bold')
+        axes[1, 0].axhline(0, color='gray', linestyle='--', linewidth=1)
+        axes[1, 0].axvline(0, color='gray', linestyle='--', linewidth=1)
+        if use_log:
+            axes[1, 0].set_xscale('log')
+            axes[1, 0].set_yscale('log')
     axes[1, 0].grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
-    
+
     # X vs Y corrections
-    axes[1, 1].scatter(df['delta_x_km'], df['delta_y_km'], 
+    axes[1, 1].scatter(df['delta_x_km'], df['delta_y_km'],
                       alpha=0.6, s=20, color='#C73E1D',
                       edgecolors='black', linewidth=0.3)
     axes[1, 1].set_xlabel(f'X {labels["difference"]} (km)', fontsize=10)
     axes[1, 1].set_ylabel(f'Y {labels["difference"]} (km)', fontsize=10)
-    axes[1, 1].set_title(f'X vs Y {labels["difference"]}s{scale_note}', 
+    axes[1, 1].set_title(f'X vs Y {labels["difference"]}s{scale_note}',
                         fontsize=11, fontweight='bold')
     if use_log:
         axes[1, 1].set_xscale('log')
@@ -394,18 +413,22 @@ def create_correction_summary(df: pd.DataFrame, colors: Dict[str, str],
     labels = _get_labels(comparison_mode, config)
     suffix = "_log" if use_log else ""
     scale_note = " (Log Scale)" if use_log else ""
-    
+    params_to_process = config['source_analysis'].get('parameters_to_process', ['sx', 'sy', 'sz', 'st0'])
+
     fig, ax = plt.subplots(figsize=(12, 6))
-    
-    correction_data = [
-        df['delta_time_s'].abs().dropna(),
+
+    correction_data = []
+    plot_labels = []
+    if 'st0' in params_to_process:
+        correction_data.append(df['delta_time_s'].abs().dropna())
+        plot_labels.append('|Time| (s)')
+    correction_data.extend([
         df['delta_depth_km'].abs().dropna(),
         df['delta_x_km'].abs().dropna(),
         df['delta_y_km'].abs().dropna(),
-        df['delta_horiz_km'].dropna()
-    ]
-    
-    plot_labels = ['|Time| (s)', '|Depth| (km)', '|X| (km)', '|Y| (km)', 'Horiz (km)']
+        df['delta_horiz_km'].dropna(),
+    ])
+    plot_labels.extend(['|Depth| (km)', '|X| (km)', '|Y| (km)', 'Horiz (km)'])
     
     bp = ax.boxplot(correction_data, labels=plot_labels, patch_artist=True,
                    showmeans=True, meanline=True,
@@ -415,7 +438,8 @@ def create_correction_summary(df: pd.DataFrame, colors: Dict[str, str],
                    medianprops=dict(linewidth=2, color='darkred'),
                    meanprops=dict(linewidth=2, color='darkblue', linestyle='--'))
     
-    plot_colors = ['#2E86AB', '#A23B72', '#F18F01', '#C73E1D', '#6A994E']
+    all_colors = ['#2E86AB', '#A23B72', '#F18F01', '#C73E1D', '#6A994E']
+    plot_colors = all_colors if 'st0' in params_to_process else all_colors[1:]
     for patch, color in zip(bp['boxes'], plot_colors):
         patch.set_facecolor(color)
         patch.set_alpha(0.7)

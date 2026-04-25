@@ -243,63 +243,60 @@ def compute_source_corrections(df: pd.DataFrame,
     logger.info(f"Computing corrections for {len(df)} events")
     logger.info(f"Comparison mode: {comparison_mode}")
 
-    # Temporal correction
-    # Load origin time metadata to handle different origin time modes
-    try:
-        metadata_dir = config['source_analysis'].get('origin_time_metadata_dir',
-                                                     config.get('model_dir', ''))
-        
-        if metadata_dir:
-            origin_time_metadata = load_origin_time_metadata(metadata_dir)
-            origin_time_mode = origin_time_metadata['mode']
+    params_to_process = config['source_analysis'].get('parameters_to_process', ['sx', 'sy', 'sz', 'st0'])
+    has_st0 = 'st0' in params_to_process
 
-            logger.info(f"Origin time mode from preprocessing: {origin_time_mode}")\
+    # Temporal correction (only when st0 is in parameters_to_process)
+    if has_st0:
+        try:
+            metadata_dir = config['source_analysis'].get('origin_time_metadata_dir',
+                                                         config.get('model_dir', ''))
 
-        # Calculate delta_time_s based on mode
-        # For both "fixed" and "unix_epoch" modes, the delta is simply corrected - initial
-        # This works because:
-        # - In "fixed" mode: initial values are all set to the fixed value
-        # - In "unix_epoch" mode: both initial and corrected are in Unix epoch
-        df['delta_time_s'] = df['corrected_origin_time_s'] - df['origin_time_s']
+            if metadata_dir:
+                origin_time_metadata = load_origin_time_metadata(metadata_dir)
+                origin_time_mode = origin_time_metadata['mode']
+                logger.info(f"Origin time mode from preprocessing: {origin_time_mode}")
 
-    except FileNotFoundError as e:
-        # Fallback to old behavior if metadata not found
-        logger.warning(f"Origin time metadata not found: {e}")
-        logger.warning("Falling back to 'zero_initial_origin_time' config flag")
-
-        if config['source_analysis'].get('zero_initial_origin_time', False):
-            df['delta_time_s'] = df['corrected_origin_time_s']
-        else:
             df['delta_time_s'] = df['corrected_origin_time_s'] - df['origin_time_s']
-    
+
+        except FileNotFoundError as e:
+            logger.warning(f"Origin time metadata not found: {e}")
+            logger.warning("Falling back to 'zero_initial_origin_time' config flag")
+
+            if config['source_analysis'].get('zero_initial_origin_time', False):
+                df['delta_time_s'] = df['corrected_origin_time_s']
+            else:
+                df['delta_time_s'] = df['corrected_origin_time_s'] - df['origin_time_s']
+    else:
+        logger.info("Skipping origin time (st0 not in parameters_to_process)")
+
     # Spatial corrections (in transformed coordinates, assumed to be in meters)
     df['delta_x_km'] = (df['corrected_event_x_transformed'] - df['event_x_transformed']) / 1000
     df['delta_y_km'] = (df['corrected_event_y_transformed'] - df['event_y_transformed']) / 1000
     df['delta_z_km'] = (df['corrected_event_z_transformed'] - df['event_z_transformed']) / 1000
-    
+
     # Horizontal shift magnitude
     df['delta_horiz_km'] = np.sqrt(df['delta_x_km']**2 + df['delta_y_km']**2)
-    
+
     # Total 3D shift magnitude
     df['delta_3d_km'] = np.sqrt(
-        df['delta_x_km']**2 + 
-        df['delta_y_km']**2 + 
+        df['delta_x_km']**2 +
+        df['delta_y_km']**2 +
         df['delta_z_km']**2
     )
-    
+
     # Depth correction (z is depth)
     df['delta_depth_km'] = df['delta_z_km']
-    
+
     # Remove any infinite or NaN values
     initial_count = len(df)
     df = df.replace([np.inf, -np.inf], np.nan)
-    
-    # Check for required columns
-    required_cols = [
-        'delta_time_s', 'delta_x_km', 'delta_y_km', 'delta_z_km',
-        'delta_horiz_km', 'delta_3d_km', 'delta_depth_km'
-    ]
-    
+
+    required_cols = ['delta_x_km', 'delta_y_km', 'delta_z_km',
+                     'delta_horiz_km', 'delta_3d_km', 'delta_depth_km']
+    if has_st0:
+        required_cols.append('delta_time_s')
+
     df = df.dropna(subset=required_cols)
     
     if len(df) < initial_count:
@@ -325,16 +322,20 @@ def compute_source_statistics(df: pd.DataFrame,
         Dictionary of statistics
     """
     stats = {'comparison_mode': comparison_mode}
-    
+
+    params_to_process = config['source_analysis'].get('parameters_to_process', ['sx', 'sy', 'sz', 'st0'])
+    has_st0 = 'st0' in params_to_process
+
     # Overall statistics for each correction type
     correction_columns = {
-        'time': 'delta_time_s',
         'x': 'delta_x_km',
         'y': 'delta_y_km',
         'depth': 'delta_depth_km',
         'horizontal': 'delta_horiz_km',
-        '3d': 'delta_3d_km'
+        '3d': 'delta_3d_km',
     }
+    if has_st0:
+        correction_columns['time'] = 'delta_time_s'
     
     for name, col in correction_columns.items():
         values = df[col]
@@ -382,12 +383,16 @@ def compute_depth_dependent_stats(df: pd.DataFrame,
     
     df_copy = df.copy()
     df_copy['depth_bin'] = pd.cut(df_copy['event_z_transformed'], bins=n_bins)
-    
-    depth_stats = df_copy.groupby('depth_bin').agg({
+
+    params_to_process = config['source_analysis'].get('parameters_to_process', ['sx', 'sy', 'sz', 'st0'])
+    agg_dict = {
         'delta_horiz_km': ['mean', 'std', 'count'],
         'delta_depth_km': ['mean', 'std'],
-        'delta_time_s': ['mean', 'std']
-    }).round(4)
+    }
+    if 'st0' in params_to_process:
+        agg_dict['delta_time_s'] = ['mean', 'std']
+
+    depth_stats = df_copy.groupby('depth_bin').agg(agg_dict).round(4)
     
     # Filter bins with sufficient data
     min_events = config['source_analysis'].get('min_events_per_bin', 5)
@@ -438,8 +443,9 @@ def create_source_plots(df: pd.DataFrame, stats: Dict[str, Any],
     create_depth_analysis(df, colors, plots_dir, output_format, use_log, config, comparison_mode)
     create_correction_summary(df, colors, plots_dir, output_format, use_log, config, comparison_mode)
     
-    # Temporal plots if time data available
-    if 'origin_time_s' in df.columns:
+    # Temporal plots only when st0 was processed and original origin times are present
+    _params = config['source_analysis'].get('parameters_to_process', ['sx', 'sy', 'sz', 'st0'])
+    if 'origin_time_s' in df.columns and 'st0' in _params:
         create_temporal_corrections(df, colors, plots_dir, output_format, use_log, config, comparison_mode)
 
 
@@ -495,38 +501,40 @@ def generate_source_report(df: pd.DataFrame, stats: Dict[str, Any],
             "",
         ])
     
+    event_count = stats.get('time', stats.get('horizontal', {})).get('count', 0)
     report_lines.extend([
         "SUMMARY",
         "-" * 60,
-        f"Total events analyzed: {stats['time']['count']}",
+        f"Total events analyzed: {event_count}",
         "",
     ])
-    
-    # Temporal corrections/differences
-    if comparison_mode == 'method_comparison':
-        report_lines.extend([
-            "TEMPORAL DIFFERENCES",
-            "-" * 60,
-            f"Mean time difference: {stats['time']['mean']:.4f} s",
-            f"Std time difference: {stats['time']['std']:.4f} s",
-            f"Median time difference: {stats['time']['median']:.4f} s",
-            f"Mean absolute time difference: {stats['time']['mean_abs']:.4f} s",
-            f"Max absolute time difference: {stats['time']['max_abs']:.4f} s",
-            f"Range: [{stats['time']['min']:.4f}, {stats['time']['max']:.4f}] s",
-            "",
-        ])
-    else:
-        report_lines.extend([
-            "TEMPORAL CORRECTIONS",
-            "-" * 60,
-            f"Mean time shift: {stats['time']['mean']:.4f} s",
-            f"Std time shift: {stats['time']['std']:.4f} s",
-            f"Median time shift: {stats['time']['median']:.4f} s",
-            f"Mean absolute time shift: {stats['time']['mean_abs']:.4f} s",
-            f"Max absolute time shift: {stats['time']['max_abs']:.4f} s",
-            f"Range: [{stats['time']['min']:.4f}, {stats['time']['max']:.4f}] s",
-            "",
-        ])
+
+    # Temporal corrections/differences (only when st0 was processed)
+    if 'time' in stats:
+        if comparison_mode == 'method_comparison':
+            report_lines.extend([
+                "TEMPORAL DIFFERENCES",
+                "-" * 60,
+                f"Mean time difference: {stats['time']['mean']:.4f} s",
+                f"Std time difference: {stats['time']['std']:.4f} s",
+                f"Median time difference: {stats['time']['median']:.4f} s",
+                f"Mean absolute time difference: {stats['time']['mean_abs']:.4f} s",
+                f"Max absolute time difference: {stats['time']['max_abs']:.4f} s",
+                f"Range: [{stats['time']['min']:.4f}, {stats['time']['max']:.4f}] s",
+                "",
+            ])
+        else:
+            report_lines.extend([
+                "TEMPORAL CORRECTIONS",
+                "-" * 60,
+                f"Mean time shift: {stats['time']['mean']:.4f} s",
+                f"Std time shift: {stats['time']['std']:.4f} s",
+                f"Median time shift: {stats['time']['median']:.4f} s",
+                f"Mean absolute time shift: {stats['time']['mean_abs']:.4f} s",
+                f"Max absolute time shift: {stats['time']['max_abs']:.4f} s",
+                f"Range: [{stats['time']['min']:.4f}, {stats['time']['max']:.4f}] s",
+                "",
+            ])
     
     # Horizontal corrections/differences
     label_type = "difference" if comparison_mode == 'method_comparison' else "shift"

@@ -263,6 +263,7 @@ short_distance_analysis:
 # Source parameter correction analysis
 source_analysis:
   enabled: false
+  parameters_to_process: ["sx", "sy", "sz", "st0"]  # subset controls which corrections are computed and plotted
   comparison_mode: "ground_truth"         # ground_truth | method_comparison
 
   # ground_truth mode input
