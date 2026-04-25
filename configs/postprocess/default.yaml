@@ -87,6 +87,7 @@ travel_time_processing:
 
 source_processing:
   enabled: false
+  parameters_to_process: ["sx", "sy", "sz", "st0"]  # sx | sy | sz | st0; controls which files are read and validated
   sx_file: "${data.base_dir}/model/updated_sx.bin"
   sy_file: "${data.base_dir}/model/updated_sy.bin"
   sz_file: "${data.base_dir}/model/updated_sz.bin"
@@ -97,7 +98,6 @@ source_processing:
   # Gradient and search direction outputs; requires process_gradient or process_search to be true
   process_gradient: false                # true = load and output gradient fields (grad_sx, …, grad_st0)
   process_search: false                  # true = load and output search direction fields (srch_sx, …, srch_st0)
-  parameters_to_process: ["sx", "sy", "sz", "st0"]  # sx | sy | sz | st0
   grad_sx_file: "${data.base_dir}/model/grad_sx.bin"
   grad_sy_file: "${data.base_dir}/model/grad_sy.bin"
   grad_sz_file: "${data.base_dir}/model/grad_sz.bin"
