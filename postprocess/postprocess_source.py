@@ -14,6 +14,20 @@ from omegaconf import DictConfig
 
 logger = logging.getLogger(__name__)
 
+_PARAM_FILE_KEY = {
+    'sx': 'sx_file',
+    'sy': 'sy_file',
+    'sz': 'sz_file',
+    'st0': 'st0_file',
+}
+
+_PARAM_COLUMN = {
+    'sx': 'corrected_event_x_transformed',
+    'sy': 'corrected_event_y_transformed',
+    'sz': 'corrected_event_z_transformed',
+    'st0': 'corrected_origin_time_s',
+}
+
 
 def read_binary_file(path: str, count: int, dtype=np.float32) -> np.ndarray:
     """Read a binary file into a numpy array with validation."""
@@ -114,191 +128,138 @@ def process_source_updates(cfg: DictConfig) -> pd.DataFrame:
 
     logger.info("=== PROCESSING SOURCE PARAMETER UPDATES ===")
 
-    # Get number of sources
     ns = cfg["n_sources"]
     logger.info(f"Number of sources: {ns}")
 
-    # st0 is always single precision (float32)
-    st0_dtype = np.float32
-
-    # Read binary files with source corrections (REQUIRED)
-    logger.info("\nReading updated source parameter binaries...")
-    sx = read_binary_file(str(cfg["sx_file"]), ns)  # in meters, single precision
-    sy = read_binary_file(str(cfg["sy_file"]), ns)  # in meters, single precision
-    sz = read_binary_file(str(cfg["sz_file"]), ns)  # in meters, single precision
-    st0 = read_binary_file(str(cfg["st0_file"]), ns, dtype=st0_dtype)  # in seconds, configurable precision
-
-    # Determine which parameters to process for gradients/search
-    params_to_process = cfg.get('parameters_to_process', [])
+    # Determine which parameters to process (controls base reads, path validation, and optional fields)
+    params_to_process = list(cfg.get('parameters_to_process', list(_PARAM_FILE_KEY.keys())))
     process_gradient = cfg.get('process_gradient', False)
     process_search = cfg.get('process_search', False)
-    logger.info(f"\nOptional fields to process: {params_to_process if params_to_process else 'None'}")
+    logger.info(f"Parameters to process: {params_to_process}")
     logger.info(f"  process_gradient: {process_gradient}, process_search: {process_search}")
 
-    # Dictionary to store optional fields
+    # Read base binary files only for parameters in parameters_to_process
+    logger.info("\nReading updated source parameter binaries...")
+    base_data: Dict[str, np.ndarray] = {}
+    for param in params_to_process:
+        if param not in _PARAM_FILE_KEY:
+            logger.warning(f"  Unknown parameter '{param}' in parameters_to_process (skipping)")
+            continue
+        base_data[param] = read_binary_file(str(cfg[_PARAM_FILE_KEY[param]]), ns)
+
+    # Dictionary to store optional gradient/search fields
     auxiliary_fields: Dict[str, Dict[str, Optional[np.ndarray]]] = {
-        'sx': {'gradient': None, 'search': None},
-        'sy': {'gradient': None, 'search': None},
-        'sz': {'gradient': None, 'search': None},
-        'st0': {'gradient': None, 'search': None}
+        p: {'gradient': None, 'search': None} for p in base_data
     }
 
     # Load optional gradient and search direction files
-    if params_to_process and (process_gradient or process_search):
+    if base_data and (process_gradient or process_search):
         logger.info("\nLoading optional gradient and search direction files...")
-
-        for param in params_to_process:
-            if param not in ['sx', 'sy', 'sz', 'st0']:
-                logger.warning(f"  Unknown parameter '{param}' in parameters_to_process (skipping)")
-                continue
-
+        for param in base_data:
             logger.info(f"\n  Processing optional fields for {param.upper()}:")
-
-            param_dtype = np.float32
-
             if process_gradient:
                 grad_key = f'grad_{param}_file'
                 if hasattr(cfg, grad_key):
-                    grad_file = getattr(cfg, grad_key)
                     auxiliary_fields[param]['gradient'] = read_optional_binary_file(
-                        str(grad_file), ns, f"{param.upper()} gradient", dtype=param_dtype
+                        str(getattr(cfg, grad_key)), ns, f"{param.upper()} gradient"
                     )
-
             if process_search:
                 srch_key = f'srch_{param}_file'
                 if hasattr(cfg, srch_key):
-                    srch_file = getattr(cfg, srch_key)
                     auxiliary_fields[param]['search'] = read_optional_binary_file(
-                        str(srch_file), ns, f"{param.upper()} search direction", dtype=param_dtype
+                        str(getattr(cfg, srch_key)), ns, f"{param.upper()} search direction"
                     )
 
     # Create source corrections lookup (1-based shot_id -> corrections)
     source_corrections = {}
     for shot_id in range(1, ns + 1):
-        idx = shot_id - 1  # Convert to 0-based array index
-        
-        correction_dict = {
-            'corrected_event_x_transformed': sx[idx],
-            'corrected_event_y_transformed': sy[idx],
-            'corrected_event_z_transformed': sz[idx],
-            'corrected_origin_time_s': st0[idx]
-        }
-        
-        # Add optional gradient fields
-        for param in ['sx', 'sy', 'sz', 'st0']:
+        idx = shot_id - 1
+        correction_dict = {_PARAM_COLUMN[p]: base_data[p][idx] for p in base_data}
+        for param in base_data:
             if auxiliary_fields[param]['gradient'] is not None:
                 correction_dict[f'grad_{param}'] = auxiliary_fields[param]['gradient'][idx]
             if auxiliary_fields[param]['search'] is not None:
                 correction_dict[f'srch_{param}'] = auxiliary_fields[param]['search'][idx]
-        
         source_corrections[shot_id] = correction_dict
-    
+
     logger.info(f"\nCreated corrections for {len(source_corrections)} shots")
 
     # Load travel time CSV
     tt_csv_path = Path(str(cfg["travel_time_csv"]))
     if not tt_csv_path.exists():
         raise FileNotFoundError(f"Travel time CSV not found: {tt_csv_path}")
-    
+
     logger.info(f"\nLoading travel time CSV: {tt_csv_path}")
     df = pd.read_csv(tt_csv_path)
     logger.info(f"  Loaded {len(df)} travel time records")
     logger.info(f"  Columns: {', '.join(df.columns.tolist())}")
-    
+
     # Validate shot IDs
     validate_shot_ids(df, ns)
-    
+
     # Verify required columns exist
     required_cols = ['shot_id', 'event_id', 'station', 'phase']
     missing_cols = [col for col in required_cols if col not in df.columns]
     if missing_cols:
         raise ValueError(f"Missing required columns in travel time CSV: {missing_cols}")
 
+    # Determine all output column names (base params first, then gradient/search)
+    all_output_cols = [_PARAM_COLUMN[p] for p in base_data]
+    for param in base_data:
+        if auxiliary_fields[param]['gradient'] is not None:
+            all_output_cols.append(f'grad_{param}')
+        if auxiliary_fields[param]['search'] is not None:
+            all_output_cols.append(f'srch_{param}')
+
     # Apply corrections to each row
     logger.info("\nApplying source corrections to travel time records...")
-    
-    # Initialize lists for required columns
-    corrected_x = []
-    corrected_y = []
-    corrected_z = []
-    corrected_t0 = []
-    
-    # Initialize dictionaries for optional columns
-    optional_columns = {}
-    for param in ['sx', 'sy', 'sz', 'st0']:
-        if auxiliary_fields[param]['gradient'] is not None:
-            optional_columns[f'grad_{param}'] = []
-        if auxiliary_fields[param]['search'] is not None:
-            optional_columns[f'srch_{param}'] = []
-    
+    output_columns: Dict[str, list] = {col: [] for col in all_output_cols}
     shots_with_corrections = set()
     shots_without_corrections = set()
-    
+
     for _, row in df.iterrows():
         shot_id = int(row['shot_id'])
-        
         if shot_id in source_corrections:
             corr = source_corrections[shot_id]
-            
-            # Add required fields
-            corrected_x.append(corr['corrected_event_x_transformed'])
-            corrected_y.append(corr['corrected_event_y_transformed'])
-            corrected_z.append(corr['corrected_event_z_transformed'])
-            corrected_t0.append(corr['corrected_origin_time_s'])
-            
-            # Add optional fields
-            for col_name in optional_columns.keys():
-                optional_columns[col_name].append(corr.get(col_name, np.nan))
-            
+            for col in output_columns:
+                output_columns[col].append(corr.get(col, np.nan))
             shots_with_corrections.add(shot_id)
         else:
-            # Should not happen if validation passed, but handle gracefully
-            corrected_x.append(np.nan)
-            corrected_y.append(np.nan)
-            corrected_z.append(np.nan)
-            corrected_t0.append(np.nan)
-            
-            # Add NaN for optional fields
-            for col_name in optional_columns.keys():
-                optional_columns[col_name].append(np.nan)
-            
+            for col in output_columns:
+                output_columns[col].append(np.nan)
             shots_without_corrections.add(shot_id)
-    
-    # Add corrected columns to DataFrame (required fields)
-    df['corrected_event_x_transformed'] = corrected_x
-    df['corrected_event_y_transformed'] = corrected_y
-    df['corrected_event_z_transformed'] = corrected_z
-    df['corrected_origin_time_s'] = corrected_t0
-    
-    # Add optional columns to DataFrame
-    for col_name, values in optional_columns.items():
-        df[col_name] = values
-    
+
+    for col, values in output_columns.items():
+        df[col] = values
+
     # Report statistics
     logger.info(f"\nCorrection statistics:")
     logger.info(f"  Unique shots with corrections: {len(shots_with_corrections)}")
     if shots_without_corrections:
         logger.warning(f"  Shots without corrections: {shots_without_corrections}")
-    
-    if optional_columns:
-        logger.info(f"  Optional fields added: {', '.join(optional_columns.keys())}")
-    
-    # Calculate correction magnitudes
-    if 'event_x_transformed' in df.columns:
+
+    optional_cols = [c for c in all_output_cols if c not in _PARAM_COLUMN.values()]
+    if optional_cols:
+        logger.info(f"  Optional fields added: {', '.join(optional_cols)}")
+
+    # Calculate correction magnitudes (only when all spatial and temporal params were processed)
+    spatial_out = ['corrected_event_x_transformed', 'corrected_event_y_transformed', 'corrected_event_z_transformed']
+    spatial_orig = ['event_x_transformed', 'event_y_transformed', 'event_z_transformed']
+    if (all(c in df.columns for c in spatial_out + spatial_orig) and
+            'corrected_origin_time_s' in df.columns and 'origin_time_s' in df.columns):
         dx = df['corrected_event_x_transformed'] - df['event_x_transformed']
         dy = df['corrected_event_y_transformed'] - df['event_y_transformed']
         dz = df['corrected_event_z_transformed'] - df['event_z_transformed']
         dt = df['corrected_origin_time_s'] - df['origin_time_s']
-        
         spatial_change = np.sqrt(dx**2 + dy**2 + dz**2)
-        
+
         logger.info(f"\nCorrection magnitudes:")
         logger.info(f"  X shift: mean={dx.mean():.3f} km, std={dx.std():.3f} km, range=[{dx.min():.3f}, {dx.max():.3f}]")
         logger.info(f"  Y shift: mean={dy.mean():.3f} km, std={dy.std():.3f} km, range=[{dy.min():.3f}, {dy.max():.3f}]")
         logger.info(f"  Z shift: mean={dz.mean():.3f} km, std={dz.std():.3f} km, range=[{dz.min():.3f}, {dz.max():.3f}]")
         logger.info(f"  3D spatial shift: mean={spatial_change.mean():.3f} km, max={spatial_change.max():.3f} km")
         logger.info(f"  Origin time shift: mean={dt.mean():.6f} s, std={dt.std():.6f} s, range=[{dt.min():.6f}, {dt.max():.6f}]")
-    
+
     # Save output CSV
     out_path = Path(str(cfg["output_csv"]))
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -307,10 +268,6 @@ def process_source_updates(cfg: DictConfig) -> pd.DataFrame:
     logger.info(f"\n=== OUTPUT SUMMARY ===")
     logger.info(f"Source-corrected travel time CSV written: {out_path}")
     logger.info(f"  Total records: {len(df)}")
-    logger.info(f"  Added columns: corrected_event_x_transformed, corrected_event_y_transformed, "
-                f"corrected_event_z_transformed, corrected_origin_time_s")
-    
-    if optional_columns:
-        logger.info(f"  Optional columns added: {', '.join(optional_columns.keys())}")
-    
+    logger.info(f"  Added columns: {', '.join(all_output_cols)}")
+
     return df
