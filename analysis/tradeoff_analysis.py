@@ -682,9 +682,32 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
             )
 
             if df_inverted is None:
-                logger.error(
-                    f"Iteration {idx}: failed to load velocity model, skipping"
-                )
+                if idx == 0:
+                    # Iteration 0 is the initial model — variance from itself is zero.
+                    logger.warning(
+                        "Iteration 0: velocity model not found; "
+                        "using x-axis = 0 (initial model has no deviation by definition)."
+                    )
+                    _zero_vp = 0.0 if phase_mode in ('p', 'both', 'separate') else None
+                    _zero_vs = 0.0 if phase_mode in ('s', 'both', 'separate') else None
+                    _zero_cb = 0.0
+                    if region in ('full', 'z_bounded'):
+                        vp_variances[0]       = _zero_vp
+                        vs_variances[0]       = _zero_vs
+                        combined_variances[0] = _zero_cb
+                        n_used_vp_values[0]   = None
+                        n_used_vs_values[0]   = None
+                    elif region == 'depth_layer':
+                        for depth_km in masks:
+                            vp_variances_by_depth[depth_km][0]       = _zero_vp
+                            vs_variances_by_depth[depth_km][0]       = _zero_vs
+                            combined_variances_by_depth[depth_km][0] = _zero_cb
+                            n_used_vp_by_depth[depth_km][0]          = None
+                            n_used_vs_by_depth[depth_km][0]          = None
+                else:
+                    logger.error(
+                        f"Iteration {idx}: failed to load velocity model, skipping"
+                    )
                 continue
 
             try:
