@@ -427,141 +427,173 @@ def compute_model_variance_for_mask(
             "Check your bounds configuration."
         )
 
-    vp_init = df_initial['vp'].values[mask]
-    vs_init = df_initial['vs'].values[mask]
-    vp_inv = df_inverted['vp'].values[mask]
-    vs_inv = df_inverted['vs'].values[mask]
+    compute_vp = phase_mode in ('p', 'both', 'separate')
+    compute_vs = phase_mode in ('s', 'both', 'separate')
 
-    vp_diff = vp_init - vp_inv
-    vs_diff = vs_init - vs_inv
-    vp_abs_diff = np.abs(vp_diff)
-    vs_abs_diff = np.abs(vs_diff)
+    # Load only the arrays needed for the requested phase(s)
+    if compute_vp:
+        vp_init = df_initial['vp'].values[mask]
+        vp_inv  = df_inverted['vp'].values[mask]
+        vp_diff = vp_init - vp_inv
+        vp_abs_diff = np.abs(vp_diff)
+
+    if compute_vs:
+        vs_init = df_initial['vs'].values[mask]
+        vs_inv  = df_inverted['vs'].values[mask]
+        vs_diff = vs_init - vs_inv
+        vs_abs_diff = np.abs(vs_diff)
+
+    variance_vp: Optional[float] = None
+    variance_vs: Optional[float] = None
+    n_used_vp:   Optional[int]   = None
+    n_used_vs:   Optional[int]   = None
 
     if use_percentage_change:
-        # Exclude near-zero initial velocities to avoid division by ~0
-        vp_valid = np.abs(vp_init) >= 1e-6
-        vs_valid = np.abs(vs_init) >= 1e-6
+        if compute_vp:
+            vp_valid = np.abs(vp_init) >= 1e-6
+            n_vp_excluded = int((~vp_valid).sum())
+            if n_vp_excluded:
+                logger.warning(
+                    f"{n_vp_excluded} grid points have |vp_initial| < 1e-6 km/s "
+                    "and are excluded from percentage variance computation."
+                )
+            if not vp_valid.any():
+                raise ValueError(
+                    "All selected grid points have near-zero initial Vp – "
+                    "cannot compute percentage model variance."
+                )
+            vp_rel = vp_abs_diff[vp_valid] / np.abs(vp_init[vp_valid])
 
-        n_vp_excluded = int((~vp_valid).sum())
-        n_vs_excluded = int((~vs_valid).sum())
-
-        if n_vp_excluded:
-            logger.warning(
-                f"{n_vp_excluded} grid points have |vp_initial| < 1e-6 km/s "
-                "and are excluded from percentage variance computation."
-            )
-        if n_vs_excluded:
-            logger.warning(
-                f"{n_vs_excluded} grid points have |vs_initial| < 1e-6 km/s "
-                "and are excluded from percentage variance computation."
-            )
-
-        if not vp_valid.any():
-            raise ValueError(
-                "All selected grid points have near-zero initial Vp – "
-                "cannot compute percentage model variance."
-            )
-        if not vs_valid.any():
-            raise ValueError(
-                "All selected grid points have near-zero initial Vs – "
-                "cannot compute percentage model variance."
-            )
-
-        vp_rel = vp_abs_diff[vp_valid] / np.abs(vp_init[vp_valid])
-        vs_rel = vs_abs_diff[vs_valid] / np.abs(vs_init[vs_valid])
+        if compute_vs:
+            vs_valid = np.abs(vs_init) >= 1e-6
+            n_vs_excluded = int((~vs_valid).sum())
+            if n_vs_excluded:
+                logger.warning(
+                    f"{n_vs_excluded} grid points have |vs_initial| < 1e-6 km/s "
+                    "and are excluded from percentage variance computation."
+                )
+            if not vs_valid.any():
+                raise ValueError(
+                    "All selected grid points have near-zero initial Vs – "
+                    "cannot compute percentage model variance."
+                )
+            vs_rel = vs_abs_diff[vs_valid] / np.abs(vs_init[vs_valid])
 
         if aggregation == 'max':
-            n_used_vp = int(vp_valid.sum())
-            n_used_vs = int(vs_valid.sum())
-            variance_vp = float(np.max(vp_rel) * 100.0)
-            variance_vs = float(np.max(vs_rel) * 100.0)
+            if compute_vp:
+                n_used_vp   = int(vp_valid.sum())
+                variance_vp = float(np.max(vp_rel) * 100.0)
+            if compute_vs:
+                n_used_vs   = int(vs_valid.sum())
+                variance_vs = float(np.max(vs_rel) * 100.0)
         elif aggregation == 'mean':
-            n_used_vp = int(vp_valid.sum())
-            n_used_vs = int(vs_valid.sum())
-            variance_vp = float(np.mean(vp_rel) * 100.0)
-            variance_vs = float(np.mean(vs_rel) * 100.0)
+            if compute_vp:
+                n_used_vp   = int(vp_valid.sum())
+                variance_vp = float(np.mean(vp_rel) * 100.0)
+            if compute_vs:
+                n_used_vs   = int(vs_valid.sum())
+                variance_vs = float(np.mean(vs_rel) * 100.0)
         elif aggregation == 'rms_variation':  # 100 × sqrt(mean((Δv/v_init)²))
             if exclude_zero_change:
-                # Exclude zero-change nodes (within the already-valid subset)
-                vp_nonzero = vp_abs_diff[vp_valid] > zero_change_tolerance
-                vs_nonzero = vs_abs_diff[vs_valid] > zero_change_tolerance
-                n_used_vp = int(vp_nonzero.sum())
-                n_used_vs = int(vs_nonzero.sum())
-                if n_used_vp == 0:
-                    raise ValueError(
-                        f"All valid Vp grid points have |Δvp| <= {zero_change_tolerance} km/s "
-                        "(zero-change tolerance); cannot compute rms_variation."
-                    )
-                if n_used_vs == 0:
-                    raise ValueError(
-                        f"All valid Vs grid points have |Δvs| <= {zero_change_tolerance} km/s "
-                        "(zero-change tolerance); cannot compute rms_variation."
-                    )
-                vp_rel_used = vp_rel[vp_nonzero]
-                vs_rel_used = vs_rel[vs_nonzero]
+                if compute_vp:
+                    vp_nonzero = vp_abs_diff[vp_valid] > zero_change_tolerance
+                    n_used_vp  = int(vp_nonzero.sum())
+                    if n_used_vp == 0:
+                        raise ValueError(
+                            f"All valid Vp grid points have |Δvp| <= {zero_change_tolerance} km/s "
+                            "(zero-change tolerance); cannot compute rms_variation."
+                        )
+                    vp_rel_used = vp_rel[vp_nonzero]
+                if compute_vs:
+                    vs_nonzero = vs_abs_diff[vs_valid] > zero_change_tolerance
+                    n_used_vs  = int(vs_nonzero.sum())
+                    if n_used_vs == 0:
+                        raise ValueError(
+                            f"All valid Vs grid points have |Δvs| <= {zero_change_tolerance} km/s "
+                            "(zero-change tolerance); cannot compute rms_variation."
+                        )
+                    vs_rel_used = vs_rel[vs_nonzero]
+                dbg_vp = f"Vp {n_used_vp}/{int(vp_valid.sum())} pts" if compute_vp else "Vp skipped"
+                dbg_vs = f"Vs {n_used_vs}/{int(vs_valid.sum())} pts" if compute_vs else "Vs skipped"
                 logger.debug(
-                    f"rms_variation (pct, exclude_zero): "
-                    f"Vp {n_used_vp}/{int(vp_valid.sum())} pts used, "
-                    f"Vs {n_used_vs}/{int(vs_valid.sum())} pts used "
+                    f"rms_variation (pct, exclude_zero): {dbg_vp}, {dbg_vs} "
                     f"(tol={zero_change_tolerance} km/s)"
                 )
             else:
-                n_used_vp = int(vp_valid.sum())
-                n_used_vs = int(vs_valid.sum())
-                vp_rel_used = vp_rel
-                vs_rel_used = vs_rel
-            variance_vp = float(np.sqrt(np.mean(vp_rel_used ** 2)) * 100.0)
-            variance_vs = float(np.sqrt(np.mean(vs_rel_used ** 2)) * 100.0)
+                if compute_vp:
+                    n_used_vp   = int(vp_valid.sum())
+                    vp_rel_used = vp_rel
+                if compute_vs:
+                    n_used_vs   = int(vs_valid.sum())
+                    vs_rel_used = vs_rel
+            if compute_vp:
+                variance_vp = float(np.sqrt(np.mean(vp_rel_used ** 2)) * 100.0)
+            if compute_vs:
+                variance_vs = float(np.sqrt(np.mean(vs_rel_used ** 2)) * 100.0)
         else:  # model_variance: mean((Δv/v_init)²) × 100²
-            n_used_vp = int(vp_valid.sum())
-            n_used_vs = int(vs_valid.sum())
-            variance_vp = float(np.mean(vp_rel ** 2) * 10000.0)
-            variance_vs = float(np.mean(vs_rel ** 2) * 10000.0)
+            if compute_vp:
+                n_used_vp   = int(vp_valid.sum())
+                variance_vp = float(np.mean(vp_rel ** 2) * 10000.0)
+            if compute_vs:
+                n_used_vs   = int(vs_valid.sum())
+                variance_vs = float(np.mean(vs_rel ** 2) * 10000.0)
     else:
         if aggregation == 'max':
-            n_used_vp = n_selected
-            n_used_vs = n_selected
-            variance_vp = float(np.max(vp_abs_diff))
-            variance_vs = float(np.max(vs_abs_diff))
+            if compute_vp:
+                n_used_vp   = n_selected
+                variance_vp = float(np.max(vp_abs_diff))
+            if compute_vs:
+                n_used_vs   = n_selected
+                variance_vs = float(np.max(vs_abs_diff))
         elif aggregation == 'mean':
-            n_used_vp = n_selected
-            n_used_vs = n_selected
-            variance_vp = float(np.mean(vp_abs_diff))
-            variance_vs = float(np.mean(vs_abs_diff))
+            if compute_vp:
+                n_used_vp   = n_selected
+                variance_vp = float(np.mean(vp_abs_diff))
+            if compute_vs:
+                n_used_vs   = n_selected
+                variance_vs = float(np.mean(vs_abs_diff))
         elif aggregation == 'rms_variation':  # sqrt(mean((Δv)²))
             if exclude_zero_change:
-                vp_nonzero = vp_abs_diff > zero_change_tolerance
-                vs_nonzero = vs_abs_diff > zero_change_tolerance
-                n_used_vp = int(vp_nonzero.sum())
-                n_used_vs = int(vs_nonzero.sum())
-                if n_used_vp == 0:
-                    raise ValueError(
-                        f"All Vp grid points have |Δvp| <= {zero_change_tolerance} km/s "
-                        "(zero-change tolerance); cannot compute rms_variation."
-                    )
-                if n_used_vs == 0:
-                    raise ValueError(
-                        f"All Vs grid points have |Δvs| <= {zero_change_tolerance} km/s "
-                        "(zero-change tolerance); cannot compute rms_variation."
-                    )
+                if compute_vp:
+                    vp_nonzero = vp_abs_diff > zero_change_tolerance
+                    n_used_vp  = int(vp_nonzero.sum())
+                    if n_used_vp == 0:
+                        raise ValueError(
+                            f"All Vp grid points have |Δvp| <= {zero_change_tolerance} km/s "
+                            "(zero-change tolerance); cannot compute rms_variation."
+                        )
+                if compute_vs:
+                    vs_nonzero = vs_abs_diff > zero_change_tolerance
+                    n_used_vs  = int(vs_nonzero.sum())
+                    if n_used_vs == 0:
+                        raise ValueError(
+                            f"All Vs grid points have |Δvs| <= {zero_change_tolerance} km/s "
+                            "(zero-change tolerance); cannot compute rms_variation."
+                        )
+                dbg_vp = f"Vp {n_used_vp}/{n_selected} pts" if compute_vp else "Vp skipped"
+                dbg_vs = f"Vs {n_used_vs}/{n_selected} pts" if compute_vs else "Vs skipped"
                 logger.debug(
-                    f"rms_variation (exclude_zero): "
-                    f"Vp {n_used_vp}/{n_selected} pts used, "
-                    f"Vs {n_used_vs}/{n_selected} pts used "
+                    f"rms_variation (exclude_zero): {dbg_vp}, {dbg_vs} "
                     f"(tol={zero_change_tolerance} km/s)"
                 )
-                variance_vp = float(np.sqrt(np.mean(vp_diff[vp_nonzero] ** 2)))
-                variance_vs = float(np.sqrt(np.mean(vs_diff[vs_nonzero] ** 2)))
+                if compute_vp:
+                    variance_vp = float(np.sqrt(np.mean(vp_diff[vp_nonzero] ** 2)))
+                if compute_vs:
+                    variance_vs = float(np.sqrt(np.mean(vs_diff[vs_nonzero] ** 2)))
             else:
-                n_used_vp = n_selected
-                n_used_vs = n_selected
-                variance_vp = float(np.sqrt(np.mean(vp_diff ** 2)))
-                variance_vs = float(np.sqrt(np.mean(vs_diff ** 2)))
+                if compute_vp:
+                    n_used_vp   = n_selected
+                    variance_vp = float(np.sqrt(np.mean(vp_diff ** 2)))
+                if compute_vs:
+                    n_used_vs   = n_selected
+                    variance_vs = float(np.sqrt(np.mean(vs_diff ** 2)))
         else:  # model_variance: mean((Δv)²)
-            n_used_vp = n_selected
-            n_used_vs = n_selected
-            variance_vp = float(np.mean(vp_diff ** 2))
-            variance_vs = float(np.mean(vs_diff ** 2))
+            if compute_vp:
+                n_used_vp   = n_selected
+                variance_vp = float(np.mean(vp_diff ** 2))
+            if compute_vs:
+                n_used_vs   = n_selected
+                variance_vs = float(np.mean(vs_diff ** 2))
 
     if phase_mode == 'p':
         return {
