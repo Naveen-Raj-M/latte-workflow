@@ -70,6 +70,7 @@ def _process_parameter_entries(
     use_log_residuals: bool = False,
     log_base: str = 'natural',
     log_residual_epsilon: float = 1e-10,
+    velocity_csv_pattern: str = '*.csv',
 ) -> List[Dict[str, Any]]:
     """
     Process parameter sweep entries: load traveltime CSVs and velocity models,
@@ -140,7 +141,9 @@ def _process_parameter_entries(
         # Load velocity model and compute model variance
         try:
             vel_dir = build_parameter_entry_path(inversion_analysis_dir, dir_name, iteration)
-            df_inverted = load_velocity_model_for_iteration(vel_dir, velocity_dataset)
+            df_inverted = load_velocity_model_for_iteration(
+                vel_dir, velocity_dataset, velocity_csv_pattern
+            )
             if df_inverted is not None:
                 try:
                     _validate_grid_alignment(df_initial, df_inverted, iteration)
@@ -156,9 +159,10 @@ def _process_parameter_entries(
                     result['model_variance_vs']  = var['vs']
                     result['model_variance_max'] = var['combined']
                     units = "%" if use_percentage_change else "km/s"
+                    _fmt = lambda v: f"{v:.6f}" if v is not None else "n/a"
                     logger.debug(
                         f"Entry (val={param_val}): "
-                        f"vp_var={var['vp']:.6f}, vs_var={var['vs']:.6f} {units}"
+                        f"vp_var={_fmt(var['vp'])}, vs_var={_fmt(var['vs'])} {units}"
                     )
                 except ValueError as e:
                     logger.error(
@@ -256,6 +260,7 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
     mv_cfg = tcfg.get('model_variance', {})
     region = mv_cfg.get('region', 'full')
     velocity_dataset = tcfg.get('velocity_dataset', 'velocity')
+    velocity_csv_pattern = tcfg.get('velocity_csv_pattern', '*.csv')
 
     min_residual_threshold = tcfg.get('min_residual_threshold', -50.0)
     max_residual_threshold = tcfg.get('max_residual_threshold', 50.0)
@@ -451,6 +456,7 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
                     use_log_residuals=use_log_residuals,
                     log_base=log_base,
                     log_residual_epsilon=log_residual_epsilon,
+                    velocity_csv_pattern=velocity_csv_pattern,
                 )
             df_p = assemble_parameter_tradeoff_table(p_processed, phase_mode='p')
 
@@ -475,6 +481,7 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
                     use_log_residuals=use_log_residuals,
                     log_base=log_base,
                     log_residual_epsilon=log_residual_epsilon,
+                    velocity_csv_pattern=velocity_csv_pattern,
                 )
             df_s = assemble_parameter_tradeoff_table(s_processed, phase_mode='s')
 
@@ -670,7 +677,9 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
     with ProcessTimer("Computing model variance per iteration"):
         for idx in tqdm(common_iterations, desc="Model variance", unit="iter"):
             iter_dir = vel_dir_map[idx]
-            df_inverted = load_velocity_model_for_iteration(iter_dir, velocity_dataset)
+            df_inverted = load_velocity_model_for_iteration(
+                iter_dir, velocity_dataset, velocity_csv_pattern
+            )
 
             if df_inverted is None:
                 logger.error(
@@ -700,9 +709,10 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
                     n_used_vp_values[idx]   = var['n_used_vp']
                     n_used_vs_values[idx]   = var['n_used_vs']
                     units = "%" if use_percentage_change else "km/s"
+                    _fmt = lambda v: f"{v:.6f}" if v is not None else "n/a"
                     logger.debug(
-                        f"Iteration {idx}: vp_var={var['vp']:.6f}, "
-                        f"vs_var={var['vs']:.6f}, combined={var['combined']:.6f} {units} "
+                        f"Iteration {idx}: vp_var={_fmt(var['vp'])}, "
+                        f"vs_var={_fmt(var['vs'])}, combined={_fmt(var['combined'])} {units} "
                         f"(n_used_vp={var['n_used_vp']}, n_used_vs={var['n_used_vs']})"
                     )
                 except ValueError as e:
@@ -732,18 +742,30 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
                             f"Iteration {idx}, depth {depth_km:.2f} km: {e}"
                         )
                 if any_succeeded:
-                    vp_variances[idx] = float(np.mean([
+                    _vp_vals = [
                         vp_variances_by_depth[d][idx]
-                        for d in depth_layers if idx in vp_variances_by_depth.get(d, {})
-                    ]))
-                    vs_variances[idx] = float(np.mean([
+                        for d in depth_layers
+                        if idx in vp_variances_by_depth.get(d, {})
+                        and vp_variances_by_depth[d][idx] is not None
+                    ]
+                    _vs_vals = [
                         vs_variances_by_depth[d][idx]
-                        for d in depth_layers if idx in vs_variances_by_depth.get(d, {})
-                    ]))
-                    combined_variances[idx] = float(np.mean([
+                        for d in depth_layers
+                        if idx in vs_variances_by_depth.get(d, {})
+                        and vs_variances_by_depth[d][idx] is not None
+                    ]
+                    _cb_vals = [
                         combined_variances_by_depth[d][idx]
-                        for d in depth_layers if idx in combined_variances_by_depth.get(d, {})
-                    ]))
+                        for d in depth_layers
+                        if idx in combined_variances_by_depth.get(d, {})
+                        and combined_variances_by_depth[d][idx] is not None
+                    ]
+                    if _vp_vals:
+                        vp_variances[idx] = float(np.mean(_vp_vals))
+                    if _vs_vals:
+                        vs_variances[idx] = float(np.mean(_vs_vals))
+                    if _cb_vals:
+                        combined_variances[idx] = float(np.mean(_cb_vals))
 
     # ------------------------------------------------------------------ #
     # PHASE 6 – ASSEMBLE TRADEOFF TABLES                                  #

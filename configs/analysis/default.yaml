@@ -456,6 +456,7 @@ tradeoff_analysis:
   # rms mode: computes RMS from per-iteration traveltime residual CSVs
   inversion_base_path: null             # dir containing iteration_*/ subdirs with traveltime CSVs
   traveltime_csv_pattern: "travel_time_residuals*.csv"
+  velocity_csv_pattern: "velocity*.csv"
   phase_mode: "both"                    # both | p | s | separate
   min_residual_threshold: -50.0         # s; lower bound for RMS computation
   max_residual_threshold: 50.0          # s; upper bound for RMS computation

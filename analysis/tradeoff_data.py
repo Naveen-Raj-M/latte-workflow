@@ -484,6 +484,7 @@ def compute_method_comparison_rms_for_iteration(
 def load_velocity_model_for_iteration(
     iteration_dir: Path,
     velocity_dataset: str = 'velocity',
+    velocity_csv_pattern: str = '*.csv',
 ) -> Optional[pd.DataFrame]:
     """
     Load postprocessed velocity model from an iteration directory.
@@ -494,6 +495,9 @@ def load_velocity_model_for_iteration(
     Args:
         iteration_dir: Path to one iteration_* subdirectory.
         velocity_dataset: HDF5 dataset name ('velocity' or 'velocity_coarse').
+        velocity_csv_pattern: Glob pattern for CSV velocity model files.
+            Narrow this (e.g. 'velocity*.csv') when traveltime CSVs or other
+            non-model CSVs co-exist in the same iteration directory.
 
     Returns:
         DataFrame with columns [X_grid_km, Y_grid_km, Z_grid_km, vp, vs],
@@ -502,7 +506,7 @@ def load_velocity_model_for_iteration(
     hdf5_candidates = sorted(
         list(iteration_dir.rglob('*.h5')) + list(iteration_dir.rglob('*.hdf5'))
     )
-    csv_candidates = sorted(iteration_dir.rglob('*.csv'))
+    csv_candidates = sorted(iteration_dir.rglob(velocity_csv_pattern))
 
     if hdf5_candidates:
         if len(hdf5_candidates) > 1:
