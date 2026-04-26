@@ -362,7 +362,8 @@ def compute_model_variance_for_mask(
     aggregation: str = 'mean',
     exclude_zero_change: bool = False,
     zero_change_tolerance: float = 1e-6,
-) -> Dict[str, float]:
+    phase_mode: str = 'both',
+) -> Dict[str, Any]:
     """
     Compute model variance for vp and vs at selected grid points.
 
@@ -398,9 +399,15 @@ def compute_model_variance_for_mask(
         zero_change_tolerance: Absolute velocity-change threshold (km/s)
             below which a node is considered unchanged.  Used only when
             exclude_zero_change=True and aggregation='rms_variation'.
+        phase_mode: One of 'both', 'p', 's', 'separate'. When 'p', only Vp
+            variance is computed and 'vs'/'n_used_vs' are returned as None.
+            When 's', only Vs variance is computed and 'vp'/'n_used_vp' are
+            returned as None. 'both' and 'separate' compute both phases.
 
     Returns:
         Dict with keys: 'vp', 'vs', 'combined', 'n_used_vp', 'n_used_vs'.
+        'vp' and 'n_used_vp' are None when phase_mode='s'; 'vs' and
+        'n_used_vs' are None when phase_mode='p'.
         n_used_* reflect the number of grid points included in the
         computation (after any zero-change filtering).
 
@@ -556,6 +563,18 @@ def compute_model_variance_for_mask(
             variance_vp = float(np.mean(vp_diff ** 2))
             variance_vs = float(np.mean(vs_diff ** 2))
 
+    if phase_mode == 'p':
+        return {
+            'vp': variance_vp, 'vs': None,
+            'combined': variance_vp,
+            'n_used_vp': n_used_vp, 'n_used_vs': None,
+        }
+    if phase_mode == 's':
+        return {
+            'vp': None, 'vs': variance_vs,
+            'combined': variance_vs,
+            'n_used_vp': None, 'n_used_vs': n_used_vs,
+        }
     variance_combined = (variance_vp + variance_vs) / 2.0
     return {
         'vp': variance_vp,
@@ -628,7 +647,9 @@ def assemble_tradeoff_table(
         comb_var = combined_variances.get(idx)
         y_val    = y_values.get(idx)
 
-        if vp_var is None or vs_var is None:
+        need_vp = phase_mode in ('p', 'both', 'separate')
+        need_vs = phase_mode in ('s', 'both', 'separate')
+        if (need_vp and vp_var is None) or (need_vs and vs_var is None):
             skipped.append(idx)
             continue
 
@@ -702,6 +723,7 @@ def assemble_tradeoff_table(
 
 def assemble_parameter_tradeoff_table(
     processed_entries: List[Dict[str, Any]],
+    phase_mode: str = 'both',
 ) -> pd.DataFrame:
     """
     Assemble processed parameter sweep entries into a tradeoff DataFrame.
@@ -724,8 +746,11 @@ def assemble_parameter_tradeoff_table(
 
     rows = []
     skipped = []
+    need_vp = phase_mode in ('p', 'both')
+    need_vs = phase_mode in ('s', 'both')
     for e in processed_entries:
-        if e.get('model_variance_vp') is None or e.get('model_variance_vs') is None:
+        if (need_vp and e.get('model_variance_vp') is None) or \
+                (need_vs and e.get('model_variance_vs') is None):
             skipped.append(e.get('parameter_value'))
             continue
         rows.append({

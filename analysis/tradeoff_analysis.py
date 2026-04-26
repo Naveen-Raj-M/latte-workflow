@@ -150,6 +150,7 @@ def _process_parameter_entries(
                         aggregation=aggregation,
                         exclude_zero_change=exclude_zero_change,
                         zero_change_tolerance=zero_change_tolerance,
+                        phase_mode=phase,
                     )
                     result['model_variance_vp']  = var['vp']
                     result['model_variance_vs']  = var['vs']
@@ -451,7 +452,7 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
                     log_base=log_base,
                     log_residual_epsilon=log_residual_epsilon,
                 )
-            df_p = assemble_parameter_tradeoff_table(p_processed)
+            df_p = assemble_parameter_tradeoff_table(p_processed, phase_mode='p')
 
         if s_entries_cfg:
             with ProcessTimer("Processing S-wave parameter entries"):
@@ -475,7 +476,7 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
                     log_base=log_base,
                     log_residual_epsilon=log_residual_epsilon,
                 )
-            df_s = assemble_parameter_tradeoff_table(s_processed)
+            df_s = assemble_parameter_tradeoff_table(s_processed, phase_mode='s')
 
         # Save statistics CSV
         if df_p is not None and not df_p.empty:
@@ -691,6 +692,7 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
                         aggregation=aggregation,
                         exclude_zero_change=exclude_zero_change,
                         zero_change_tolerance=zero_change_tolerance,
+                        phase_mode=phase_mode,
                     )
                     vp_variances[idx]       = var['vp']
                     vs_variances[idx]       = var['vs']
@@ -717,6 +719,7 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
                             aggregation=aggregation,
                             exclude_zero_change=exclude_zero_change,
                             zero_change_tolerance=zero_change_tolerance,
+                            phase_mode=phase_mode,
                         )
                         vp_variances_by_depth[depth_km][idx]       = var_d['vp']
                         vs_variances_by_depth[depth_km][idx]       = var_d['vs']
