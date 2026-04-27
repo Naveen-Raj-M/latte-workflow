@@ -674,6 +674,30 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
     n_used_vp_by_depth: Dict[float, Dict[int, int]] = {d: {} for d in depth_layers}
     n_used_vs_by_depth: Dict[float, Dict[int, int]] = {d: {} for d in depth_layers}
 
+    # Iteration 0 is the initial model — its deviation from itself is zero by definition.
+    # Pre-populate with zeros so it always appears in the report/statistics even when
+    # its velocity model file is missing or cannot be loaded.
+    if 0 in y_dict:
+        _z_vp = 0.0 if phase_mode in ('p', 'both', 'separate') else None
+        _z_vs = 0.0 if phase_mode in ('s', 'both', 'separate') else None
+        if region in ('full', 'z_bounded'):
+            vp_variances[0]       = _z_vp
+            vs_variances[0]       = _z_vs
+            combined_variances[0] = 0.0
+            n_used_vp_values[0]   = None
+            n_used_vs_values[0]   = None
+        elif region == 'depth_layer':
+            for _d in masks:
+                vp_variances_by_depth[_d][0]       = _z_vp
+                vs_variances_by_depth[_d][0]       = _z_vs
+                combined_variances_by_depth[_d][0] = 0.0
+                n_used_vp_by_depth[_d][0]          = None
+                n_used_vs_by_depth[_d][0]          = None
+        logger.info(
+            "Iteration 0 pre-populated with model variance = 0 "
+            "(will be overwritten if the velocity model loads successfully)."
+        )
+
     with ProcessTimer("Computing model variance per iteration"):
         for idx in tqdm(common_iterations, desc="Model variance", unit="iter"):
             iter_dir = vel_dir_map[idx]
@@ -683,27 +707,10 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
 
             if df_inverted is None:
                 if idx == 0:
-                    # Iteration 0 is the initial model — variance from itself is zero.
                     logger.warning(
                         "Iteration 0: velocity model not found; "
-                        "using x-axis = 0 (initial model has no deviation by definition)."
+                        "keeping x-axis = 0 (pre-populated as initial model baseline)."
                     )
-                    _zero_vp = 0.0 if phase_mode in ('p', 'both', 'separate') else None
-                    _zero_vs = 0.0 if phase_mode in ('s', 'both', 'separate') else None
-                    _zero_cb = 0.0
-                    if region in ('full', 'z_bounded'):
-                        vp_variances[0]       = _zero_vp
-                        vs_variances[0]       = _zero_vs
-                        combined_variances[0] = _zero_cb
-                        n_used_vp_values[0]   = None
-                        n_used_vs_values[0]   = None
-                    elif region == 'depth_layer':
-                        for depth_km in masks:
-                            vp_variances_by_depth[depth_km][0]       = _zero_vp
-                            vs_variances_by_depth[depth_km][0]       = _zero_vs
-                            combined_variances_by_depth[depth_km][0] = _zero_cb
-                            n_used_vp_by_depth[depth_km][0]          = None
-                            n_used_vs_by_depth[depth_km][0]          = None
                 else:
                     logger.error(
                         f"Iteration {idx}: failed to load velocity model, skipping"
