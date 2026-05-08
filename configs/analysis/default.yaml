@@ -460,6 +460,7 @@ tradeoff_analysis:
   phase_mode: "both"                    # both | p | s | separate
   min_residual_threshold: -50.0         # s; lower bound for RMS computation
   max_residual_threshold: 50.0          # s; upper bound for RMS computation
+  use_weighted_rms: false               # true = use per-row weights from 'weight' column; false = uniform weights
 
   # Log-residual transform (applies to rms and data_variance y_axis_mode only)
   use_log_residuals: false              # true = use |log(obs_tt) - log(syn_tt)| instead of residual_s

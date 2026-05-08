@@ -199,6 +199,7 @@ def compute_rms_for_iteration(
     use_log_residuals: bool = False,
     log_base: str = 'natural',
     log_residual_epsilon: float = 1e-10,
+    use_weighted: bool = False,
 ) -> Dict[str, Optional[float]]:
     """
     Compute traveltime statistic(s) for one iteration.
@@ -233,6 +234,9 @@ def compute_rms_for_iteration(
         log_residual_epsilon: Travel times below this value are clamped to
             this value before taking the log.  Used only when
             use_log_residuals=True.
+        use_weighted: If True, use per-row values from the 'weight' column
+            for weighted RMS/variance. If False (default), all weights are
+            treated as 1 regardless of whether the column exists.
 
     Returns:
         Dict with values per curve key:
@@ -270,7 +274,7 @@ def compute_rms_for_iteration(
         return float(np.mean(values**2))
 
     def _rms(subset: pd.DataFrame) -> Optional[float]:
-        has_weights = 'weight' in subset.columns
+        has_weights = use_weighted and 'weight' in subset.columns
         if use_log_residuals:
             cols = ['observed_tt', 'synthetic_tt']
             if has_weights:
@@ -380,6 +384,7 @@ def compute_method_comparison_rms_for_iteration(
     use_log_residuals: bool = False,
     log_base: str = 'natural',
     log_residual_epsilon: float = 1e-10,
+    use_weighted: bool = False,
 ) -> Optional[Dict[str, Optional[float]]]:
     """
     Compute traveltime statistic for method comparison for a single iteration.
@@ -401,6 +406,7 @@ def compute_method_comparison_rms_for_iteration(
         use_log_residuals: If True, transform residuals via log before squaring.
         log_base: 'natural' or 'log10'. Used only when use_log_residuals=True.
         log_residual_epsilon: Small value added to |residual| before log.
+        use_weighted: If True, use per-row 'weight' column for weighted computation.
 
     Returns:
         Dict with values per curve key (same format as compute_rms_for_iteration),
@@ -478,6 +484,7 @@ def compute_method_comparison_rms_for_iteration(
         use_log_residuals=use_log_residuals,
         log_base=log_base,
         log_residual_epsilon=log_residual_epsilon,
+        use_weighted=use_weighted,
     )
 
 

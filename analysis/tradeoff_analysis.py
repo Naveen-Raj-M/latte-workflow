@@ -71,6 +71,7 @@ def _process_parameter_entries(
     log_base: str = 'natural',
     log_residual_epsilon: float = 1e-10,
     velocity_csv_pattern: str = '*.csv',
+    use_weighted: bool = False,
 ) -> List[Dict[str, Any]]:
     """
     Process parameter sweep entries: load traveltime CSVs and velocity models,
@@ -94,6 +95,7 @@ def _process_parameter_entries(
         use_log_residuals: If True, apply log to |residual| before squaring.
         log_base: 'natural' or 'log10'. Used only when use_log_residuals=True.
         log_residual_epsilon: Small value added to |residual| before log.
+        use_weighted: If True, use per-row 'weight' column for weighted RMS.
 
     Returns:
         List of processed result dicts with keys:
@@ -129,6 +131,7 @@ def _process_parameter_entries(
                     use_log_residuals=use_log_residuals,
                     log_base=log_base,
                     log_residual_epsilon=log_residual_epsilon,
+                    use_weighted=use_weighted,
                 )
                 key = next(iter(rms_dict))
                 result['rms'] = rms_dict.get(key)
@@ -277,6 +280,7 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
     use_log_residuals     = bool(tcfg.get('use_log_residuals', False))
     log_base              = str(tcfg.get('log_residual_base', 'natural'))
     log_residual_epsilon  = float(tcfg.get('log_residual_epsilon', 1e-10))
+    use_weighted_rms      = bool(tcfg.get('use_weighted_rms', False))
 
     if use_log_residuals and log_base not in ('natural', 'log10'):
         raise ValueError(
@@ -291,6 +295,8 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
     if y_axis_mode == 'rms':
         logger.info(f"Phase mode:       {phase_mode}")
         logger.info(f"RMS comparison:   {rms_comparison_mode}")
+    if use_weighted_rms:
+        logger.info("Weighted RMS:     True (using 'weight' column from traveltime CSV)")
     if use_log_residuals:
         logger.info(f"Log residuals:    True (base={log_base}, epsilon={log_residual_epsilon})")
     logger.info(f"Region mode:      {region}")
@@ -457,6 +463,7 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
                     log_base=log_base,
                     log_residual_epsilon=log_residual_epsilon,
                     velocity_csv_pattern=velocity_csv_pattern,
+                    use_weighted=use_weighted_rms,
                 )
             df_p = assemble_parameter_tradeoff_table(p_processed, phase_mode='p')
 
@@ -482,6 +489,7 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
                     log_base=log_base,
                     log_residual_epsilon=log_residual_epsilon,
                     velocity_csv_pattern=velocity_csv_pattern,
+                    use_weighted=use_weighted_rms,
                 )
             df_s = assemble_parameter_tradeoff_table(s_processed, phase_mode='s')
 
@@ -580,6 +588,7 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
                         use_log_residuals=use_log_residuals,
                         log_base=log_base,
                         log_residual_epsilon=log_residual_epsilon,
+                        use_weighted=use_weighted_rms,
                     )
                     if rms_dict is None:
                         logger.warning(
@@ -609,6 +618,7 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
                         use_log_residuals=use_log_residuals,
                         log_base=log_base,
                         log_residual_epsilon=log_residual_epsilon,
+                        use_weighted=use_weighted_rms,
                     )
                     y_dict[idx] = rms_dict
     else:
