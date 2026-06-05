@@ -199,20 +199,30 @@ def prepare_method_comparison_data(df1: pd.DataFrame, df2: pd.DataFrame,
     # Rename for consistency with ground truth comparison
     # Method 1 becomes "original", Method 2 becomes "corrected"
     rename_map = {}
-    
-    # Handle both possible column name patterns
+
+    # Handle both possible column name patterns.
+    # Prefer corrected_event_*_transformed (post-inversion LATTE locations) over
+    # event_*_transformed (initial catalog, identical across all runs) so that
+    # method_comparison reflects actual inversion differences.
     for coord in ['x', 'y', 'z']:
-        # Pattern 1: event_x_transformed
-        if f'event_{coord}_transformed_method1' in df_merged.columns:
+        # Pattern 1: corrected_event_x_transformed (LATTE output with both initial/corrected)
+        if f'corrected_event_{coord}_transformed_method1' in df_merged.columns:
+            rename_map[f'corrected_event_{coord}_transformed_method1'] = f'event_{coord}_transformed'
+            rename_map[f'corrected_event_{coord}_transformed_method2'] = f'corrected_event_{coord}_transformed'
+        # Pattern 2: event_x_transformed only (single-location output)
+        elif f'event_{coord}_transformed_method1' in df_merged.columns:
             rename_map[f'event_{coord}_transformed_method1'] = f'event_{coord}_transformed'
             rename_map[f'event_{coord}_transformed_method2'] = f'corrected_event_{coord}_transformed'
-        # Pattern 2: X_grid_km, Y_grid_km, Z_grid_km
+        # Pattern 3: X_grid_km, Y_grid_km, Z_grid_km
         elif f'{coord.upper()}_grid_km_method1' in df_merged.columns:
             rename_map[f'{coord.upper()}_grid_km_method1'] = f'event_{coord}_transformed'
             rename_map[f'{coord.upper()}_grid_km_method2'] = f'corrected_event_{coord}_transformed'
-    
-    # Handle origin time
-    if 'origin_time_s_method1' in df_merged.columns:
+
+    # Handle origin time: prefer corrected times (post-inversion) for method comparison
+    if 'corrected_origin_time_s_method1' in df_merged.columns:
+        rename_map['corrected_origin_time_s_method1'] = 'origin_time_s'
+        rename_map['corrected_origin_time_s_method2'] = 'corrected_origin_time_s'
+    elif 'origin_time_s_method1' in df_merged.columns:
         rename_map['origin_time_s_method1'] = 'origin_time_s'
         rename_map['origin_time_s_method2'] = 'corrected_origin_time_s'
     
