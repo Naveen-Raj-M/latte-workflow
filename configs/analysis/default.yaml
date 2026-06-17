@@ -425,9 +425,6 @@ ray_density_analysis:
   plot_basin_boundaries: false            # true = overlay basin boundaries on XY projection, depth slice, and oblique section plots
 
   # Oblique section plots — vertical planes defined by two XY endpoint pairs
-  # Figure size, font sizes, and dpi are inherited from figure_width / figure_height
-  # and analysis.plot_style below.  Basin boundary crossing lines reuse the styling
-  # from the top-level basin_boundaries section (line_color, line_width, etc.).
   enable_oblique_sections: false         # true = plot ray density along user-defined oblique vertical planes
   enable_oblique_section_plan_view: false # true = plot plan view map showing all oblique section traces
 
