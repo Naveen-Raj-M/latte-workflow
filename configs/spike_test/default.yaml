@@ -1,0 +1,401 @@
+# Spike Test Configuration for LATTE Tomographic Inversion
+# This module creates synthetic spike (Gaussian-anomaly) tests to assess resolution.
+# Unlike the checkerboard test (a periodic pattern), the spike test places one or more
+# localized Gaussian velocity anomalies of arbitrary shape, orientation, amplitude and
+# polarity, then checks how well the inversion recovers them.
+
+defaults:
+  - _self_
+
+hydra:
+  run:
+    dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}_spike_test_${hydra:job.config_name}
+
+# General settings
+general:
+  # Output directory for all spike test results
+  output_dir: "/path/to/output/spike_test"
+
+  # Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+  log_level: "INFO"
+
+  # Random seed for reproducibility (set to null for random)
+  random_seed: 42
+
+# Input files
+input:
+  # Input velocity model CSV from preprocess module
+  # Should contain: X_grid_km, Y_grid_km, Z_grid_km, vp, vs
+  velocity_model_csv: "/path/to/preprocess/output/velocity_model_cartesian.csv"
+
+  # Optional HDF5 input (if specified, takes precedence over CSV)
+  velocity_model_hdf5: null  # e.g., "/path/to/preprocess/output/velocity_model_cartesian.h5"
+
+  # Directory containing original geometry files (to be reused)
+  geometry_dir: "/path/to/preprocess/output/geometry"
+
+  # Directory containing synthetic traveltime binary files from LATTE
+  # Files should be named: shot_{shot_id}_traveltime_{phase}.bin
+  synthetic_traveltime_dir: "/path/to/latte/output/synthetic_traveltimes"
+
+  # Ground truth traveltime CSV (for matching metadata)
+  ground_truth_csv: "/path/to/preprocess/output/geometry_csv/ground_truth_traveltimes.csv"
+
+  # Directory containing inverted velocity binary files from LATTE
+  # Files should be: updated_vp.bin, updated_vs.bin
+  inverted_model_dir: "/path/to/latte/output/model"
+
+  # Maps virtual shot ID -> station coords (km): "virtual_id x_km y_km z_km" per line.
+  # Required only when traveltime_noise.source_receiver_exchange = true.
+  exchange_geometry_file: null  # e.g., "/path/to/latte/output/exchange_geometry.txt"
+
+# Spike (Gaussian-anomaly) configuration
+spike:
+  enabled: true
+
+  # Apply anomalies to which velocity fields (global switch; per-anomaly amplitudes still apply)
+  apply_to_vp: true
+  apply_to_vs: true
+
+  # Velocity bounds (m/s) - perturbed values clipped to these ranges
+  vp_min: 500.0
+  vp_max: 10000.0
+  vs_min: 500.0
+  vs_max: 6000.0
+
+  # Optional global truncation: zero the Gaussian beyond this many standard deviations
+  # from the center (keeps anomalies compact). Set to null for no truncation.
+  # Can be overridden per-anomaly with its own "truncate_at_sigma".
+  truncate_at_sigma: 4.0
+
+  # List of Gaussian anomalies. Each anomaly is independent and the perturbations
+  # from overlapping anomalies are summed before being applied to the model.
+  #
+  # Common per-anomaly fields:
+  #   name        : label used only for logging
+  #   type        : "3d" | "2d" | "arbitrary"
+  #   center      : [x, y, z] anomaly center in km
+  #   amplitude_p : peak fractional perturbation for vp at the center (e.g. 0.10 = 10%)
+  #   amplitude_s : peak fractional perturbation for vs at the center
+  #   polarity_p  : "positive" or "negative" sign of the vp perturbation
+  #   polarity_s  : "positive" or "negative" sign of the vs perturbation
+  #   truncate_at_sigma : (optional) override the global truncation for this anomaly
+  #
+  # Type-specific fields:
+  #   type: "3d"        -> sigma: [sigma_x, sigma_y, sigma_z]   (axis-aligned ellipsoid, km)
+  #   type: "2d"        -> sigma: [sigma_x, sigma_y]            (in-plane blob, km)
+  #                        the z value of "center" selects the single depth layer it lives on
+  #   type: "arbitrary" -> direction: [dx, dy, dz]             (major-axis direction vector)
+  #                        sigma: [sigma_major, sigma_minor1, sigma_minor2]  (km)
+  #                        minor1_direction: (optional) [x, y, z] to fix the minor1 axis;
+  #                          if omitted, an orthonormal pair perpendicular to the major
+  #                          axis is chosen automatically.
+  anomalies:
+    - name: "blob_3d"
+      type: "3d"
+      center: [100.0, 80.0, 10.0]
+      sigma: [5.0, 5.0, 3.0]
+      amplitude_p: 0.10
+      amplitude_s: 0.10
+      polarity_p: "positive"
+      polarity_s: "positive"
+
+    - name: "blob_2d_layer"
+      type: "2d"
+      center: [120.0, 90.0, 15.0]   # z = 15 km selects the depth layer
+      sigma: [8.0, 4.0]
+      amplitude_p: 0.08
+      amplitude_s: 0.08
+      polarity_p: "negative"
+      polarity_s: "negative"
+
+    - name: "elongated_dyke"
+      type: "arbitrary"
+      center: [80.0, 70.0, 12.0]
+      direction: [1.0, 1.0, 0.5]    # major axis points NE and slightly down
+      sigma: [12.0, 3.0, 3.0]       # long along major, narrow across
+      amplitude_p: 0.12
+      amplitude_s: 0.10
+      polarity_p: "positive"
+      polarity_s: "negative"
+
+  # Output format control
+  # Options: "csv", "hdf5", "both"
+  # Note: Binary files (.bin) for LATTE are always generated
+  output_format: "csv"  # Default: CSV for backward compatibility
+
+  output_csv: "${general.output_dir}/spike_model/velocity_model_spike.csv"
+  output_hdf5: "${general.output_dir}/spike_model/velocity_model_spike.h5"
+
+  # HDF5-specific options (used when output_format is "hdf5" or "both")
+  hdf5_options:
+    # Compression type: "gzip", "lzf", or null (no compression)
+    compression: "gzip"
+
+    # Compression level (0-9 for gzip, where 9 is maximum compression)
+    compression_level: 4
+
+    # Parallel processing for coarse grid subsampling
+    parallel_processing: true
+    n_jobs: -1  # -1 = use all CPU cores, 1 = sequential
+
+    # Show progress bars during HDF5 operations
+    show_progress: true
+
+    # Create coarse-resolution dataset within HDF5 file
+    # Coarse dataset enables faster visualization/analysis
+    create_coarse_dataset: false
+
+    # Coarse grid spacing (must be integral multiples of fine grid)
+    coarse_grid:
+      dx: 2.0  # km (e.g., 2x coarser than fine grid)
+      dy: 2.0  # km
+      dz: 2.0  # km
+
+# Travel time noise configuration
+traveltime_noise:
+  enabled: true
+
+  # Set true when LATTE forward modeling used source-receiver exchange (stations as virtual sources).
+  source_receiver_exchange: false
+
+  # Shot IDs removed by LATTE geometry filtering (compact the exchange binary arrays).
+  removed_shots: []  # e.g., [60]
+
+  # Tolerance (km) for matching geometry-file receiver coords to exchange_geometry_file entries.
+  coordinate_tolerance: 0.01  # km (~10 m)
+
+  noise_type: "gaussian"  # "gaussian" or "uniform"
+
+  gaussian:
+    mean: 0.0        # seconds
+    std: 0.01        # seconds
+
+  uniform:
+    low: -0.02       # seconds
+    high: 0.02       # seconds
+
+  # Phase-specific overrides (take precedence over gaussian/uniform defaults above)
+  p_wave:
+    mean: 0.0
+    std: 0.01
+
+  s_wave:
+    mean: 0.0
+    std: 0.02
+
+  output_precision: "single"  # "single" (float32) or "double" (float64)
+
+  # SNR-based per-pick noise derived from event magnitude and hypocentral distance.
+  magnitude_distance_noise:
+    enabled: false            # Set to true to activate
+    S0: 0.2                   # Reference SNR amplitude
+    gamma: 1.0                # Geometric spreading exponent
+    kappa: 0.003              # Attenuation coefficient (1/km)
+    snr_max: 50.0             # SNR cap (prevents unrealistically small sigma_t)
+    p_wave_frequency: 10.0   # Hz — used in sigma_t = 1/(2*pi*f*SNR) for P picks
+    s_wave_frequency: 5.0    # Hz — used for S picks
+
+# Model conversion configuration
+model_conversion:
+  # Enable conversion of inverted model to CSV
+  enabled: true
+
+  # Grid dimensions (must match LATTE configuration)
+  grid:
+    nx: 401
+    ny: 361
+    nz: 43
+    dx: 0.5  # km
+    dy: 0.5  # km
+    dz: 0.5  # km
+    origin_x: 0.0  # km
+    origin_y: 0.0  # km
+    origin_z: 0.0  # km
+
+  # Input binary precision
+  binary_precision: "single"  # "single" (float32) or "double" (float64)
+
+  # Convert velocity units from m/s to km/s
+  convert_to_kms: true
+
+  # Apply Chapman inverse transform (if spherical coordinates were used)
+  apply_chapman_inverse: false
+  earth_radius_km: 6371.0
+
+  # Processing mode: "sample" or "expand"
+  # "sample": Sample at coarse CSV grid points
+  # "expand": Create full fine grid CSV
+  processing_mode: "sample"
+
+  # Additional fields to process (optional)
+  # Files should be named: grad_vp.bin, grad_vs.bin, etc.
+  additional_fields:
+    - "grad_vp"
+    - "grad_vs"
+
+  # Output format control
+  # Options: "csv", "hdf5", "both"
+  output_format: "csv"  # Default: CSV for backward compatibility
+
+  output_csv: "${general.output_dir}/inverted_model/velocity_model_inverted.csv"
+  output_hdf5: "${general.output_dir}/inverted_model/velocity_model_inverted.h5"
+
+  # HDF5-specific options (used when output_format is "hdf5" or "both")
+  hdf5_options:
+    # Compression type: "gzip", "lzf", or null (no compression)
+    compression: "gzip"
+
+    # Compression level (0-9 for gzip, where 9 is maximum compression)
+    compression_level: 4
+
+    # Parallel processing for coarse grid subsampling
+    parallel_processing: true
+    n_jobs: -1  # -1 = use all CPU cores, 1 = sequential
+
+    # Show progress bars during HDF5 operations
+    show_progress: true
+
+    # Create coarse-resolution dataset within HDF5 file
+    # Coarse dataset enables faster visualization/analysis
+    create_coarse_dataset: false
+
+    # Coarse grid spacing (must be integral multiples of fine grid)
+    coarse_grid:
+      dx: 2.0  # km (e.g., 2x coarser than fine grid)
+      dy: 2.0  # km
+      dz: 2.0  # km
+
+# Visualization configuration
+visualization:
+  # Enable visualization
+  enabled: true
+
+  # Output directory for visualizations (optional)
+  # If not specified, defaults to ${general.output_dir}/visualizations
+  output_dir: null  # e.g., "/path/to/custom/visualization/directory"
+
+  # Slice planes to plot
+  planes:
+    - "xy"  # Depth slices
+    - "xz"  # North-South vertical slices
+    - "yz"  # East-West vertical slices
+
+  # Which velocity field to visualize
+  velocity_field: "vp"  # "vp", "vs", or "both"
+
+  # Unit for slice positions: "indices" (grid indices) or "km" (physical units)
+  slice_unit: "indices"  # Options: "indices", "km"
+
+  # Unit for slice spacing: "indices" (grid spacing) or "km" (physical spacing)
+  spacing_unit: "indices"  # Options: "indices", "km"
+
+  # Tolerance for km-to-index conversion (km) - used when slice_unit or spacing_unit is "km"
+  tolerance_km: 1e-6
+
+  # Slice positions (null = use spacing). Interpreted per slice_unit.
+  # Examples: indices=[0,10,20] or km=[0.0,5.0,10.0]
+  xy_slices: null      # Z-axis (depth) slices
+  xz_slices: null      # Y-axis (N-S vertical) slices
+  yz_slices: null      # X-axis (E-W vertical) slices
+
+  # Slice spacing (used when slices=null). Interpreted per spacing_unit.
+  # Examples: indices=5 (every 5th point) or km=2.5 (every 2.5km on grid)
+  slice_spacing:
+    xy: 5   # Depth slice spacing
+    xz: 20  # Y slice spacing
+    yz: 20  # X slice spacing
+
+  # Figure settings (shared across all visualizations)
+  figure:
+    dpi: 150
+    figsize: [10, 8]
+    format: "png"  # "png", "pdf", or "svg"
+    recovery_contour_color: "green"  # Color for recovery contour lines
+    recovery_contour_linestyle: "-"  # Line style: "-", "--", "-.", ":"
+    recovery_contour_linewidth: 2  # Line width in points
+
+  # Annotation settings (shared)
+  show_colorbar: true
+  show_grid: true
+  show_title: true
+  font_size:
+    title: 14
+    labels: 12
+    colorbar: 10
+    ticks: 10
+
+  # Basin boundaries overlay on XY (depth) slices only
+  basin_boundaries:
+    enabled: false  # Set to true to enable basin boundaries on XY plots
+    data_dir: "/path/to/preprocessed/coordinate_transform/basin_boundaries"
+    basins:
+      - file: "CentralBasin_Verticies_WGS84.csv"
+        label: "Central Basin"
+      - file: "DelawareBasin_Verticies_WGS84.csv"
+        label: "Delaware Basin"
+      - file: "MidlandBasin_Verticies_WGS84.csv"
+        label: "Midland Basin"
+    line_color: "darkgreen"
+    line_width: 2
+    line_style: "-"
+    line_alpha: 0.8
+    show_labels: true
+    label_fontsize: 12
+    label_fontweight: "bold"
+    label_offset_x: 0.0  # km offset from centroid
+    label_offset_y: 0.0  # km offset from centroid
+
+  # Original velocity model visualization
+  visualize_input:
+    enabled: false
+    colormap: "seismic"
+    # No centering, no threshold - simple autoscale
+
+  # Spike perturbed model visualization
+  visualize_spike:
+    enabled: false
+    colormap: "seismic"
+    # No centering, no threshold - simple autoscale
+
+  # Inverted model from LATTE visualization
+  visualize_inverted:
+    enabled: false
+    colormap: "seismic"
+    # No centering, no threshold - simple autoscale
+
+  # Difference plot (inverted - spike)
+  visualize_difference:
+    enabled: false
+    colormap: "seismic"
+    centered_at_zero: true    # Center colorbar at 0 (asymmetric range OK)
+    uniform_cbar: false       # true: global min/max, false: local per slice
+    # NO threshold support for difference plots
+
+  # Spike pattern only (spike - input) as percentage perturbation
+  visualize_spike_pattern:
+    enabled: false
+    colormap: "seismic"
+    centered_at_zero: true    # Center colorbar at 0
+    uniform_cbar: false       # true: global, false: local
+    threshold: null           # e.g., 7.0 for +/-7% threshold with black regions
+    show_recovery_contours: false  # Not applicable for spike pattern
+    recovery_threshold_pct: 3.0
+
+  # Inverted pattern (inverted - input) as percentage perturbation
+  visualize_inverted_pattern:
+    enabled: false
+    colormap: "seismic"
+    centered_at_zero: true    # Center colorbar at 0
+    uniform_cbar: false       # true: global, false: local
+    threshold: null           # e.g., 7.0 for +/-7% threshold with black regions
+    min_cbar_pct: null        # e.g., 7.0 → colorbar always shows at least ±7%; wider if data demands
+    show_recovery_contours: false  # Show boundaries of fairly recovered regions
+    recovery_threshold_pct: 3.0    # Fair recovery: same sign AND |inverted| >= threshold (%)
+
+# Workflow control - which steps to execute
+workflow:
+  step1_create_spike: false
+  step2_add_noise: false
+  step3_convert_inverted: false
+  step4_visualize: false
