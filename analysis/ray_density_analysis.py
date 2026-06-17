@@ -100,20 +100,6 @@ def analyze_ray_density(config_dict: Dict[str, Any]) -> Dict[str, Any]:
         'figure_width': config.get('figure_width', 12),
         'figure_height': config.get('figure_height', 10),
         'colormap': config.get('colormap', 'hot'),
-        # Oblique section figure dimensions
-        'oblique_section_figure_width': config.get('oblique_section_figure_width', 12),
-        'oblique_section_figure_height': config.get('oblique_section_figure_height', 6),
-        # Plan view figure dimensions
-        'oblique_plan_view_figure_width': config.get('oblique_plan_view_figure_width', 10),
-        'oblique_plan_view_figure_height': config.get('oblique_plan_view_figure_height', 10),
-        # Section line appearance on plan view
-        'section_linewidth': config.get('section_linewidth', 2.0),
-        'section_label_fontsize': config.get('section_label_fontsize', 11),
-        # Basin boundary intersection lines in oblique section plots
-        'oblique_basin_line_color': config.get('oblique_basin_line_color', 'black'),
-        'oblique_basin_line_width': config.get('oblique_basin_line_width', 1.0),
-        'oblique_basin_line_style': config.get('oblique_basin_line_style', '--'),
-        'oblique_basin_line_alpha': config.get('oblique_basin_line_alpha', 0.8),
     }
 
     # Load basin boundaries if configured (global basin_boundaries section)

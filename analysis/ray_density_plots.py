@@ -603,11 +603,9 @@ def plot_ray_density_oblique_section(
     dz = grid_dims['dz']
     z_edges = np.concatenate([z_coords - 0.5 * dz, [z_coords[-1] + 0.5 * dz]])
 
-    # Create figure
-    fig_width  = plot_config.get('oblique_section_figure_width',
-                                  plot_config.get('figure_width', 12))
-    fig_height = plot_config.get('oblique_section_figure_height',
-                                  plot_config.get('figure_height', 6))
+    # Create figure (inherits figure_width / figure_height from ray_density_analysis config)
+    fig_width  = plot_config.get('figure_width', 12)
+    fig_height = plot_config.get('figure_height', 10)
     dpi = plot_config.get('dpi', 300)
 
     fig, ax = plt.subplots(figsize=(fig_width, fig_height), dpi=dpi)
@@ -624,10 +622,11 @@ def plot_ray_density_oblique_section(
         basin_hits = _find_basin_intersections_density(basin_data, x1, y1, x2, y2)
         if basin_hits:
             logger.info(f"  Basin intersections at: {[f'{v:.1f}' for v in basin_hits]} km")
-        bb_color  = plot_config.get('oblique_basin_line_color', 'black')
-        bb_lw     = plot_config.get('oblique_basin_line_width', 1.0)
-        bb_ls     = plot_config.get('oblique_basin_line_style', '--')
-        bb_alpha  = plot_config.get('oblique_basin_line_alpha', 0.8)
+        # Reuse styling from top-level basin_boundaries config section
+        bb_color  = basin_config.get('line_color', 'black') if basin_config else 'black'
+        bb_lw     = basin_config.get('line_width', 1.0)     if basin_config else 1.0
+        bb_ls     = basin_config.get('line_style', '-')     if basin_config else '-'
+        bb_alpha  = basin_config.get('line_alpha', 0.8)     if basin_config else 0.8
         for along_km in basin_hits:
             ax.axvline(x=along_km, color=bb_color, linewidth=bb_lw,
                        linestyle=bb_ls, alpha=bb_alpha, zorder=5)
@@ -693,10 +692,8 @@ def plot_ray_density_section_plan_view(
     """
     logger.info("Creating oblique section plan view ...")
 
-    fig_width  = plot_config.get('oblique_plan_view_figure_width',
-                                  plot_config.get('figure_width', 10))
-    fig_height = plot_config.get('oblique_plan_view_figure_height',
-                                  plot_config.get('figure_height', 10))
+    fig_width  = plot_config.get('figure_width', 12)
+    fig_height = plot_config.get('figure_height', 10)
     dpi = plot_config.get('dpi', 300)
 
     fig, ax = plt.subplots(figsize=(fig_width, fig_height), dpi=dpi)
@@ -710,8 +707,8 @@ def plot_ray_density_section_plan_view(
 
     # Section lines
     color_cycle    = plt.rcParams['axes.prop_cycle'].by_key()['color']
-    section_lw     = plot_config.get('section_linewidth', 2.0)
-    section_lbl_fs = plot_config.get('section_label_fontsize', 11)
+    section_lw     = 2.0
+    section_lbl_fs = plot_config.get('label_fontsize', 14)
     offset_frac    = 0.02
 
     for idx, sec in enumerate(sections):
