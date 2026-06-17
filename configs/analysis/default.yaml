@@ -422,7 +422,42 @@ ray_density_analysis:
   # Depth levels for horizontal slice plots (km)
   depth_slices: [5.0, 10.0, 15.0, 20.0, 30.0, 40.0, 50.0]
 
-  plot_basin_boundaries: false            # true = overlay basin boundaries on XY projection and depth slice plots
+  plot_basin_boundaries: false            # true = overlay basin boundaries on XY projection, depth slice, and oblique section plots
+
+  # Oblique section plots — vertical planes defined by two XY endpoint pairs
+  enable_oblique_sections: false         # true = plot ray density along user-defined oblique vertical planes
+  enable_oblique_section_plan_view: false # true = plot plan view map showing all oblique section traces
+
+  # List of oblique sections; each plane passes vertically through all depths.
+  # Coordinates are in Cartesian km (same system as the model grid).
+  # Multiple pairs of (x1,y1)→(x2,y2) can be provided.
+  oblique_sections:
+    - label: "A"                         # identifier used in filenames and on-plot labels
+      x1: 0.0                            # km; start X coordinate
+      y1: 0.0                            # km; start Y coordinate
+      x2: 100.0                          # km; end X coordinate
+      y2: 100.0                          # km; end Y coordinate
+    # - label: "B"
+    #   x1: 50.0
+    #   y1: 0.0
+    #   x2: 50.0
+    #   y2: 200.0
+
+  # Per-section figure size (overrides figure_width / figure_height for oblique plots)
+  oblique_section_figure_width: 12       # inches
+  oblique_section_figure_height: 6       # inches
+
+  # Plan view figure showing section line locations
+  oblique_plan_view_figure_width: 10     # inches
+  oblique_plan_view_figure_height: 10    # inches
+  section_linewidth: 2.0                 # line width for section traces on plan view
+  section_label_fontsize: 11             # font size for A/A' labels on plan view
+
+  # Basin boundary crossings drawn as vertical lines in oblique section plots
+  oblique_basin_line_color: "black"      # color
+  oblique_basin_line_width: 1.0          # line width
+  oblique_basin_line_style: "--"         # - | -- | : | -.
+  oblique_basin_line_alpha: 0.8          # transparency (0 = transparent, 1 = opaque)
 
   # Plot settings (font sizes and dpi inherited from analysis.plot_style)
   figure_width: 12

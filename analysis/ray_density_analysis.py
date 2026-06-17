@@ -20,7 +20,9 @@ from .ray_density_plots import (
     plot_ray_density_xz,
     plot_ray_density_yz,
     plot_ray_density_xy_threshold_count,
-    plot_ray_density_depth_slices
+    plot_ray_density_depth_slices,
+    plot_ray_density_oblique_section,
+    plot_ray_density_section_plan_view,
 )
 from .raypath_data import (
     load_event_ids_from_file,
@@ -98,6 +100,20 @@ def analyze_ray_density(config_dict: Dict[str, Any]) -> Dict[str, Any]:
         'figure_width': config.get('figure_width', 12),
         'figure_height': config.get('figure_height', 10),
         'colormap': config.get('colormap', 'hot'),
+        # Oblique section figure dimensions
+        'oblique_section_figure_width': config.get('oblique_section_figure_width', 12),
+        'oblique_section_figure_height': config.get('oblique_section_figure_height', 6),
+        # Plan view figure dimensions
+        'oblique_plan_view_figure_width': config.get('oblique_plan_view_figure_width', 10),
+        'oblique_plan_view_figure_height': config.get('oblique_plan_view_figure_height', 10),
+        # Section line appearance on plan view
+        'section_linewidth': config.get('section_linewidth', 2.0),
+        'section_label_fontsize': config.get('section_label_fontsize', 11),
+        # Basin boundary intersection lines in oblique section plots
+        'oblique_basin_line_color': config.get('oblique_basin_line_color', 'black'),
+        'oblique_basin_line_width': config.get('oblique_basin_line_width', 1.0),
+        'oblique_basin_line_style': config.get('oblique_basin_line_style', '--'),
+        'oblique_basin_line_alpha': config.get('oblique_basin_line_alpha', 0.8),
     }
 
     # Load basin boundaries if configured (global basin_boundaries section)
@@ -118,6 +134,11 @@ def analyze_ray_density(config_dict: Dict[str, Any]) -> Dict[str, Any]:
     enable_xy_threshold_count = config.get('enable_xy_threshold_count', True)
     enable_depth_slices = config.get('enable_depth_slices', True)
     depth_slices = config.get('depth_slices', [])
+
+    # Oblique section settings
+    enable_oblique_sections = config.get('enable_oblique_sections', False)
+    enable_oblique_section_plan_view = config.get('enable_oblique_section_plan_view', False)
+    oblique_sections = config.get('oblique_sections', [])
 
     # Event filtering/subsampling (priority: event_id_list_file > max_rays > subsample_fraction)
     event_id_list_file = config.get('event_id_list_file', None)
@@ -166,9 +187,23 @@ def analyze_ray_density(config_dict: Dict[str, Any]) -> Dict[str, Any]:
         'plots': {
             'projections': [],
             'threshold_count': [],
-            'depth_slices': []
+            'depth_slices': [],
+            'oblique_sections': [],
+            'plan_view': [],
         }
     }
+
+    # ── Oblique section plan view (geometry only; generated once before phase loop) ──
+    if (enable_oblique_section_plan_view or enable_oblique_sections) and oblique_sections:
+        if enable_oblique_section_plan_view:
+            plan_view_file = str(output_dir / 'plots' / 'ray_density_oblique_section_plan_view.png')
+            plot_ray_density_section_plan_view(
+                oblique_sections, grid_dims, plan_view_file, plot_config,
+                basin_data=basin_data, basin_config=basin_config,
+            )
+            results['plots']['plan_view'].append({'output_file': plan_view_file})
+    elif enable_oblique_section_plan_view and not oblique_sections:
+        logger.warning("enable_oblique_section_plan_view is True but no oblique_sections defined")
 
     # Process each phase
     for phase in phases:
@@ -255,6 +290,31 @@ def analyze_ray_density(config_dict: Dict[str, Any]) -> Dict[str, Any]:
                     'phase': phase,
                     'depth_km': depth
                 })
+
+        # Create oblique section plots
+        if enable_oblique_sections and oblique_sections:
+            logger.info(f"\nCreating oblique section plots ({len(oblique_sections)} sections)...")
+            for sec in oblique_sections:
+                lbl = sec.get('label', '')
+                output_file = str(
+                    output_dir / 'plots' /
+                    f'ray_density_{phase}_wave_oblique_{lbl}.png'
+                )
+                try:
+                    plot_ray_density_oblique_section(
+                        density_3d, grid_dims, output_file, sec,
+                        threshold, plot_config,
+                        basin_data=basin_data, basin_config=basin_config,
+                    )
+                    results['plots']['oblique_sections'].append({
+                        'phase': phase,
+                        'label': lbl,
+                        'output_file': output_file,
+                    })
+                except ValueError as exc:
+                    logger.warning(f"  Skipping oblique section '{lbl}': {exc}")
+        elif enable_oblique_sections and not oblique_sections:
+            logger.warning("enable_oblique_sections is True but no oblique_sections defined")
 
     logger.info("="*80)
     logger.info("RAY DENSITY ANALYSIS COMPLETE")
