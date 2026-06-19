@@ -234,12 +234,17 @@ model_conversion:
     - "grad_vp"
     - "grad_vs"
 
+  # Directory where the converted inverted model (CSV/HDF5) is written (Step 3).
+  # Change this to save the inverted model anywhere you like; the filenames below
+  # are placed inside it.
+  output_dir: "${general.output_dir}/inverted_model"
+
   # Output format control
   # Options: "csv", "hdf5", "both"
   output_format: "csv"  # Default: CSV for backward compatibility
 
-  output_csv: "${general.output_dir}/inverted_model/velocity_model_inverted.csv"
-  output_hdf5: "${general.output_dir}/inverted_model/velocity_model_inverted.h5"
+  output_csv: "${model_conversion.output_dir}/velocity_model_inverted.csv"
+  output_hdf5: "${model_conversion.output_dir}/velocity_model_inverted.h5"
 
   # HDF5-specific options (used when output_format is "hdf5" or "both")
   hdf5_options:
@@ -274,6 +279,11 @@ visualization:
   # Output directory for visualizations (optional)
   # If not specified, defaults to ${general.output_dir}/visualizations
   output_dir: null  # e.g., "/path/to/custom/visualization/directory"
+
+  # Directory containing the converted inverted model (CSV/HDF5) to visualize (Step 4).
+  # Defaults to the Step 3 output directory (model_conversion.output_dir).
+  # Override to visualize an inverted model stored elsewhere.
+  inverted_model_dir: "${model_conversion.output_dir}"
 
   # Slice planes to plot
   planes:

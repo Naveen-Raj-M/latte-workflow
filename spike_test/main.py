@@ -59,7 +59,11 @@ def run_spike_workflow(config: Union[Dict, DictConfig]) -> None:
     # Define subdirectories
     spike_dir = output_dir / "spike_model"
     noisy_traveltime_dir = output_dir / "noisy_traveltimes"
-    inverted_dir = output_dir / "inverted_model"
+
+    # Inverted-model output directory (Step 3). Configurable via
+    # model_conversion.output_dir; falls back to <output_dir>/inverted_model.
+    mc_output_dir = model_conversion_config.get('output_dir')
+    inverted_dir = Path(mc_output_dir) if mc_output_dir else output_dir / "inverted_model"
 
     # Get visualization output directory from config, with fallback to default
     viz_output_dir_config = visualization_config.get('output_dir') if isinstance(visualization_config, DictConfig) else visualization_config.get('output_dir')
@@ -275,9 +279,13 @@ def run_spike_workflow(config: Union[Dict, DictConfig]) -> None:
                 spike_format = spike_config.output_format if isinstance(spike_config, DictConfig) else spike_config.get("output_format", "csv")
                 spike_csv = get_model_path(spike_dir, "velocity_model_spike", spike_format)
 
-                # Get inverted model path based on output format
+                # Get inverted model path based on output format.
+                # Directory is configurable via visualization.inverted_model_dir;
+                # defaults to the Step 3 output directory (inverted_dir).
                 inverted_format = model_conversion_config.output_format if isinstance(model_conversion_config, DictConfig) else model_conversion_config.get("output_format", "csv")
-                inverted_csv = get_model_path(inverted_dir, "velocity_model_inverted", inverted_format)
+                viz_inverted_dir_config = visualization_config.get('inverted_model_dir')
+                viz_inverted_dir = Path(viz_inverted_dir_config) if viz_inverted_dir_config else inverted_dir
+                inverted_csv = get_model_path(viz_inverted_dir, "velocity_model_inverted", inverted_format)
 
                 if spike_csv is None and inverted_csv is None:
                     logger.warning("No model files found for visualization")
