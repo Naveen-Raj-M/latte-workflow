@@ -132,13 +132,16 @@ def visualize_spike_test(
     if isinstance(inverted_config, bool):
         inverted_config = {"enabled": inverted_config}
 
-    if inverted_config.get("enabled", False) and inverted_csv is not None:
-        logger.info("Visualizing inverted model")
-        df_inverted = read_velocity_file(inverted_csv, show_progress=False)
-        model_config = _merge_config(shared_config, inverted_config)
-        visualize_velocity_model(df_inverted, output_dir, model_config, "inverted",
-                                 basin_data=basin_data, basin_config=basin_config)
-        del df_inverted
+    if inverted_config.get("enabled", False):
+        if inverted_csv is None:
+            logger.warning("visualize_inverted: SKIPPED (inverted model file not found)")
+        else:
+            logger.info("Visualizing inverted model")
+            df_inverted = read_velocity_file(inverted_csv, show_progress=False)
+            model_config = _merge_config(shared_config, inverted_config)
+            visualize_velocity_model(df_inverted, output_dir, model_config, "inverted",
+                                     basin_data=basin_data, basin_config=basin_config)
+            del df_inverted
 
     # =========== DIFFERENCE PLOT ===========
     diff_config = config.get("visualize_difference", {})
@@ -205,6 +208,12 @@ def visualize_spike_test(
     inv_pattern_config = config.get("visualize_inverted_pattern", {})
     if isinstance(inv_pattern_config, bool):
         inv_pattern_config = {"enabled": inv_pattern_config}
+
+    if inv_pattern_config.get("enabled", False):
+        if inverted_csv is None:
+            logger.warning("visualize_inverted_pattern: SKIPPED (inverted model file not found)")
+        elif input_csv is None:
+            logger.warning("visualize_inverted_pattern: SKIPPED (input model file not found)")
 
     if inv_pattern_config.get("enabled", False) and inverted_csv is not None and input_csv is not None:
         logger.info("Visualizing inverted pattern as percentage perturbation")

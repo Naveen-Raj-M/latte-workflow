@@ -277,12 +277,31 @@ def run_checkerboard_workflow(config: Union[Dict, DictConfig]) -> None:
                 checkerboard_csv = get_model_path(checkerboard_dir, "velocity_model_checkerboard", checkerboard_format)
 
                 # Get inverted model path based on output format.
-                # Directory is configurable via visualization.inverted_model_dir;
-                # defaults to the Step 3 output directory (inverted_dir).
+                # Primary: use the exact paths from model_conversion config — these are
+                # the same paths Step 3 wrote, so they always stay in sync.
+                # Override: if visualization.inverted_model_dir is set, search that
+                # directory instead (useful for cross-run visualization).
                 inverted_format = model_conversion_config.output_format if isinstance(model_conversion_config, DictConfig) else model_conversion_config.get("output_format", "csv")
                 viz_inverted_dir_config = visualization_config.get('inverted_model_dir')
-                viz_inverted_dir = Path(viz_inverted_dir_config) if viz_inverted_dir_config else inverted_dir
-                inverted_csv = get_model_path(viz_inverted_dir, "velocity_model_inverted", inverted_format)
+                if viz_inverted_dir_config:
+                    inverted_csv = get_model_path(Path(viz_inverted_dir_config), "velocity_model_inverted", inverted_format)
+                else:
+                    # Use exact paths from model_conversion config
+                    inverted_csv = None
+                    if inverted_format in ["hdf5", "both"]:
+                        h5_cfg = model_conversion_config.output_hdf5 if isinstance(model_conversion_config, DictConfig) else model_conversion_config.get("output_hdf5")
+                        if h5_cfg:
+                            h5_path = Path(str(h5_cfg))
+                            if h5_path.exists():
+                                inverted_csv = h5_path
+                    if inverted_csv is None and inverted_format in ["csv", "both"]:
+                        csv_cfg = model_conversion_config.output_csv if isinstance(model_conversion_config, DictConfig) else model_conversion_config.get("output_csv")
+                        if csv_cfg:
+                            csv_path = Path(str(csv_cfg))
+                            if csv_path.exists():
+                                inverted_csv = csv_path
+                if inverted_csv is None:
+                    logger.warning("Inverted model file not found; visualize_inverted and visualize_inverted_pattern will be skipped")
 
                 if checkerboard_csv is None and inverted_csv is None:
                     logger.warning("No model files found for visualization")

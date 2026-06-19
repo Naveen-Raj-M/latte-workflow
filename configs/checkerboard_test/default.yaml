@@ -241,10 +241,11 @@ visualization:
   # If not specified, defaults to ${general.output_dir}/visualizations
   output_dir: null  # e.g., "/path/to/custom/visualization/directory"
 
-  # Directory containing the converted inverted model (CSV/HDF5) to visualize (Step 4).
-  # Defaults to the Step 3 output directory (model_conversion.output_dir).
-  # Override to visualize an inverted model stored elsewhere.
-  inverted_model_dir: "${model_conversion.output_dir}"
+  # Override to load the inverted model from a custom directory in Step 4 instead of
+  # using the exact paths defined by model_conversion.output_csv / output_hdf5.
+  # Useful when visualizing a model produced by a different run.
+  # When null (default), Step 4 reads from model_conversion.output_csv / output_hdf5.
+  inverted_model_dir: null  # e.g., "/path/to/other/run/inverted_model"
 
   # Slice planes to plot
   planes:
