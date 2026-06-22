@@ -323,14 +323,12 @@ def visualize_velocity_model(
     model_dir = output_dir / model_name
     model_dir.mkdir(parents=True, exist_ok=True)
 
-    # Parse velocity_field: supports string ("vp"/"vs"/"both") or a list
+    # Parse velocity_field: supports string ("vp"/"vs"/"both"), plain list, or OmegaConf ListConfig
     velocity_field_cfg = config.get("velocity_field", "vp")
-    if isinstance(velocity_field_cfg, list):
-        velocity_fields = velocity_field_cfg
-    elif velocity_field_cfg == "both":
-        velocity_fields = ["vp", "vs"]
+    if isinstance(velocity_field_cfg, str):
+        velocity_fields = ["vp", "vs"] if velocity_field_cfg == "both" else [velocity_field_cfg]
     else:
-        velocity_fields = [velocity_field_cfg]
+        velocity_fields = list(velocity_field_cfg)  # handles plain list and OmegaConf ListConfig
 
     for vel_field in velocity_fields:
         logger.info(f"  Processing velocity field: {vel_field}")

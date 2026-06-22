@@ -540,9 +540,10 @@ def visualize_pattern(
 
     # Create output subdirectory — vpvs_ratio gets its own name; vp/vs use _pct suffix
     velocity_field_config = config.get("velocity_field", "vp")
-    is_multi = (
-        isinstance(velocity_field_config, list) and len(velocity_field_config) > 1
-    ) or velocity_field_config == "both"
+    if isinstance(velocity_field_config, str):
+        is_multi = velocity_field_config == "both"
+    else:
+        is_multi = len(list(velocity_field_config)) > 1
 
     if is_vpvs:
         model_name = f"{pattern_name}_vpvs_ratio"

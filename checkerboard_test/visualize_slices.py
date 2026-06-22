@@ -91,14 +91,12 @@ def visualize_checkerboard_test(
     basin_config = config.get("basin_boundaries", {})
     basin_data = load_basin_boundaries(basin_config)
 
-    # Get velocity fields to process — supports list, "both", or single string
+    # Get velocity fields to process — supports list/ListConfig, "both", or single string
     velocity_field = shared_config["velocity_field"]
-    if isinstance(velocity_field, list):
-        velocity_fields = velocity_field
-    elif velocity_field == "both":
-        velocity_fields = ["vp", "vs"]
+    if isinstance(velocity_field, str):
+        velocity_fields = ["vp", "vs"] if velocity_field == "both" else [velocity_field]
     else:
-        velocity_fields = [velocity_field]
+        velocity_fields = list(velocity_field)  # handles plain list and OmegaConf ListConfig
 
     # =========== INPUT MODEL ===========
     input_config = config.get("visualize_input", {})
