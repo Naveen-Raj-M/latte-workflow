@@ -84,15 +84,18 @@ def visualize_checkerboard_test(
         "show_grid": config.get("show_grid", True),
         "show_title": config.get("show_title", True),
         "font_size": config.get("font_size", {"title": 14, "labels": 12, "colorbar": 10}),
+        "vpvs_ratio": config.get("vpvs_ratio", {}),
     }
 
     # Load basin boundaries once (shared across all visualizations, XY plane only)
     basin_config = config.get("basin_boundaries", {})
     basin_data = load_basin_boundaries(basin_config)
 
-    # Get velocity fields to process
+    # Get velocity fields to process — supports list, "both", or single string
     velocity_field = shared_config["velocity_field"]
-    if velocity_field == "both":
+    if isinstance(velocity_field, list):
+        velocity_fields = velocity_field
+    elif velocity_field == "both":
         velocity_fields = ["vp", "vs"]
     else:
         velocity_fields = [velocity_field]
@@ -175,18 +178,29 @@ def visualize_checkerboard_test(
         for vel_field in velocity_fields:
             logger.info(f"  Processing checkerboard pattern for {vel_field}")
 
-            # Compute pattern as percentage perturbation
-            with np.errstate(divide='ignore', invalid='ignore'):
-                perturbation_pct = ((df_checkerboard[vel_field].values - df_input[vel_field].values)
-                                   / df_input[vel_field].values) * 100.0
-                perturbation_pct = np.where(np.isfinite(perturbation_pct), perturbation_pct, 0.0)
-
-            df_pattern = pd.DataFrame({
-                'X_grid_km': df_checkerboard['X_grid_km'].values,
-                'Y_grid_km': df_checkerboard['Y_grid_km'].values,
-                'Z_grid_km': df_checkerboard['Z_grid_km'].values,
-                vel_field: perturbation_pct
-            })
+            if vel_field == "vpvs_ratio":
+                # Plot actual Vp/Vs ratio, not % perturbation
+                with np.errstate(divide='ignore', invalid='ignore'):
+                    vpvs = df_checkerboard["vp"].values / df_checkerboard["vs"].values
+                    vpvs = np.where(np.isfinite(vpvs), vpvs, np.nan)
+                df_pattern = pd.DataFrame({
+                    'X_grid_km': df_checkerboard['X_grid_km'].values,
+                    'Y_grid_km': df_checkerboard['Y_grid_km'].values,
+                    'Z_grid_km': df_checkerboard['Z_grid_km'].values,
+                    'vpvs_ratio': vpvs,
+                })
+            else:
+                # Compute pattern as percentage perturbation
+                with np.errstate(divide='ignore', invalid='ignore'):
+                    perturbation_pct = ((df_checkerboard[vel_field].values - df_input[vel_field].values)
+                                       / df_input[vel_field].values) * 100.0
+                    perturbation_pct = np.where(np.isfinite(perturbation_pct), perturbation_pct, 0.0)
+                df_pattern = pd.DataFrame({
+                    'X_grid_km': df_checkerboard['X_grid_km'].values,
+                    'Y_grid_km': df_checkerboard['Y_grid_km'].values,
+                    'Z_grid_km': df_checkerboard['Z_grid_km'].values,
+                    vel_field: perturbation_pct,
+                })
 
             visualize_pattern(
                 df_pattern, output_dir, checkerboard_pattern_config,
@@ -219,42 +233,61 @@ def visualize_checkerboard_test(
         for vel_field in velocity_fields:
             logger.info(f"  Processing inverted pattern for {vel_field}")
 
-            # Compute inverted pattern as percentage perturbation
-            with np.errstate(divide='ignore', invalid='ignore'):
-                perturbation_pct = ((df_inverted[vel_field].values - df_input[vel_field].values)
-                                   / df_input[vel_field].values) * 100.0
-                perturbation_pct = np.where(np.isfinite(perturbation_pct), perturbation_pct, 0.0)
-
-            df_pattern = pd.DataFrame({
-                'X_grid_km': df_inverted['X_grid_km'].values,
-                'Y_grid_km': df_inverted['Y_grid_km'].values,
-                'Z_grid_km': df_inverted['Z_grid_km'].values,
-                vel_field: perturbation_pct
-            })
-
-            # Prepare checkerboard pattern for recovery analysis
-            checkerboard_pattern_3d = None
-            if df_checkerboard is not None and inv_pattern_config.get("show_recovery_contours", False):
+            if vel_field == "vpvs_ratio":
+                # Plot actual Vp/Vs ratio, not % perturbation
                 with np.errstate(divide='ignore', invalid='ignore'):
-                    check_perturbation_pct = ((df_checkerboard[vel_field].values - df_input[vel_field].values)
-                                             / df_input[vel_field].values) * 100.0
-                    check_perturbation_pct = np.where(np.isfinite(check_perturbation_pct), check_perturbation_pct, 0.0)
+                    vpvs = df_inverted["vp"].values / df_inverted["vs"].values
+                    vpvs = np.where(np.isfinite(vpvs), vpvs, np.nan)
+                df_pattern = pd.DataFrame({
+                    'X_grid_km': df_inverted['X_grid_km'].values,
+                    'Y_grid_km': df_inverted['Y_grid_km'].values,
+                    'Z_grid_km': df_inverted['Z_grid_km'].values,
+                    'vpvs_ratio': vpvs,
+                })
+                # No recovery analysis for vpvs_ratio
+                visualize_pattern(
+                    df_pattern, output_dir, inverted_pattern_config,
+                    "inverted_pattern", "vpvs_ratio",
+                    checkerboard_pattern_3d=None,
+                    basin_data=basin_data, basin_config=basin_config,
+                )
+            else:
+                # Compute inverted pattern as percentage perturbation
+                with np.errstate(divide='ignore', invalid='ignore'):
+                    perturbation_pct = ((df_inverted[vel_field].values - df_input[vel_field].values)
+                                       / df_input[vel_field].values) * 100.0
+                    perturbation_pct = np.where(np.isfinite(perturbation_pct), perturbation_pct, 0.0)
 
-                # Convert to 3D grid
-                x_coords, y_coords, z_coords, _ = prepare_3d_grid(df_pattern, vel_field)
-                checkerboard_pattern_3d = np.full((len(z_coords), len(y_coords), len(x_coords)), np.nan)
+                df_pattern = pd.DataFrame({
+                    'X_grid_km': df_inverted['X_grid_km'].values,
+                    'Y_grid_km': df_inverted['Y_grid_km'].values,
+                    'Z_grid_km': df_inverted['Z_grid_km'].values,
+                    vel_field: perturbation_pct,
+                })
 
-                x_indices = np.searchsorted(x_coords, df_checkerboard["X_grid_km"].values)
-                y_indices = np.searchsorted(y_coords, df_checkerboard["Y_grid_km"].values)
-                z_indices = np.searchsorted(z_coords, df_checkerboard["Z_grid_km"].values)
-                checkerboard_pattern_3d[z_indices, y_indices, x_indices] = check_perturbation_pct
+                # Prepare checkerboard pattern for recovery analysis
+                checkerboard_pattern_3d = None
+                if df_checkerboard is not None and inv_pattern_config.get("show_recovery_contours", False):
+                    with np.errstate(divide='ignore', invalid='ignore'):
+                        check_perturbation_pct = ((df_checkerboard[vel_field].values - df_input[vel_field].values)
+                                                 / df_input[vel_field].values) * 100.0
+                        check_perturbation_pct = np.where(np.isfinite(check_perturbation_pct), check_perturbation_pct, 0.0)
 
-            visualize_pattern(
-                df_pattern, output_dir, inverted_pattern_config,
-                "inverted_pattern", vel_field,
-                checkerboard_pattern_3d=checkerboard_pattern_3d,
-                basin_data=basin_data, basin_config=basin_config,
-            )
+                    # Convert to 3D grid
+                    x_coords, y_coords, z_coords, _ = prepare_3d_grid(df_pattern, vel_field)
+                    checkerboard_pattern_3d = np.full((len(z_coords), len(y_coords), len(x_coords)), np.nan)
+
+                    x_indices = np.searchsorted(x_coords, df_checkerboard["X_grid_km"].values)
+                    y_indices = np.searchsorted(y_coords, df_checkerboard["Y_grid_km"].values)
+                    z_indices = np.searchsorted(z_coords, df_checkerboard["Z_grid_km"].values)
+                    checkerboard_pattern_3d[z_indices, y_indices, x_indices] = check_perturbation_pct
+
+                visualize_pattern(
+                    df_pattern, output_dir, inverted_pattern_config,
+                    "inverted_pattern", vel_field,
+                    checkerboard_pattern_3d=checkerboard_pattern_3d,
+                    basin_data=basin_data, basin_config=basin_config,
+                )
             del df_pattern
 
         del df_inverted, df_input

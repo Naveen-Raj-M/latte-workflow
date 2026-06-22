@@ -9,6 +9,7 @@ import logging
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from tqdm import tqdm
@@ -18,6 +19,7 @@ from checkerboard_test.grid_utils import (
     parse_slice_specification,
     convert_km_spacing_to_indices,
 )
+from checkerboard_test.visualize_pattern import create_range_colormap
 from analysis.basin_boundaries import plot_basin_boundaries
 
 logger = logging.getLogger(__name__)
@@ -33,11 +35,14 @@ def plot_model_xy_slice(
     title_prefix: str = "",
     basin_data: Optional[Dict] = None,
     basin_config: Optional[Dict] = None,
+    velocity_field: str = "",
+    global_vmin: Optional[float] = None,
+    global_vmax: Optional[float] = None,
 ) -> None:
     """
     Plot XY (horizontal/depth) slice for model visualization.
 
-    Always autoscales - no centering, no threshold.
+    Always autoscales for vp/vs. For vpvs_ratio, supports uniform_cbar and range clipping.
 
     Args:
         x_coords: X coordinates (km)
@@ -49,6 +54,8 @@ def plot_model_xy_slice(
         title_prefix: Prefix for title
         basin_data: Optional basin boundary data from load_basin_boundaries()
         basin_config: Optional basin boundaries configuration for styling
+        velocity_field: Field being plotted; "vpvs_ratio" triggers special handling
+        global_vmin/vmax: Pre-computed global limits for vpvs_ratio uniform colorbar
     """
     fig, ax = plt.subplots(
         figsize=config["figure"]["figsize"],
@@ -57,19 +64,39 @@ def plot_model_xy_slice(
 
     X, Y = np.meshgrid(x_coords, y_coords)
 
-    # Always autoscale from local slice data
-    vmin = np.nanmin(velocity_slice)
-    vmax = np.nanmax(velocity_slice)
+    is_vpvs = (velocity_field == "vpvs_ratio")
 
-    cmap = config.get("colormap", "seismic")
+    if is_vpvs:
+        vpvs_cfg = config.get("vpvs_ratio", {})
+        if global_vmin is not None:
+            vmin, vmax = global_vmin, global_vmax
+        else:
+            vmin = float(np.nanmin(velocity_slice))
+            vmax = float(np.nanmax(velocity_slice))
 
-    im = ax.pcolormesh(X, Y, velocity_slice, cmap=cmap, vmin=vmin, vmax=vmax, shading='auto')
+        cmap_name = vpvs_cfg.get("colormap", "RdYlBu_r")
+        vpvs_range = vpvs_cfg.get("range")
+        norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+        if vpvs_range is not None:
+            range_min, range_max = float(vpvs_range[0]), float(vpvs_range[1])
+            cmap = create_range_colormap(cmap_name, vmin, vmax, range_min, range_max)
+        else:
+            cmap = plt.get_cmap(cmap_name).copy()
+        cbar_label = "Vp/Vs Ratio"
+    else:
+        vmin = float(np.nanmin(velocity_slice))
+        vmax = float(np.nanmax(velocity_slice))
+        cmap = config.get("colormap", "seismic")
+        norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+        cbar_label = "Velocity (km/s)"
+
+    im = ax.pcolormesh(X, Y, velocity_slice, cmap=cmap, norm=norm, shading='auto')
 
     tick_size = config["font_size"]["ticks"]
 
     if config.get("show_colorbar", True):
         cbar = plt.colorbar(im, ax=ax)
-        cbar.set_label("Velocity (km/s)", fontsize=config["font_size"]["colorbar"])
+        cbar.set_label(cbar_label, fontsize=config["font_size"]["colorbar"])
         cbar.ax.tick_params(labelsize=tick_size)
 
     ax.set_xlabel("X (km)", fontsize=config["font_size"]["labels"])
@@ -101,11 +128,14 @@ def plot_model_xz_slice(
     output_path: Path,
     config: Dict,
     title_prefix: str = "",
+    velocity_field: str = "",
+    global_vmin: Optional[float] = None,
+    global_vmax: Optional[float] = None,
 ) -> None:
     """
     Plot XZ (N-S vertical) slice for model visualization.
 
-    Always autoscales - no centering, no threshold.
+    Always autoscales for vp/vs. For vpvs_ratio, supports uniform_cbar and range clipping.
 
     Args:
         x_coords: X coordinates (km)
@@ -115,6 +145,8 @@ def plot_model_xz_slice(
         output_path: Output file path
         config: Visualization configuration
         title_prefix: Prefix for title
+        velocity_field: Field being plotted; "vpvs_ratio" triggers special handling
+        global_vmin/vmax: Pre-computed global limits for vpvs_ratio uniform colorbar
     """
     fig, ax = plt.subplots(
         figsize=config["figure"]["figsize"],
@@ -123,13 +155,33 @@ def plot_model_xz_slice(
 
     X, Z = np.meshgrid(x_coords, z_coords)
 
-    # Always autoscale from local slice data
-    vmin = np.nanmin(velocity_slice)
-    vmax = np.nanmax(velocity_slice)
+    is_vpvs = (velocity_field == "vpvs_ratio")
 
-    cmap = config.get("colormap", "seismic")
+    if is_vpvs:
+        vpvs_cfg = config.get("vpvs_ratio", {})
+        if global_vmin is not None:
+            vmin, vmax = global_vmin, global_vmax
+        else:
+            vmin = float(np.nanmin(velocity_slice))
+            vmax = float(np.nanmax(velocity_slice))
 
-    im = ax.pcolormesh(X, Z, velocity_slice, cmap=cmap, vmin=vmin, vmax=vmax, shading='auto')
+        cmap_name = vpvs_cfg.get("colormap", "RdYlBu_r")
+        vpvs_range = vpvs_cfg.get("range")
+        norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+        if vpvs_range is not None:
+            range_min, range_max = float(vpvs_range[0]), float(vpvs_range[1])
+            cmap = create_range_colormap(cmap_name, vmin, vmax, range_min, range_max)
+        else:
+            cmap = plt.get_cmap(cmap_name).copy()
+        cbar_label = "Vp/Vs Ratio"
+    else:
+        vmin = float(np.nanmin(velocity_slice))
+        vmax = float(np.nanmax(velocity_slice))
+        cmap = config.get("colormap", "seismic")
+        norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+        cbar_label = "Velocity (km/s)"
+
+    im = ax.pcolormesh(X, Z, velocity_slice, cmap=cmap, norm=norm, shading='auto')
 
     # Invert y-axis so depth increases downward
     ax.invert_yaxis()
@@ -138,7 +190,7 @@ def plot_model_xz_slice(
 
     if config.get("show_colorbar", True):
         cbar = plt.colorbar(im, ax=ax)
-        cbar.set_label("Velocity (km/s)", fontsize=config["font_size"]["colorbar"])
+        cbar.set_label(cbar_label, fontsize=config["font_size"]["colorbar"])
         cbar.ax.tick_params(labelsize=tick_size)
 
     ax.set_xlabel("X (km)", fontsize=config["font_size"]["labels"])
@@ -165,11 +217,14 @@ def plot_model_yz_slice(
     output_path: Path,
     config: Dict,
     title_prefix: str = "",
+    velocity_field: str = "",
+    global_vmin: Optional[float] = None,
+    global_vmax: Optional[float] = None,
 ) -> None:
     """
     Plot YZ (E-W vertical) slice for model visualization.
 
-    Always autoscales - no centering, no threshold.
+    Always autoscales for vp/vs. For vpvs_ratio, supports uniform_cbar and range clipping.
 
     Args:
         y_coords: Y coordinates (km)
@@ -179,6 +234,8 @@ def plot_model_yz_slice(
         output_path: Output file path
         config: Visualization configuration
         title_prefix: Prefix for title
+        velocity_field: Field being plotted; "vpvs_ratio" triggers special handling
+        global_vmin/vmax: Pre-computed global limits for vpvs_ratio uniform colorbar
     """
     fig, ax = plt.subplots(
         figsize=config["figure"]["figsize"],
@@ -187,13 +244,33 @@ def plot_model_yz_slice(
 
     Y, Z = np.meshgrid(y_coords, z_coords)
 
-    # Always autoscale from local slice data
-    vmin = np.nanmin(velocity_slice)
-    vmax = np.nanmax(velocity_slice)
+    is_vpvs = (velocity_field == "vpvs_ratio")
 
-    cmap = config.get("colormap", "seismic")
+    if is_vpvs:
+        vpvs_cfg = config.get("vpvs_ratio", {})
+        if global_vmin is not None:
+            vmin, vmax = global_vmin, global_vmax
+        else:
+            vmin = float(np.nanmin(velocity_slice))
+            vmax = float(np.nanmax(velocity_slice))
 
-    im = ax.pcolormesh(Y, Z, velocity_slice, cmap=cmap, vmin=vmin, vmax=vmax, shading='auto')
+        cmap_name = vpvs_cfg.get("colormap", "RdYlBu_r")
+        vpvs_range = vpvs_cfg.get("range")
+        norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+        if vpvs_range is not None:
+            range_min, range_max = float(vpvs_range[0]), float(vpvs_range[1])
+            cmap = create_range_colormap(cmap_name, vmin, vmax, range_min, range_max)
+        else:
+            cmap = plt.get_cmap(cmap_name).copy()
+        cbar_label = "Vp/Vs Ratio"
+    else:
+        vmin = float(np.nanmin(velocity_slice))
+        vmax = float(np.nanmax(velocity_slice))
+        cmap = config.get("colormap", "seismic")
+        norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+        cbar_label = "Velocity (km/s)"
+
+    im = ax.pcolormesh(Y, Z, velocity_slice, cmap=cmap, norm=norm, shading='auto')
 
     # Invert y-axis so depth increases downward
     ax.invert_yaxis()
@@ -202,7 +279,7 @@ def plot_model_yz_slice(
 
     if config.get("show_colorbar", True):
         cbar = plt.colorbar(im, ax=ax)
-        cbar.set_label("Velocity (km/s)", fontsize=config["font_size"]["colorbar"])
+        cbar.set_label(cbar_label, fontsize=config["font_size"]["colorbar"])
         cbar.ax.tick_params(labelsize=tick_size)
 
     ax.set_xlabel("Y (km)", fontsize=config["font_size"]["labels"])
@@ -246,19 +323,46 @@ def visualize_velocity_model(
     model_dir = output_dir / model_name
     model_dir.mkdir(parents=True, exist_ok=True)
 
-    # Handle "both" option
-    velocity_field = config.get("velocity_field", "vp")
-    if velocity_field == "both":
+    # Parse velocity_field: supports string ("vp"/"vs"/"both") or a list
+    velocity_field_cfg = config.get("velocity_field", "vp")
+    if isinstance(velocity_field_cfg, list):
+        velocity_fields = velocity_field_cfg
+    elif velocity_field_cfg == "both":
         velocity_fields = ["vp", "vs"]
     else:
-        velocity_fields = [velocity_field]
+        velocity_fields = [velocity_field_cfg]
 
     for vel_field in velocity_fields:
         logger.info(f"  Processing velocity field: {vel_field}")
 
-        # Prepare 3D grid
-        x_coords, y_coords, z_coords, velocity_3d = prepare_3d_grid(df, vel_field)
+        is_vpvs = (vel_field == "vpvs_ratio")
+
+        # For vpvs_ratio, compute the ratio from the df columns into a temporary DataFrame
+        if is_vpvs:
+            with np.errstate(divide='ignore', invalid='ignore'):
+                ratio = df["vp"].values / df["vs"].values
+                ratio = np.where(np.isfinite(ratio), ratio, np.nan)
+            df_grid = pd.DataFrame({
+                'X_grid_km': df['X_grid_km'].values,
+                'Y_grid_km': df['Y_grid_km'].values,
+                'Z_grid_km': df['Z_grid_km'].values,
+                'vpvs_ratio': ratio,
+            })
+            x_coords, y_coords, z_coords, velocity_3d = prepare_3d_grid(df_grid, 'vpvs_ratio')
+            del df_grid
+        else:
+            x_coords, y_coords, z_coords, velocity_3d = prepare_3d_grid(df, vel_field)
+
         nx, ny, nz = len(x_coords), len(y_coords), len(z_coords)
+
+        # For vpvs_ratio, pre-compute global limits if uniform_cbar is requested
+        global_vmin_model, global_vmax_model = None, None
+        if is_vpvs:
+            vpvs_cfg = config.get("vpvs_ratio", {})
+            if vpvs_cfg.get("uniform_cbar", False):
+                global_vmin_model = float(np.nanmin(velocity_3d))
+                global_vmax_model = float(np.nanmax(velocity_3d))
+                logger.info(f"  vpvs_ratio uniform colorbar: [{global_vmin_model:.4f}, {global_vmax_model:.4f}]")
 
         # Get slice configuration
         planes = config.get("planes", ["xy", "xz", "yz"])
@@ -304,6 +408,9 @@ def visualize_velocity_model(
                         title_prefix=f"{model_name.replace('_', ' ').title()} {vel_field.upper()} - ",
                         basin_data=basin_data,
                         basin_config=basin_config,
+                        velocity_field=vel_field,
+                        global_vmin=global_vmin_model,
+                        global_vmax=global_vmax_model,
                     )
 
         # Plot XZ slices (N-S vertical)
@@ -337,6 +444,9 @@ def visualize_velocity_model(
                         x_coords, z_coords, velocity_slice, y_value,
                         output_path, config,
                         title_prefix=f"{model_name.replace('_', ' ').title()} {vel_field.upper()} - ",
+                        velocity_field=vel_field,
+                        global_vmin=global_vmin_model,
+                        global_vmax=global_vmax_model,
                     )
 
         # Plot YZ slices (E-W vertical)
@@ -370,6 +480,9 @@ def visualize_velocity_model(
                         y_coords, z_coords, velocity_slice, x_value,
                         output_path, config,
                         title_prefix=f"{model_name.replace('_', ' ').title()} {vel_field.upper()} - ",
+                        velocity_field=vel_field,
+                        global_vmin=global_vmin_model,
+                        global_vmax=global_vmax_model,
                     )
 
     logger.info(f"  Visualization complete: {model_dir}")

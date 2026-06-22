@@ -253,8 +253,17 @@ visualization:
     - "xz"  # North-South vertical slices
     - "yz"  # East-West vertical slices
 
-  # Which velocity field to visualize
-  velocity_field: "vp"  # "vp", "vs", or "both"
+  # Which velocity field(s) to visualize.
+  # Accepts a list for any combination, e.g. ["vp", "vs", "vpvs_ratio"].
+  # Also accepts legacy strings: "vp", "vs", or "both" (equivalent to ["vp", "vs"]).
+  velocity_field:
+    - "vp"  # options: "vp", "vs", "vpvs_ratio"
+
+  # Vp/Vs ratio settings (only used when "vpvs_ratio" is in velocity_field list)
+  vpvs_ratio:
+    colormap: "seismic"   # colormap for Vp/Vs ratio plots
+    uniform_cbar: false     # true: same colorbar range across all slices; false: local per slice
+    range: null             # e.g., [1.5, 2.5] — values outside this range are plotted in black; null = autoscale
 
   # Unit for slice positions: "indices" (grid indices) or "km" (physical units)
   slice_unit: "indices"  # Options: "indices", "km"
@@ -322,21 +331,24 @@ visualization:
   visualize_input:
     enabled: false
     colormap: "seismic"
-    # No centering, no threshold - simple autoscale
+    # No centering, no threshold - simple autoscale for vp/vs
+    # For vpvs_ratio: uses visualization.vpvs_ratio settings (uniform_cbar, range, colormap)
 
   # Checkerboard perturbed model visualization
   visualize_checkerboard:
     enabled: false
     colormap: "seismic"
-    # No centering, no threshold - simple autoscale
+    # No centering, no threshold - simple autoscale for vp/vs
+    # For vpvs_ratio: uses visualization.vpvs_ratio settings
 
   # Inverted model from LATTE visualization
   visualize_inverted:
     enabled: false
     colormap: "seismic"
-    # No centering, no threshold - simple autoscale
+    # No centering, no threshold - simple autoscale for vp/vs
+    # For vpvs_ratio: uses visualization.vpvs_ratio settings
 
-  # Difference plot (inverted - checkerboard)
+  # Difference plot (inverted - checkerboard) — vp/vs only; vpvs_ratio not plotted here
   visualize_difference:
     enabled: false
     colormap: "seismic"
@@ -344,26 +356,30 @@ visualization:
     uniform_cbar: false       # true: global min/max, false: local per slice
     # NO threshold support for difference plots
 
-  # Checkerboard pattern only (checkerboard - input) as percentage perturbation
+  # Checkerboard pattern (checkerboard - input) as % perturbation for vp/vs;
+  # actual Vp/Vs ratio for vpvs_ratio (not % difference).
+  # centered_at_zero and show_recovery_contours are ignored for vpvs_ratio.
   visualize_checkerboard_pattern:
     enabled: false
     colormap: "seismic"
-    centered_at_zero: true    # Center colorbar at 0
-    uniform_cbar: false       # true: global, false: local
-    threshold: null           # e.g., 7.0 for +/-7% threshold with black regions
+    centered_at_zero: true    # Center colorbar at 0 (vp/vs only)
+    uniform_cbar: false       # true: global, false: local (vp/vs only; vpvs_ratio uses vpvs_ratio.uniform_cbar)
+    threshold: null           # e.g., 7.0 for +/-7% threshold with black regions (vp/vs only)
     show_recovery_contours: false  # Not applicable for checkerboard pattern
     recovery_threshold_pct: 3.0
 
-  # Inverted pattern (inverted - input) as percentage perturbation
+  # Inverted pattern (inverted - input) as % perturbation for vp/vs;
+  # actual Vp/Vs ratio for vpvs_ratio (not % difference).
+  # centered_at_zero and show_recovery_contours are ignored for vpvs_ratio.
   visualize_inverted_pattern:
     enabled: false
     colormap: "seismic"
-    centered_at_zero: true    # Center colorbar at 0
-    uniform_cbar: false       # true: global, false: local
-    threshold: null           # e.g., 7.0 for +/-7% threshold with black regions
-    min_cbar_pct: null        # e.g., 7.0 → colorbar always shows at least ±7%; wider if data demands
-    show_recovery_contours: false  # Show boundaries of fairly recovered regions
-    recovery_threshold_pct: 3.0    # Fair recovery: same sign AND |inverted| >= threshold (%)
+    centered_at_zero: true    # Center colorbar at 0 (vp/vs only)
+    uniform_cbar: false       # true: global, false: local (vp/vs only; vpvs_ratio uses vpvs_ratio.uniform_cbar)
+    threshold: null           # e.g., 7.0 for +/-7% threshold with black regions (vp/vs only)
+    min_cbar_pct: null        # e.g., 7.0 → colorbar always shows at least ±7%; wider if data demands (vp/vs only)
+    show_recovery_contours: false  # Show boundaries of fairly recovered regions (vp/vs only)
+    recovery_threshold_pct: 3.0    # Fair recovery: same sign AND |inverted| >= threshold (%) (vp/vs only)
 
 # Workflow control - which steps to execute
 workflow:

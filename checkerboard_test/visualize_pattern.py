@@ -98,6 +98,53 @@ def create_threshold_colormap(
     return mcolors.ListedColormap(colors)
 
 
+def create_range_colormap(
+    base_cmap_name: str,
+    data_vmin: float,
+    data_vmax: float,
+    range_min: float,
+    range_max: float,
+    n_samples: int = 512,
+) -> mcolors.ListedColormap:
+    """
+    Create a colormap where values outside [range_min, range_max] are black.
+
+    Maps:
+    - [data_vmin, range_min) → black
+    - [range_min, range_max] → base colormap
+    - (range_max, data_vmax]  → black
+
+    Args:
+        base_cmap_name: Name of the base matplotlib colormap
+        data_vmin: Minimum of the data normalization range
+        data_vmax: Maximum of the data normalization range
+        range_min: Lower bound of the displayed range
+        range_max: Upper bound of the displayed range
+        n_samples: Number of discrete colour samples
+
+    Returns:
+        ListedColormap with black outside [range_min, range_max]
+    """
+    base_cmap = plt.get_cmap(base_cmap_name)
+    total_range = data_vmax - data_vmin
+    if total_range <= 0:
+        total_range = 1e-6
+
+    pos_lo = max(0.0, (range_min - data_vmin) / total_range)
+    pos_hi = min(1.0, (range_max - data_vmin) / total_range)
+
+    colors = []
+    for i in range(n_samples):
+        t = i / (n_samples - 1)
+        if t < pos_lo or t > pos_hi:
+            colors.append((0.0, 0.0, 0.0, 1.0))
+        else:
+            inner_range = pos_hi - pos_lo
+            t_base = (t - pos_lo) / inner_range if inner_range > 0 else 0.5
+            colors.append(base_cmap(t_base))
+
+    return mcolors.ListedColormap(colors)
+
 
 def plot_pattern_xy_slice(
     x_coords: np.ndarray,
@@ -112,6 +159,7 @@ def plot_pattern_xy_slice(
     global_vmax: Optional[float] = None,
     basin_data: Optional[Dict] = None,
     basin_config: Optional[Dict] = None,
+    velocity_field: str = "",
 ) -> None:
     """
     Plot XY slice for pattern visualization.
@@ -119,7 +167,7 @@ def plot_pattern_xy_slice(
     Args:
         x_coords: X coordinates (km)
         y_coords: Y coordinates (km)
-        velocity_slice: 2D velocity perturbation array (ny, nx) in %
+        velocity_slice: 2D velocity perturbation array (ny, nx) in % (or ratio for vpvs_ratio)
         z_value: Depth value (km)
         output_path: Output file path
         config: Visualization configuration with:
@@ -127,11 +175,13 @@ def plot_pattern_xy_slice(
             - uniform_cbar: bool
             - threshold: Optional[float]
             - show_recovery_contours: bool
+            - vpvs_ratio: dict with colormap/uniform_cbar/range for vpvs_ratio field
         title_prefix: Prefix for title
         recovery_mask: Optional 2D boolean mask for fair recovery contours
         global_vmin/vmax: Pre-computed global limits (used if uniform_cbar=True)
         basin_data: Optional basin boundary data from load_basin_boundaries()
         basin_config: Optional basin boundaries configuration for styling
+        velocity_field: Field being plotted; "vpvs_ratio" triggers special handling
     """
     fig, ax = plt.subplots(
         figsize=config["figure"]["figsize"],
@@ -140,39 +190,54 @@ def plot_pattern_xy_slice(
 
     X, Y = np.meshgrid(x_coords, y_coords)
 
+    is_vpvs = (velocity_field == "vpvs_ratio")
+
     # Determine vmin/vmax based on uniform_cbar setting
     if config.get("uniform_cbar", False) and global_vmin is not None:
         vmin, vmax = global_vmin, global_vmax
     else:
         vmin, vmax = float(np.nanmin(velocity_slice)), float(np.nanmax(velocity_slice))
 
-    threshold = config.get("threshold")
-    centered = config.get("centered_at_zero", True)
-    cmap_name = config.get("colormap", "seismic")
+    if is_vpvs:
+        vpvs_cfg = config.get("vpvs_ratio", {})
+        cmap_name = vpvs_cfg.get("colormap", "RdYlBu_r")
+        vpvs_range = vpvs_cfg.get("range")
 
-    # Apply minimum colorbar range (symmetric ±, only when centered_at_zero=True)
-    min_cbar_pct = config.get("min_cbar_pct")
-    if min_cbar_pct is not None and centered:
-        abs_max = max(abs(vmin), abs(vmax), float(min_cbar_pct))
-        vmin, vmax = -abs_max, abs_max
-
-    # Step 1: Build norm — centered_at_zero is independent of threshold
-    if centered:
-        norm = create_centered_norm(vmin, vmax)
-    else:
         norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
-
-    # Step 2: Build colormap — threshold bakes black into both the plot and the colorbar
-    if threshold is not None:
-        cmap = create_threshold_colormap(cmap_name, norm.vmin, norm.vmax, threshold)
+        if vpvs_range is not None:
+            range_min, range_max = float(vpvs_range[0]), float(vpvs_range[1])
+            cmap = create_range_colormap(cmap_name, vmin, vmax, range_min, range_max)
+        else:
+            cmap = plt.get_cmap(cmap_name).copy()
+        cbar_label = "Vp/Vs Ratio"
     else:
-        cmap = plt.get_cmap(cmap_name).copy()
-    data_to_plot = velocity_slice
+        threshold = config.get("threshold")
+        centered = config.get("centered_at_zero", True)
+        cmap_name = config.get("colormap", "seismic")
 
-    im = ax.pcolormesh(X, Y, data_to_plot, cmap=cmap, norm=norm, shading='auto')
+        # Apply minimum colorbar range (symmetric ±, only when centered_at_zero=True)
+        min_cbar_pct = config.get("min_cbar_pct")
+        if min_cbar_pct is not None and centered:
+            abs_max = max(abs(vmin), abs(vmax), float(min_cbar_pct))
+            vmin, vmax = -abs_max, abs_max
 
-    # Recovery contours (only for inverted_pattern)
-    if recovery_mask is not None and config.get("show_recovery_contours", False):
+        # Build norm — centered_at_zero is independent of threshold
+        if centered:
+            norm = create_centered_norm(vmin, vmax)
+        else:
+            norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+
+        # Build colormap — threshold bakes black into both the plot and the colorbar
+        if threshold is not None:
+            cmap = create_threshold_colormap(cmap_name, norm.vmin, norm.vmax, threshold)
+        else:
+            cmap = plt.get_cmap(cmap_name).copy()
+        cbar_label = "Velocity Perturbation (%)"
+
+    im = ax.pcolormesh(X, Y, velocity_slice, cmap=cmap, norm=norm, shading='auto')
+
+    # Recovery contours (only for non-vpvs inverted_pattern)
+    if not is_vpvs and recovery_mask is not None and config.get("show_recovery_contours", False):
         figure_config = config.get("figure", {})
         ax.contour(
             X, Y, recovery_mask.astype(float),
@@ -186,7 +251,7 @@ def plot_pattern_xy_slice(
 
     if config.get("show_colorbar", True):
         cbar = plt.colorbar(im, ax=ax)
-        cbar.set_label("Velocity Perturbation (%)", fontsize=config["font_size"]["colorbar"])
+        cbar.set_label(cbar_label, fontsize=config["font_size"]["colorbar"])
         cbar.ax.tick_params(labelsize=tick_size)
 
     ax.set_xlabel("X (km)", fontsize=config["font_size"]["labels"])
@@ -221,6 +286,7 @@ def plot_pattern_xz_slice(
     recovery_mask: Optional[np.ndarray] = None,
     global_vmin: Optional[float] = None,
     global_vmax: Optional[float] = None,
+    velocity_field: str = "",
 ) -> None:
     """
     Plot XZ slice for pattern visualization.
@@ -228,13 +294,14 @@ def plot_pattern_xz_slice(
     Args:
         x_coords: X coordinates (km)
         z_coords: Z coordinates (km)
-        velocity_slice: 2D velocity perturbation array (nz, nx) in %
+        velocity_slice: 2D velocity perturbation array (nz, nx) in % (or ratio for vpvs_ratio)
         y_value: Y coordinate value (km)
         output_path: Output file path
         config: Visualization configuration
         title_prefix: Prefix for title
         recovery_mask: Optional 2D boolean mask
         global_vmin/vmax: Pre-computed global limits
+        velocity_field: Field being plotted; "vpvs_ratio" triggers special handling
     """
     fig, ax = plt.subplots(
         figsize=config["figure"]["figsize"],
@@ -243,42 +310,57 @@ def plot_pattern_xz_slice(
 
     X, Z = np.meshgrid(x_coords, z_coords)
 
+    is_vpvs = (velocity_field == "vpvs_ratio")
+
     # Determine vmin/vmax
     if config.get("uniform_cbar", False) and global_vmin is not None:
         vmin, vmax = global_vmin, global_vmax
     else:
         vmin, vmax = float(np.nanmin(velocity_slice)), float(np.nanmax(velocity_slice))
 
-    threshold = config.get("threshold")
-    centered = config.get("centered_at_zero", True)
-    cmap_name = config.get("colormap", "seismic")
+    if is_vpvs:
+        vpvs_cfg = config.get("vpvs_ratio", {})
+        cmap_name = vpvs_cfg.get("colormap", "RdYlBu_r")
+        vpvs_range = vpvs_cfg.get("range")
 
-    # Apply minimum colorbar range (symmetric ±, only when centered_at_zero=True)
-    min_cbar_pct = config.get("min_cbar_pct")
-    if min_cbar_pct is not None and centered:
-        abs_max = max(abs(vmin), abs(vmax), float(min_cbar_pct))
-        vmin, vmax = -abs_max, abs_max
-
-    # Step 1: Build norm — centered_at_zero is independent of threshold
-    if centered:
-        norm = create_centered_norm(vmin, vmax)
-    else:
         norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
-
-    # Step 2: Build colormap — threshold bakes black into both the plot and the colorbar
-    if threshold is not None:
-        cmap = create_threshold_colormap(cmap_name, norm.vmin, norm.vmax, threshold)
+        if vpvs_range is not None:
+            range_min, range_max = float(vpvs_range[0]), float(vpvs_range[1])
+            cmap = create_range_colormap(cmap_name, vmin, vmax, range_min, range_max)
+        else:
+            cmap = plt.get_cmap(cmap_name).copy()
+        cbar_label = "Vp/Vs Ratio"
     else:
-        cmap = plt.get_cmap(cmap_name).copy()
-    data_to_plot = velocity_slice
+        threshold = config.get("threshold")
+        centered = config.get("centered_at_zero", True)
+        cmap_name = config.get("colormap", "seismic")
 
-    im = ax.pcolormesh(X, Z, data_to_plot, cmap=cmap, norm=norm, shading='auto')
+        # Apply minimum colorbar range (symmetric ±, only when centered_at_zero=True)
+        min_cbar_pct = config.get("min_cbar_pct")
+        if min_cbar_pct is not None and centered:
+            abs_max = max(abs(vmin), abs(vmax), float(min_cbar_pct))
+            vmin, vmax = -abs_max, abs_max
+
+        # Build norm — centered_at_zero is independent of threshold
+        if centered:
+            norm = create_centered_norm(vmin, vmax)
+        else:
+            norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+
+        # Build colormap — threshold bakes black into both the plot and the colorbar
+        if threshold is not None:
+            cmap = create_threshold_colormap(cmap_name, norm.vmin, norm.vmax, threshold)
+        else:
+            cmap = plt.get_cmap(cmap_name).copy()
+        cbar_label = "Velocity Perturbation (%)"
+
+    im = ax.pcolormesh(X, Z, velocity_slice, cmap=cmap, norm=norm, shading='auto')
 
     # Invert y-axis so depth increases downward
     ax.invert_yaxis()
 
-    # Recovery contours
-    if recovery_mask is not None and config.get("show_recovery_contours", False):
+    # Recovery contours (only for non-vpvs inverted_pattern)
+    if not is_vpvs and recovery_mask is not None and config.get("show_recovery_contours", False):
         figure_config = config.get("figure", {})
         ax.contour(
             X, Z, recovery_mask.astype(float),
@@ -292,7 +374,7 @@ def plot_pattern_xz_slice(
 
     if config.get("show_colorbar", True):
         cbar = plt.colorbar(im, ax=ax)
-        cbar.set_label("Velocity Perturbation (%)", fontsize=config["font_size"]["colorbar"])
+        cbar.set_label(cbar_label, fontsize=config["font_size"]["colorbar"])
         cbar.ax.tick_params(labelsize=tick_size)
 
     ax.set_xlabel("X (km)", fontsize=config["font_size"]["labels"])
@@ -322,6 +404,7 @@ def plot_pattern_yz_slice(
     recovery_mask: Optional[np.ndarray] = None,
     global_vmin: Optional[float] = None,
     global_vmax: Optional[float] = None,
+    velocity_field: str = "",
 ) -> None:
     """
     Plot YZ slice for pattern visualization.
@@ -329,13 +412,14 @@ def plot_pattern_yz_slice(
     Args:
         y_coords: Y coordinates (km)
         z_coords: Z coordinates (km)
-        velocity_slice: 2D velocity perturbation array (nz, ny) in %
+        velocity_slice: 2D velocity perturbation array (nz, ny) in % (or ratio for vpvs_ratio)
         x_value: X coordinate value (km)
         output_path: Output file path
         config: Visualization configuration
         title_prefix: Prefix for title
         recovery_mask: Optional 2D boolean mask
         global_vmin/vmax: Pre-computed global limits
+        velocity_field: Field being plotted; "vpvs_ratio" triggers special handling
     """
     fig, ax = plt.subplots(
         figsize=config["figure"]["figsize"],
@@ -344,42 +428,57 @@ def plot_pattern_yz_slice(
 
     Y, Z = np.meshgrid(y_coords, z_coords)
 
+    is_vpvs = (velocity_field == "vpvs_ratio")
+
     # Determine vmin/vmax
     if config.get("uniform_cbar", False) and global_vmin is not None:
         vmin, vmax = global_vmin, global_vmax
     else:
         vmin, vmax = float(np.nanmin(velocity_slice)), float(np.nanmax(velocity_slice))
 
-    threshold = config.get("threshold")
-    centered = config.get("centered_at_zero", True)
-    cmap_name = config.get("colormap", "seismic")
+    if is_vpvs:
+        vpvs_cfg = config.get("vpvs_ratio", {})
+        cmap_name = vpvs_cfg.get("colormap", "RdYlBu_r")
+        vpvs_range = vpvs_cfg.get("range")
 
-    # Apply minimum colorbar range (symmetric ±, only when centered_at_zero=True)
-    min_cbar_pct = config.get("min_cbar_pct")
-    if min_cbar_pct is not None and centered:
-        abs_max = max(abs(vmin), abs(vmax), float(min_cbar_pct))
-        vmin, vmax = -abs_max, abs_max
-
-    # Step 1: Build norm — centered_at_zero is independent of threshold
-    if centered:
-        norm = create_centered_norm(vmin, vmax)
-    else:
         norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
-
-    # Step 2: Build colormap — threshold bakes black into both the plot and the colorbar
-    if threshold is not None:
-        cmap = create_threshold_colormap(cmap_name, norm.vmin, norm.vmax, threshold)
+        if vpvs_range is not None:
+            range_min, range_max = float(vpvs_range[0]), float(vpvs_range[1])
+            cmap = create_range_colormap(cmap_name, vmin, vmax, range_min, range_max)
+        else:
+            cmap = plt.get_cmap(cmap_name).copy()
+        cbar_label = "Vp/Vs Ratio"
     else:
-        cmap = plt.get_cmap(cmap_name).copy()
-    data_to_plot = velocity_slice
+        threshold = config.get("threshold")
+        centered = config.get("centered_at_zero", True)
+        cmap_name = config.get("colormap", "seismic")
 
-    im = ax.pcolormesh(Y, Z, data_to_plot, cmap=cmap, norm=norm, shading='auto')
+        # Apply minimum colorbar range (symmetric ±, only when centered_at_zero=True)
+        min_cbar_pct = config.get("min_cbar_pct")
+        if min_cbar_pct is not None and centered:
+            abs_max = max(abs(vmin), abs(vmax), float(min_cbar_pct))
+            vmin, vmax = -abs_max, abs_max
+
+        # Build norm — centered_at_zero is independent of threshold
+        if centered:
+            norm = create_centered_norm(vmin, vmax)
+        else:
+            norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+
+        # Build colormap — threshold bakes black into both the plot and the colorbar
+        if threshold is not None:
+            cmap = create_threshold_colormap(cmap_name, norm.vmin, norm.vmax, threshold)
+        else:
+            cmap = plt.get_cmap(cmap_name).copy()
+        cbar_label = "Velocity Perturbation (%)"
+
+    im = ax.pcolormesh(Y, Z, velocity_slice, cmap=cmap, norm=norm, shading='auto')
 
     # Invert y-axis so depth increases downward
     ax.invert_yaxis()
 
-    # Recovery contours
-    if recovery_mask is not None and config.get("show_recovery_contours", False):
+    # Recovery contours (only for non-vpvs inverted_pattern)
+    if not is_vpvs and recovery_mask is not None and config.get("show_recovery_contours", False):
         figure_config = config.get("figure", {})
         ax.contour(
             Y, Z, recovery_mask.astype(float),
@@ -393,7 +492,7 @@ def plot_pattern_yz_slice(
 
     if config.get("show_colorbar", True):
         cbar = plt.colorbar(im, ax=ax)
-        cbar.set_label("Velocity Perturbation (%)", fontsize=config["font_size"]["colorbar"])
+        cbar.set_label(cbar_label, fontsize=config["font_size"]["colorbar"])
         cbar.ax.tick_params(labelsize=tick_size)
 
     ax.set_xlabel("Y (km)", fontsize=config["font_size"]["labels"])
@@ -437,8 +536,21 @@ def visualize_pattern(
     """
     logger.info(f"Visualizing {pattern_name} for {velocity_field}")
 
-    # Create output subdirectory
-    model_name = f"{pattern_name}_pct_{velocity_field}" if config.get("velocity_field") == "both" else f"{pattern_name}_pct"
+    is_vpvs = (velocity_field == "vpvs_ratio")
+
+    # Create output subdirectory — vpvs_ratio gets its own name; vp/vs use _pct suffix
+    velocity_field_config = config.get("velocity_field", "vp")
+    is_multi = (
+        isinstance(velocity_field_config, list) and len(velocity_field_config) > 1
+    ) or velocity_field_config == "both"
+
+    if is_vpvs:
+        model_name = f"{pattern_name}_vpvs_ratio"
+    elif is_multi:
+        model_name = f"{pattern_name}_pct_{velocity_field}"
+    else:
+        model_name = f"{pattern_name}_pct"
+
     model_dir = output_dir / model_name
     model_dir.mkdir(parents=True, exist_ok=True)
 
@@ -446,16 +558,24 @@ def visualize_pattern(
     x_coords, y_coords, z_coords, velocity_3d = prepare_3d_grid(df_pattern, velocity_field)
     nx, ny, nz = len(x_coords), len(y_coords), len(z_coords)
 
-    # Pre-compute global limits if uniform_cbar enabled
+    # Pre-compute global limits if uniform_cbar enabled.
+    # For vpvs_ratio, the uniform_cbar flag lives in config["vpvs_ratio"].
     global_vmin, global_vmax = None, None
-    if config.get("uniform_cbar", False):
+    if is_vpvs:
+        vpvs_cfg = config.get("vpvs_ratio", {})
+        use_uniform = vpvs_cfg.get("uniform_cbar", False)
+    else:
+        use_uniform = config.get("uniform_cbar", False)
+
+    if use_uniform:
         global_vmin, global_vmax = compute_global_limits(velocity_3d)
         logger.info(f"  Using uniform colorbar: [{global_vmin:.4f}, {global_vmax:.4f}]")
 
-    # Compute recovery mask if needed (inverted_pattern only)
+    # Compute recovery mask if needed (inverted_pattern only, not for vpvs_ratio)
     recovery_3d = None
     is_inverted_pattern = "inverted" in pattern_name
-    if (is_inverted_pattern and
+    if (not is_vpvs and
+        is_inverted_pattern and
         checkerboard_pattern_3d is not None and
         config.get("show_recovery_contours", False)):
 
@@ -526,6 +646,7 @@ def visualize_pattern(
                     global_vmax=global_vmax,
                     basin_data=basin_data,
                     basin_config=basin_config,
+                    velocity_field=velocity_field,
                 )
 
     # Plot XZ slices (N-S vertical)
@@ -563,6 +684,7 @@ def visualize_pattern(
                     recovery_mask=recovery_mask,
                     global_vmin=global_vmin,
                     global_vmax=global_vmax,
+                    velocity_field=velocity_field,
                 )
 
     # Plot YZ slices (E-W vertical)
@@ -600,6 +722,7 @@ def visualize_pattern(
                     recovery_mask=recovery_mask,
                     global_vmin=global_vmin,
                     global_vmax=global_vmax,
+                    velocity_field=velocity_field,
                 )
 
     logger.info(f"  Visualization complete: {model_dir}")
