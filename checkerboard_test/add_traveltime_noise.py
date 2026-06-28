@@ -977,6 +977,7 @@ def process_traveltime_directory_with_exchange(
 
         df_work = df.copy()
         df_work['phase_upper'] = df_work['phase'].str.upper()
+        df_work = df_work.drop(columns=['observed_tt'], errors='ignore')
         output_df = df_work.merge(map_df, on=['shot_id', 'station', 'phase_upper'], how='inner')
         output_df = output_df.drop(columns=['phase_upper'])
     else:
