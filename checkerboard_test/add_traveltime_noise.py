@@ -427,7 +427,7 @@ def process_traveltime_directory(
             index=idx_list,
         )
 
-    # Create a comprehensive CSV with all ground truth columns + synthetic_tt
+    # Create a comprehensive CSV with all ground truth columns, replacing observed_tt with noisy values
     logger.info("\nCreating noisy_traveltimes.csv with all metadata...")
     create_noisy_traveltimes_csv(df, output_dir, output_dir, output_dtype, extra_columns=extra_columns)
 
@@ -442,7 +442,7 @@ def create_noisy_traveltimes_csv(
     extra_columns: Optional[pd.DataFrame] = None,
 ) -> None:
     """
-    Create a CSV file with all ground truth columns plus synthetic_tt from noisy binaries.
+    Create a CSV file with all ground truth columns, replacing observed_tt with noisy values.
 
     Args:
         ground_truth_df: Ground truth DataFrame with all metadata
@@ -457,8 +457,8 @@ def create_noisy_traveltimes_csv(
     # Create a copy of ground truth dataframe to preserve all columns
     output_df = ground_truth_df.copy()
 
-    # Add synthetic_tt column (initialize with NaN)
-    output_df["synthetic_tt"] = np.nan
+    # Reset observed_tt to NaN so rows without a matching binary are clearly missing
+    output_df["observed_tt"] = np.nan
 
     # Group by shot_id and phase to read corresponding binary files
     grouped = ground_truth_df.groupby(["shot_id", "phase"])
@@ -475,8 +475,8 @@ def create_noisy_traveltimes_csv(
                 # Get the indices for this shot_id and phase in the original dataframe
                 indices = group.index
 
-                # Subtract configured origin time so synthetic_tt is physical travel time only,
-                # consistent with observed_tt (which carries no offset) and postprocessing convention.
+                # Subtract configured origin time so the noisy traveltime is physical travel time only,
+                # consistent with the original observed_tt convention (no offset) and postprocessing.
                 configured_origin_time = group["origin_time_s"].iloc[0]
                 noisy_tt = noisy_tt - configured_origin_time
 
@@ -488,10 +488,10 @@ def create_noisy_traveltimes_csv(
                     )
                     # Take minimum to avoid index errors
                     n_values = min(len(noisy_tt), len(indices))
-                    output_df.loc[indices[:n_values], "synthetic_tt"] = noisy_tt[:n_values]
+                    output_df.loc[indices[:n_values], "observed_tt"] = noisy_tt[:n_values]
                 else:
-                    # Fill synthetic_tt for this shot/phase combination
-                    output_df.loc[indices, "synthetic_tt"] = noisy_tt
+                    # Replace observed_tt with noisy traveltime for this shot/phase combination
+                    output_df.loc[indices, "observed_tt"] = noisy_tt
 
             except Exception as e:
                 logger.error(f"Error reading {binary_file}: {e}")
@@ -508,10 +508,10 @@ def create_noisy_traveltimes_csv(
     output_df.to_csv(output_csv, index=False)
     logger.info(f"Noisy traveltimes CSV saved to: {output_csv}")
 
-    # Log how many rows have valid synthetic_tt values
-    valid_count = output_df["synthetic_tt"].notna().sum()
+    # Log how many rows have valid observed_tt values
+    valid_count = output_df["observed_tt"].notna().sum()
     total_count = len(output_df)
-    logger.info(f"  {valid_count}/{total_count} rows have valid synthetic_tt values")
+    logger.info(f"  {valid_count}/{total_count} rows have valid observed_tt (noisy) values")
 
 
 def read_shot_geometry_file(geometry_file: Path) -> Tuple[np.ndarray, np.ndarray]:
@@ -960,7 +960,7 @@ def process_traveltime_directory_with_exchange(
     logger.info("\nCreating noisy_traveltimes.csv with all metadata...")
     if noisy_tt_map:
         map_records = [
-            {'shot_id': k[0], 'station': k[1], 'phase_upper': k[2], 'synthetic_tt': v}
+            {'shot_id': k[0], 'station': k[1], 'phase_upper': k[2], 'observed_tt': v}
             for k, v in noisy_tt_map.items()
         ]
         map_df = pd.DataFrame(map_records)
@@ -981,12 +981,12 @@ def process_traveltime_directory_with_exchange(
         output_df = output_df.drop(columns=['phase_upper'])
     else:
         output_df = df.iloc[:0].copy()
-        output_df['synthetic_tt'] = pd.Series(dtype=float)
+        output_df['observed_tt'] = pd.Series(dtype=float)
     output_csv = output_dir / "noisy_traveltimes.csv"
     output_df.to_csv(output_csv, index=False)
     logger.info(f"Noisy traveltimes CSV saved to: {output_csv}")
     removed_count = len(df) - len(output_df)
-    logger.info(f"  {len(output_df)}/{len(df)} rows have valid synthetic_tt values"
+    logger.info(f"  {len(output_df)}/{len(df)} rows have valid observed_tt (noisy) values"
                 + (f" ({removed_count} removed — no matching virtual binary)" if removed_count else ""))
 
     return stats
