@@ -377,8 +377,9 @@ visualization:
     colormap: "seismic"
     centered_at_zero: true    # Center colorbar at 0 (vp/vs only)
     uniform_cbar: false       # true: global, false: local (vp/vs only; vpvs_ratio uses vpvs_ratio.uniform_cbar)
-    threshold: null           # e.g., 7.0 for +/-7% threshold with black regions (vp/vs only)
-    min_cbar_pct: null        # e.g., 7.0 → colorbar always shows at least ±7%; wider if data demands (vp/vs only)
+    threshold: null           # e.g., 7.0 for +/-7% threshold (vp/vs only)
+    mark_threshold_black: true # false: values beyond threshold saturate to the same color as the threshold itself
+    min_cbar_pct: null        # e.g., 7.0 → colorbar always shows at least ±7%; wider if data demands (vp/vs only; ignored when threshold set and mark_threshold_black=false)
     show_recovery_contours: false  # Show boundaries of fairly recovered regions (vp/vs only)
     recovery_threshold_pct: 3.0    # Fair recovery: same sign AND |inverted| >= threshold (%) (vp/vs only)
 
