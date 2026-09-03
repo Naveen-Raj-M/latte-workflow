@@ -174,6 +174,10 @@ def plot_pattern_xy_slice(
             - centered_at_zero: bool
             - uniform_cbar: bool
             - threshold: Optional[float]
+            - mark_threshold_black: bool (default True) — when True and threshold is set,
+              regions beyond ±threshold are colored black (existing behavior). When False
+              and threshold is set, the colorbar is scaled to ±threshold with arrow caps,
+              and values beyond the threshold saturate to the threshold's color instead.
             - show_recovery_contours: bool
             - vpvs_ratio: dict with colormap/uniform_cbar/range for vpvs_ratio field
         title_prefix: Prefix for title
@@ -191,6 +195,7 @@ def plot_pattern_xy_slice(
     X, Y = np.meshgrid(x_coords, y_coords)
 
     is_vpvs = (velocity_field == "vpvs_ratio")
+    cbar_extend = "neither"
 
     # Determine vmin/vmax based on uniform_cbar setting
     if config.get("uniform_cbar", False) and global_vmin is not None:
@@ -214,6 +219,7 @@ def plot_pattern_xy_slice(
         threshold = config.get("threshold")
         centered = config.get("centered_at_zero", True)
         cmap_name = config.get("colormap", "seismic")
+        mark_threshold_black = config.get("mark_threshold_black", True)
 
         # Apply minimum colorbar range (symmetric ±, only when centered_at_zero=True)
         min_cbar_pct = config.get("min_cbar_pct")
@@ -221,17 +227,25 @@ def plot_pattern_xy_slice(
             abs_max = max(abs(vmin), abs(vmax), float(min_cbar_pct))
             vmin, vmax = -abs_max, abs_max
 
-        # Build norm — centered_at_zero is independent of threshold
-        if centered:
-            norm = create_centered_norm(vmin, vmax)
-        else:
-            norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
-
-        # Build colormap — threshold bakes black into both the plot and the colorbar
-        if threshold is not None:
-            cmap = create_threshold_colormap(cmap_name, norm.vmin, norm.vmax, threshold)
-        else:
+        if threshold is not None and not mark_threshold_black:
+            # Colorbar clamped to ±threshold; values beyond threshold saturate to
+            # the same color as the threshold itself (no black regions), with
+            # arrow caps on the colorbar to show the range is clipped.
+            norm = mcolors.Normalize(vmin=-threshold, vmax=threshold)
             cmap = plt.get_cmap(cmap_name).copy()
+            cbar_extend = "both"
+        else:
+            # Build norm — centered_at_zero is independent of threshold
+            if centered:
+                norm = create_centered_norm(vmin, vmax)
+            else:
+                norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+
+            # Build colormap — threshold bakes black into both the plot and the colorbar
+            if threshold is not None:
+                cmap = create_threshold_colormap(cmap_name, norm.vmin, norm.vmax, threshold)
+            else:
+                cmap = plt.get_cmap(cmap_name).copy()
         cbar_label = "Velocity Perturbation (%)"
 
     im = ax.pcolormesh(X, Y, velocity_slice, cmap=cmap, norm=norm, shading='auto')
@@ -250,7 +264,7 @@ def plot_pattern_xy_slice(
     tick_size = config["font_size"]["ticks"]
 
     if config.get("show_colorbar", True):
-        cbar = plt.colorbar(im, ax=ax)
+        cbar = plt.colorbar(im, ax=ax, extend=cbar_extend)
         cbar.set_label(cbar_label, fontsize=config["font_size"]["colorbar"])
         cbar.ax.tick_params(labelsize=tick_size)
 
@@ -311,6 +325,7 @@ def plot_pattern_xz_slice(
     X, Z = np.meshgrid(x_coords, z_coords)
 
     is_vpvs = (velocity_field == "vpvs_ratio")
+    cbar_extend = "neither"
 
     # Determine vmin/vmax
     if config.get("uniform_cbar", False) and global_vmin is not None:
@@ -334,6 +349,7 @@ def plot_pattern_xz_slice(
         threshold = config.get("threshold")
         centered = config.get("centered_at_zero", True)
         cmap_name = config.get("colormap", "seismic")
+        mark_threshold_black = config.get("mark_threshold_black", True)
 
         # Apply minimum colorbar range (symmetric ±, only when centered_at_zero=True)
         min_cbar_pct = config.get("min_cbar_pct")
@@ -341,17 +357,25 @@ def plot_pattern_xz_slice(
             abs_max = max(abs(vmin), abs(vmax), float(min_cbar_pct))
             vmin, vmax = -abs_max, abs_max
 
-        # Build norm — centered_at_zero is independent of threshold
-        if centered:
-            norm = create_centered_norm(vmin, vmax)
-        else:
-            norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
-
-        # Build colormap — threshold bakes black into both the plot and the colorbar
-        if threshold is not None:
-            cmap = create_threshold_colormap(cmap_name, norm.vmin, norm.vmax, threshold)
-        else:
+        if threshold is not None and not mark_threshold_black:
+            # Colorbar clamped to ±threshold; values beyond threshold saturate to
+            # the same color as the threshold itself (no black regions), with
+            # arrow caps on the colorbar to show the range is clipped.
+            norm = mcolors.Normalize(vmin=-threshold, vmax=threshold)
             cmap = plt.get_cmap(cmap_name).copy()
+            cbar_extend = "both"
+        else:
+            # Build norm — centered_at_zero is independent of threshold
+            if centered:
+                norm = create_centered_norm(vmin, vmax)
+            else:
+                norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+
+            # Build colormap — threshold bakes black into both the plot and the colorbar
+            if threshold is not None:
+                cmap = create_threshold_colormap(cmap_name, norm.vmin, norm.vmax, threshold)
+            else:
+                cmap = plt.get_cmap(cmap_name).copy()
         cbar_label = "Velocity Perturbation (%)"
 
     im = ax.pcolormesh(X, Z, velocity_slice, cmap=cmap, norm=norm, shading='auto')
@@ -373,7 +397,7 @@ def plot_pattern_xz_slice(
     tick_size = config["font_size"]["ticks"]
 
     if config.get("show_colorbar", True):
-        cbar = plt.colorbar(im, ax=ax)
+        cbar = plt.colorbar(im, ax=ax, extend=cbar_extend)
         cbar.set_label(cbar_label, fontsize=config["font_size"]["colorbar"])
         cbar.ax.tick_params(labelsize=tick_size)
 
@@ -429,6 +453,7 @@ def plot_pattern_yz_slice(
     Y, Z = np.meshgrid(y_coords, z_coords)
 
     is_vpvs = (velocity_field == "vpvs_ratio")
+    cbar_extend = "neither"
 
     # Determine vmin/vmax
     if config.get("uniform_cbar", False) and global_vmin is not None:
@@ -452,6 +477,7 @@ def plot_pattern_yz_slice(
         threshold = config.get("threshold")
         centered = config.get("centered_at_zero", True)
         cmap_name = config.get("colormap", "seismic")
+        mark_threshold_black = config.get("mark_threshold_black", True)
 
         # Apply minimum colorbar range (symmetric ±, only when centered_at_zero=True)
         min_cbar_pct = config.get("min_cbar_pct")
@@ -459,17 +485,25 @@ def plot_pattern_yz_slice(
             abs_max = max(abs(vmin), abs(vmax), float(min_cbar_pct))
             vmin, vmax = -abs_max, abs_max
 
-        # Build norm — centered_at_zero is independent of threshold
-        if centered:
-            norm = create_centered_norm(vmin, vmax)
-        else:
-            norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
-
-        # Build colormap — threshold bakes black into both the plot and the colorbar
-        if threshold is not None:
-            cmap = create_threshold_colormap(cmap_name, norm.vmin, norm.vmax, threshold)
-        else:
+        if threshold is not None and not mark_threshold_black:
+            # Colorbar clamped to ±threshold; values beyond threshold saturate to
+            # the same color as the threshold itself (no black regions), with
+            # arrow caps on the colorbar to show the range is clipped.
+            norm = mcolors.Normalize(vmin=-threshold, vmax=threshold)
             cmap = plt.get_cmap(cmap_name).copy()
+            cbar_extend = "both"
+        else:
+            # Build norm — centered_at_zero is independent of threshold
+            if centered:
+                norm = create_centered_norm(vmin, vmax)
+            else:
+                norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+
+            # Build colormap — threshold bakes black into both the plot and the colorbar
+            if threshold is not None:
+                cmap = create_threshold_colormap(cmap_name, norm.vmin, norm.vmax, threshold)
+            else:
+                cmap = plt.get_cmap(cmap_name).copy()
         cbar_label = "Velocity Perturbation (%)"
 
     im = ax.pcolormesh(Y, Z, velocity_slice, cmap=cmap, norm=norm, shading='auto')
@@ -491,7 +525,7 @@ def plot_pattern_yz_slice(
     tick_size = config["font_size"]["ticks"]
 
     if config.get("show_colorbar", True):
-        cbar = plt.colorbar(im, ax=ax)
+        cbar = plt.colorbar(im, ax=ax, extend=cbar_extend)
         cbar.set_label(cbar_label, fontsize=config["font_size"]["colorbar"])
         cbar.ax.tick_params(labelsize=tick_size)
 

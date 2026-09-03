@@ -364,7 +364,8 @@ visualization:
     colormap: "seismic"
     centered_at_zero: true    # Center colorbar at 0 (vp/vs only)
     uniform_cbar: false       # true: global, false: local (vp/vs only; vpvs_ratio uses vpvs_ratio.uniform_cbar)
-    threshold: null           # e.g., 7.0 for +/-7% threshold with black regions (vp/vs only)
+    threshold: null           # e.g., 7.0 for +/-7% threshold (vp/vs only)
+    mark_threshold_black: true # false: values beyond threshold saturate to the same color as the threshold itself
     show_recovery_contours: false  # Not applicable for checkerboard pattern
     recovery_threshold_pct: 3.0
 
