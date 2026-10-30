@@ -90,7 +90,7 @@ Produces the geometry text files, travel time binary files, and source binary fi
 - Writes one geometry text file and one pair of travel time binary files (float32, little-endian) per source event.
 - Writes four source binary files containing updated event coordinates and origin times.
 - Writes a `shot_to_source_id_map.txt` that links integer shot indices to original event IDs.
-- Optionally writes a human-readable `ground_truth_travel_times.csv`.
+- Optionally writes a human-readable `geometry_ground_truth_traveltimes.csv`.
 
 > **Important:** Binary travel time files contain `physical_travel_time + configured_origin_time`. The CSV `observed_tt` column contains physical travel times only. Keep this distinction in mind when post-processing.
 
@@ -178,7 +178,7 @@ All outputs are written under `preprocessing.output_dir`. The table below summar
 | `traveltime/shot_N_traveltime_{p,s}.bin` | Binary (float32) | Geom./TT | Per-event travel time arrays |
 | `source/sx.bin`, `sy.bin`, `sz.bin`, `st0.bin` | Binary (float32) | Geom./TT | Source coordinate and origin time arrays |
 | `shot_to_source_id_map.txt` | Text | Geom./TT | Shot index ↔ event ID mapping |
-| `ground_truth_travel_times.csv` | CSV | Geom./TT | Human-readable observed travel times |
+| `geometry_ground_truth_traveltimes.csv` | CSV | Geom./TT | Human-readable observed travel times |
 | `velocity_model_cartesian.csv` | CSV | Velocity model | 3D grid with Vp and Vs |
 | `velocity_model_cartesian.h5` | HDF5 | Velocity model | Same data with compression |
 | `vp_init.bin`, `vs_init.bin` | Binary (float32) | Velocity model | LATTE-ready velocity binaries |

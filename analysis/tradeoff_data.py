@@ -13,7 +13,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
-from utils.io_utils import read_csv_file
+from utils.io_utils import read_csv_file, glob_csv
 from utils.velocity_io import read_velocity_file
 
 logger = logging.getLogger(__name__)
@@ -150,12 +150,12 @@ def load_traveltime_residuals_for_iteration(
 
     Args:
         iteration_dir: Path object pointing to a single iteration_* dir.
-        traveltime_csv_pattern: Glob pattern (e.g., "travel_time_residuals*.csv").
+        traveltime_csv_pattern: Glob pattern (e.g., "synthetic_traveltimes.csv").
 
     Returns:
         DataFrame with at least columns [residual_s, phase], or None if not found.
     """
-    candidates = sorted(iteration_dir.glob(traveltime_csv_pattern))
+    candidates = glob_csv(iteration_dir, traveltime_csv_pattern)
 
     if not candidates:
         logger.warning(
@@ -412,7 +412,7 @@ def compute_method_comparison_rms_for_iteration(
         Dict with values per curve key (same format as compute_rms_for_iteration),
         or None if loading or merging fails.
     """
-    candidates = sorted(iteration_dir.glob(method2_csv_pattern))
+    candidates = glob_csv(iteration_dir, method2_csv_pattern)
 
     if not candidates:
         logger.warning(

@@ -13,6 +13,111 @@ import numpy as np
 import pandas as pd
 
 
+# --------------------------------------------------------------------------- #
+# Standard CSV file names
+# --------------------------------------------------------------------------- #
+# Default names of the per-pick tables, matching the published data package
+# (analysis/geometry_and_travel_times/). Legacy names are only fallbacks for inputs.
+GROUND_TRUTH_CSV_NAME = "geometry_ground_truth_traveltimes.csv"
+SYNTHETIC_TT_CSV_NAME = "synthetic_traveltimes.csv"
+SOURCE_RELOCATION_CSV_NAME = "source_relocation.csv"
+
+_CSV_NAMES = {
+    'ground_truth': (
+        GROUND_TRUTH_CSV_NAME,
+        ("ground_truth_traveltimes.csv",
+         "ground_truth_travel_times_corrected.csv",
+         "ground_truth_travel_times.csv"),
+    ),
+    'synthetic': (
+        SYNTHETIC_TT_CSV_NAME,
+        ("synthetic_travel_times_latte_output.csv",),
+    ),
+    # The source columns were once appended to the synthetic travel time table
+    'source': (
+        SOURCE_RELOCATION_CSV_NAME,
+        ("source_parameters_latte_output.csv",
+         "synthetic_travel_times_latte_output.csv"),
+    ),
+}
+
+# Legacy glob patterns used when scanning iteration directories
+_LEGACY_CSV_GLOBS = {
+    SYNTHETIC_TT_CSV_NAME: ("synthetic_travel_times_latte_output.csv", "travel_time_residuals*.csv"),
+    SOURCE_RELOCATION_CSV_NAME: ("source_parameters_latte_output.csv", "source_corrections*.csv"),
+    GROUND_TRUTH_CSV_NAME: ("ground_truth_traveltimes.csv", "ground_truth_travel_times*.csv"),
+}
+
+_logger = logging.getLogger(__name__)
+
+
+def _csv_role_from_name(name: str) -> Optional[str]:
+    for role, (new_name, legacy_names) in _CSV_NAMES.items():
+        if name == new_name:
+            return role
+    for role, (_, legacy_names) in _CSV_NAMES.items():
+        if name in legacy_names:
+            return role
+    return None
+
+
+def resolve_csv_path(filepath: Union[str, Path], role: Optional[str] = None) -> str:
+    """
+    Resolve the standard per-pick CSV (ground truth, synthetic travel times, source
+    relocation) to a file that exists, preferring the standard name.
+
+    If filepath exists it is returned as is. Otherwise the same directory is searched
+    for the standard name and then the legacy names. A warning is logged whenever a
+    legacy name is used. Paths with other names, or with no match, are returned
+    unchanged so the caller reports its usual error.
+
+    Args:
+        filepath: Configured CSV path
+        role: 'ground_truth', 'synthetic' or 'source'; inferred from the file name if omitted
+
+    Returns:
+        Path of the file to read
+    """
+    path = Path(filepath)
+    role = role or _csv_role_from_name(path.name)
+    if role not in _CSV_NAMES:
+        return str(filepath)
+
+    standard, legacy_names = _CSV_NAMES[role]
+    if path.exists():
+        if path.name in legacy_names:
+            _logger.warning(f"Legacy CSV name '{path.name}' in use; standard name is '{standard}'")
+        return str(filepath)
+
+    for name in (standard, *legacy_names):
+        candidate = path.parent / name
+        if candidate.exists():
+            if name != standard:
+                _logger.warning(f"'{standard}' not found in {path.parent}; "
+                                f"using legacy file '{name}' (rename it to '{standard}')")
+            return str(candidate)
+    return str(filepath)
+
+
+def glob_csv(directory: Union[str, Path], pattern: str, recursive: bool = False) -> List[Path]:
+    """
+    Sorted glob of directory for pattern, with legacy fallback when the pattern is a
+    standard CSV name. A warning is logged if only legacy names match.
+    """
+    directory = Path(directory)
+    find = directory.rglob if recursive else directory.glob
+    matches = sorted(find(pattern))
+    if matches:
+        return matches
+    for legacy in _LEGACY_CSV_GLOBS.get(pattern, ()):
+        matches = sorted(find(legacy))
+        if matches:
+            _logger.warning(f"No '{pattern}' in {directory}; using legacy file(s) matching "
+                            f"'{legacy}' (rename to '{pattern}')")
+            return matches
+    return []
+
+
 def check_file_exists(filepath: Union[str, Path]) -> None:
     """
     Check if a file exists and raise informative error if not.
@@ -110,6 +215,7 @@ def read_csv_file(filepath: Union[str, Path], **kwargs) -> pd.DataFrame:
     Returns:
         pandas DataFrame
     """
+    filepath = resolve_csv_path(filepath)
     check_file_exists(filepath)
     
     # Default arguments

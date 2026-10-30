@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Dict, Optional
 from omegaconf import DictConfig
 
+from utils.io_utils import resolve_csv_path
+
 logger = logging.getLogger(__name__)
 
 _PARAM_FILE_KEY = {
@@ -185,7 +187,7 @@ def process_source_updates(cfg: DictConfig) -> pd.DataFrame:
     logger.info(f"\nCreated corrections for {len(source_corrections)} shots")
 
     # Load travel time CSV
-    tt_csv_path = Path(str(cfg["travel_time_csv"]))
+    tt_csv_path = Path(resolve_csv_path(str(cfg["travel_time_csv"]), role='synthetic'))
     if not tt_csv_path.exists():
         raise FileNotFoundError(f"Travel time CSV not found: {tt_csv_path}")
 

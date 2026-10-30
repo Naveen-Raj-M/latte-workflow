@@ -24,6 +24,8 @@ from tqdm import tqdm
 from joblib import Parallel, delayed
 import warnings
 
+from utils.io_utils import resolve_csv_path
+
 from postprocess.compute_ray_paths import (
     get_performance_setting,
     get_cache_path,
@@ -445,7 +447,7 @@ def compute_all_ray_paths_from_binary(
 
     # Load ground truth data
     print(f"\nLoading ground truth data: {config.ground_truth_csv}")
-    df_gt = pd.read_csv(config.ground_truth_csv)
+    df_gt = pd.read_csv(resolve_csv_path(config.ground_truth_csv))
 
     # Convert coordinates from meters to kilometers if needed
     # (Binary files are in meters, ground truth should match)

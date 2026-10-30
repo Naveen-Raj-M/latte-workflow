@@ -19,6 +19,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from tqdm import tqdm
 
+from utils.io_utils import resolve_csv_path
+
 logger = logging.getLogger(__name__)
 
 
@@ -242,7 +244,7 @@ def process_traveltime_directory(
 
     # Read ground truth CSV to get all shot/phase combinations
     logger.info(f"Reading ground truth CSV: {ground_truth_csv}")
-    df = pd.read_csv(ground_truth_csv)
+    df = pd.read_csv(resolve_csv_path(ground_truth_csv))
 
     # Get unique shot_id and phase combinations
     combinations = df.groupby(["shot_id", "phase"]).size().reset_index(name="count")
@@ -716,7 +718,7 @@ def process_traveltime_directory_with_exchange(
     # 1. Ground-truth CSV                                                  #
     # ------------------------------------------------------------------ #
     logger.info(f"Reading ground truth CSV: {ground_truth_csv}")
-    df = pd.read_csv(ground_truth_csv)
+    df = pd.read_csv(resolve_csv_path(ground_truth_csv))
     logger.info(f"  Ground truth: {len(df)} records")
     logger.info(f"  Unique shots: {df['shot_id'].nunique()}, unique stations: {df['station'].nunique()}")
 

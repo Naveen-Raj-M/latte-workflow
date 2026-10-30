@@ -22,7 +22,7 @@ velocity_processing:
 
 travel_time_processing:
   enabled: true
-  ground_truth_csv: "/path/to/ground_truth_travel_times.csv"
+  ground_truth_csv: "/path/to/geometry_ground_truth_traveltimes.csv"
   shot_map_file: "/path/to/shot_to_source_id_map.txt"
 
 source_processing:

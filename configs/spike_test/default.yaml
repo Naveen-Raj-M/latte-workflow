@@ -39,7 +39,7 @@ input:
   synthetic_traveltime_dir: "/path/to/latte/output/synthetic_traveltimes"
 
   # Ground truth traveltime CSV (for matching metadata)
-  ground_truth_csv: "/path/to/preprocess/output/geometry_csv/ground_truth_traveltimes.csv"
+  ground_truth_csv: "/path/to/preprocess/output/geometry_csv/geometry_ground_truth_traveltimes.csv"
 
   # Directory containing inverted velocity binary files from LATTE
   # Files should be: updated_vp.bin, updated_vs.bin

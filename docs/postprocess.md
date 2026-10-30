@@ -163,8 +163,8 @@ All outputs are written to paths specified in the configuration. See [`docs/file
 |---|---|---|---|
 | `velocity_model_cartesian.csv` | CSV | Velocity | Updated Vp/Vs on reference grid |
 | `velocity_model_cartesian.h5` | HDF5 | Velocity | Same data with compression |
-| `synthetic_travel_times_latte_output.csv` | CSV | Travel time | Observed + synthetic TT, residuals, metadata |
-| `source_parameters_latte_output.csv` | CSV | Source | Updated source coordinates and origin times |
+| `synthetic_traveltimes.csv` | CSV | Travel time | Observed + synthetic TT, residuals, metadata |
+| `source_relocation.csv` | CSV | Source | Updated source coordinates and origin times |
 | `ray_paths.h5` | HDF5 | Ray path | Cached ray paths grouped by phase and shot |
 | `ray_paths_simplified.h5` | HDF5 | Ray path | RDP-simplified ray paths (optional) |
 | `dws.h5` | HDF5 | DWS | Volumetric DWS coverage grid `(nz, ny, nx)` |
@@ -253,7 +253,7 @@ velocity_processing:
 # Travel time processing
 travel_time_processing:
   enabled: true
-  ground_truth_csv: /path/to/preprocess/ground_truth_travel_times.csv
+  ground_truth_csv: /path/to/preprocess/geometry_ground_truth_traveltimes.csv
   synthetic_tt_dir: ${data.base_dir}/synthetic_traveltimes
   shot_map_file: /path/to/preprocess/shot_to_source_id_map.txt
 

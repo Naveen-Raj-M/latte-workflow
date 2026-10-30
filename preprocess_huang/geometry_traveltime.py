@@ -11,7 +11,7 @@ from typing import Dict, Set, Tuple, List, Any
 from omegaconf import DictConfig
 from pathlib import Path
 
-from utils.io_utils import ensure_directory_exists
+from utils.io_utils import ensure_directory_exists, GROUND_TRUTH_CSV_NAME
 from utils.origin_time_utils import (
     get_origin_time_for_event,
     save_origin_time_metadata
@@ -908,11 +908,8 @@ def write_travel_time_csv(events: Dict, event_map: Dict, config: DictConfig) -> 
     if csv_data:
         df = pd.DataFrame(csv_data)
         
-        # Determine filename based on input format (same naming regardless of phase_type)
-        if config.use_corrected_phase_pickings:
-            csv_filename = "ground_truth_travel_times_corrected.csv"
-        else:
-            csv_filename = "ground_truth_travel_times.csv"
+        # Same name regardless of phase_type or pick source
+        csv_filename = GROUND_TRUTH_CSV_NAME
         
         csv_path = os.path.join(config.csv_output_dir, csv_filename)
         df.to_csv(csv_path, index=False)

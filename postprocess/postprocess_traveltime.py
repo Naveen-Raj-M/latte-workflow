@@ -12,7 +12,7 @@ from typing import Dict, List, Tuple, Optional
 from omegaconf import DictConfig
 from tqdm import tqdm
 
-from utils.io_utils import ensure_directory_exists
+from utils.io_utils import ensure_directory_exists, resolve_csv_path
 
 
 def load_shot_mapping(shot_map_file: str) -> Dict[int, str]:
@@ -135,7 +135,7 @@ def load_virtual_station_geometry(exchange_geometry_file: str, ground_truth_csv:
 
     # Load ground truth station coordinates (one row per unique station name)
     print(f"  Loading ground truth station coordinates...")
-    df_gt = pd.read_csv(ground_truth_csv)
+    df_gt = pd.read_csv(resolve_csv_path(ground_truth_csv))
     station_coords = (
         df_gt[['station', 'station_x_transformed', 'station_y_transformed', 'station_z_transformed']]
         .drop_duplicates(subset='station')
@@ -225,7 +225,7 @@ def create_synthetic_travel_time_csv(config: DictConfig) -> None:
 
     # Load ground truth CSV for structure and metadata
     print(f"Loading ground truth travel time CSV: {config.ground_truth_csv}")
-    df_ground_truth = pd.read_csv(config.ground_truth_csv)
+    df_ground_truth = pd.read_csv(resolve_csv_path(config.ground_truth_csv))
 
     # Load shot mapping
     shot_map = load_shot_mapping(config.shot_map_file)
@@ -420,7 +420,7 @@ def create_synthetic_travel_time_csv_with_exchange(config: DictConfig) -> None:
 
     # Load ground truth CSV
     print(f"Loading ground truth travel time CSV: {config.ground_truth_csv}")
-    df_ground_truth = pd.read_csv(config.ground_truth_csv)
+    df_ground_truth = pd.read_csv(resolve_csv_path(config.ground_truth_csv))
 
     print(f"  Ground truth: {len(df_ground_truth)} records")
     print(f"  Unique shots: {df_ground_truth['shot_id'].nunique()}")

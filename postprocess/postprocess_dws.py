@@ -22,7 +22,7 @@ from tqdm import tqdm
 from joblib import Parallel, delayed
 import warnings
 
-from utils.io_utils import ensure_directory_exists
+from utils.io_utils import ensure_directory_exists, resolve_csv_path
 from utils.velocity_io import write_velocity_file, VELOCITY_COLUMNS
 from .postprocess_raypath import (
     read_gradient_metadata,
@@ -215,7 +215,7 @@ def compute_dws_from_ray_paths(config: DictConfig) -> np.ndarray:
 
     # Load ground truth data
     print(f"\nLoading ground truth data: {config.ground_truth_csv}")
-    df_gt = pd.read_csv(config.ground_truth_csv)
+    df_gt = pd.read_csv(resolve_csv_path(config.ground_truth_csv))
 
     # Convert coordinates from meters to kilometers
     coordinate_columns = [

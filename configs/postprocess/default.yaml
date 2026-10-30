@@ -71,10 +71,10 @@ velocity_processing:
 travel_time_processing:
   enabled: false
   phase_type: "both"                     # both | p | s
-  ground_truth_csv: "/full/path/to/ground_truth_travel_times_corrected.csv"
+  ground_truth_csv: "/full/path/to/geometry_ground_truth_traveltimes.csv"
   synthetic_tt_dir: "${data.base_dir}/synthetic_traveltimes"
   shot_map_file: "/full/path/to/shot_to_source_id_map.txt"
-  synthetic_tt_output_csv: "${data.analysis_output_dir}/synthetic_travel_times_latte_output.csv"
+  synthetic_tt_output_csv: "${data.analysis_output_dir}/synthetic_traveltimes.csv"
 
   # Source-receiver exchange (reciprocity-based inversion)
   source_receiver_exchange: false
@@ -93,7 +93,7 @@ source_processing:
   sz_file: "${data.base_dir}/model/updated_sz.bin"
   st0_file: "${data.base_dir}/model/updated_st0.bin"
   n_sources: 4495
-  output_csv: "${data.analysis_output_dir}/source_parameters_latte_output.csv"
+  output_csv: "${data.analysis_output_dir}/source_relocation.csv"
 
   # Gradient and search direction outputs; requires process_gradient or process_search to be true
   process_gradient: false                # true = load and output gradient fields (grad_sx, …, grad_st0)

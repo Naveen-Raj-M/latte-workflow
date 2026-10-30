@@ -474,7 +474,7 @@ tradeoff_analysis:
 
   # rms mode: computes RMS from per-iteration traveltime residual CSVs
   inversion_base_path: null             # dir containing iteration_*/ subdirs with traveltime CSVs
-  traveltime_csv_pattern: "travel_time_residuals*.csv"
+  traveltime_csv_pattern: "synthetic_traveltimes.csv"
   velocity_csv_pattern: "velocity*.csv"
   phase_mode: "both"                    # both | p | s | separate
   min_residual_threshold: -50.0         # s; lower bound for RMS computation
@@ -489,7 +489,7 @@ tradeoff_analysis:
   # rms comparison mode
   rms_comparison_mode: "ground_truth"   # ground_truth | method_comparison
   method1_csv: null                     # static path to Method 1 traveltime CSV
-  method2_csv_pattern: "travel_time_residuals*.csv"  # glob pattern for Method 2 CSV per iteration
+  method2_csv_pattern: "synthetic_traveltimes.csv"  # glob pattern for Method 2 CSV per iteration
 
   # Velocity model paths
   initial_model_csv: null               # path to initial velocity model CSV
@@ -538,11 +538,11 @@ tradeoff_analysis:
 paths:
   input_dir: "data/processed"
   output_base_dir: "results/analysis"
-  travel_time_csv_pattern: "travel_time_residuals*.csv"
+  travel_time_csv_pattern: "synthetic_traveltimes.csv"
   velocity_csv_pattern: "velocity_cartesian*.csv"
   station_csv_name: "stations_cartesian.csv"
   events_csv_name: "events_cartesian*.csv"
-  source_csv_pattern: "source_corrections*.csv"
+  source_csv_pattern: "source_relocation.csv"
   plots_subdir: "plots"
   stats_subdir: "statistics"
   reports_subdir: "reports"

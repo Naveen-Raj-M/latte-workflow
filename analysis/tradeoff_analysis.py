@@ -426,7 +426,7 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
             )
 
         traveltime_pattern = tcfg.get(
-            'traveltime_csv_pattern', 'travel_time_residuals*.csv'
+            'traveltime_csv_pattern', 'synthetic_traveltimes.csv'
         )
 
         logger.info("=" * 60)
@@ -576,7 +576,7 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
                     )
                 df_method1 = load_static_method_csv(method1_csv)
                 method2_pattern = tcfg.get(
-                    'method2_csv_pattern', 'travel_time_residuals*.csv'
+                    'method2_csv_pattern', 'synthetic_traveltimes.csv'
                 )
                 logger.info(f"Method 2 pattern (per iteration): {method2_pattern}")
 
@@ -600,7 +600,7 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
             else:
                 # ground_truth: residuals are pre-computed in the per-iteration CSV
                 traveltime_pattern = tcfg.get(
-                    'traveltime_csv_pattern', 'travel_time_residuals*.csv'
+                    'traveltime_csv_pattern', 'synthetic_traveltimes.csv'
                 )
                 for idx, iter_dir in tt_iter_dirs:
                     df_tt = load_traveltime_residuals_for_iteration(

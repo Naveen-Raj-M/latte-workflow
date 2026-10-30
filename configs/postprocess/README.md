@@ -42,7 +42,7 @@ velocity_processing:
 
 travel_time_processing:
   enabled: true
-  ground_truth_csv: "/path/to/ground_truth_travel_times.csv"
+  ground_truth_csv: "/path/to/geometry_ground_truth_traveltimes.csv"
   shot_map_file: "/path/to/shot_to_source_id_map.txt"
 
 source_processing:
@@ -291,8 +291,8 @@ analysis_output_dir/
 ├── velocity_cartesian_latte_output.csv       # Vp/Vs model (CSV)
 ├── velocity_cartesian_latte_output.h5        # Vp/Vs model (HDF5)
 ├── velocity_cartesian_latte_output_coarse.csv  # (optional) coarse-sampled CSV
-├── synthetic_travel_times_latte_output.csv   # Ground truth + synthetic TT comparison
-├── source_parameters_latte_output.csv        # Updated source locations and origin times
+├── synthetic_traveltimes.csv          # Ground truth + synthetic TT comparison
+├── source_relocation.csv              # Updated source locations and origin times
 ├── dws_values.h5                             # Derivative Weight Sum grid
 └── ray_paths/
     ├── ray_paths.h5                          # Full ray path HDF5 cache

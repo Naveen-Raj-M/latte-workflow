@@ -127,8 +127,8 @@ For detailed documentation, see [docs/analysis.md](docs/analysis.md).
    ↓                           ↓                            ↓                            ↓
 Input Data                 Binary Outputs               Analysis-Ready Files         Results & Plots
 ├─ Event catalog           ├─ updated_vp.bin            ├─ velocity_cartesian.csv    ├─ Residual plots
-│  (QuakeML / HDF5)        ├─ updated_vs.bin            ├─ synthetic_travel_times    ├─ Velocity comparisons
-├─ Station inventory       ├─ updated_sx/sy/sz.bin      ├─ source_corrections.csv    ├─ DWS coverage maps
+│  (QuakeML / HDF5)        ├─ updated_vs.bin            ├─ synthetic_traveltimes.csv  ├─ Velocity comparisons
+├─ Station inventory       ├─ updated_sx/sy/sz.bin      ├─ source_relocation.csv     ├─ DWS coverage maps
 └─ 1D reference model      ├─ updated_st0.bin           ├─ ray_paths.h5              ├─ Ray path projections
                            ├─ synthetic_traveltimes/    └─ dws_grid.csv              ├─ L-curve tradeoff
                            └─ ray_path binaries                                      └─ Statistical reports

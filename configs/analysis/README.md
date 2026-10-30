@@ -43,7 +43,7 @@ basin_boundaries:
 
 travel_time_analysis:
   enabled: true
-  input_csv: "/path/to/synthetic_travel_times_latte_output.csv"
+  input_csv: "/path/to/synthetic_traveltimes.csv"
   output_dir: "/path/to/analysis/output/travel_time"
 
 velocity_analysis:
@@ -84,11 +84,11 @@ Global path patterns used as defaults across all analysis modules. Module-level 
 |-----|---------|-------------|
 | `input_dir` | `data/processed` | Root directory for all input files. Used to resolve relative paths within modules. |
 | `output_base_dir` | `results/analysis` | Root directory for all analysis outputs. |
-| `travel_time_csv_pattern` | `travel_time_residuals*.csv` | Glob pattern for travel time residual CSVs. |
+| `travel_time_csv_pattern` | `synthetic_traveltimes.csv` | Glob pattern for travel time residual CSVs. |
 | `velocity_csv_pattern` | `velocity_cartesian*.csv` | Glob pattern for velocity model CSVs. |
 | `station_csv_name` | `stations_cartesian.csv` | Filename for the Cartesian station list. |
 | `events_csv_name` | `events_cartesian*.csv` | Glob pattern for the Cartesian events file. |
-| `source_csv_pattern` | `source_corrections*.csv` | Glob pattern for source parameter CSVs. |
+| `source_csv_pattern` | `source_relocation.csv` | Glob pattern for source parameter CSVs. |
 | `plots_subdir` | `plots` | Subdirectory name for plot outputs within each module's output directory. |
 | `stats_subdir` | `statistics` | Subdirectory name for statistics outputs. |
 | `reports_subdir` | `reports` | Subdirectory name for text report outputs. |
@@ -478,13 +478,13 @@ Generates the inversion L-curve (data misfit vs. model variance) across iteratio
 | `data_misfit_file_path` | `null` | — | Path to `data_misfit.txt` (3-column: iteration, data_misfit, normalized_data_misfit). Used when `y_axis_mode: data_misfit`. |
 | `use_normalized_misfit` | `false` | `true`, `false` | Use the normalized misfit column instead of the absolute column. |
 | `inversion_base_path` | `null` | — | Directory containing `iteration_*/` subdirs with travel time residual CSVs. Used when `y_axis_mode: rms`. |
-| `traveltime_csv_pattern` | `travel_time_residuals*.csv` | — | Glob pattern for travel time CSVs within each iteration directory. |
+| `traveltime_csv_pattern` | `synthetic_traveltimes.csv` | — | Glob pattern for travel time CSVs within each iteration directory. |
 | `phase_mode` | `both` | `both`, `p`, `s`, `separate` | Phase filter for RMS computation. `separate` = plot Vp and Vs curves independently. |
 | `min_residual_threshold` | `-50.0` | s | Lower bound for RMS computation. |
 | `max_residual_threshold` | `50.0` | s | Upper bound for RMS computation. |
 | `rms_comparison_mode` | `ground_truth` | `ground_truth`, `method_comparison` | `ground_truth`: single residual set. `method_comparison`: compare two methods. |
 | `method1_csv` | `null` | — | Static travel time CSV for Method 1 (method comparison mode). |
-| `method2_csv_pattern` | `travel_time_residuals*.csv` | — | Glob pattern for Method 2 CSVs per iteration. |
+| `method2_csv_pattern` | `synthetic_traveltimes.csv` | — | Glob pattern for Method 2 CSVs per iteration. |
 | `initial_model_csv` / `initial_model_hdf5` | `null` | — | Path to the initial velocity model for variance computation. HDF5 takes precedence. |
 | `inversion_analysis_dir` | `null` | — | Directory containing per-iteration post-processed velocity outputs. |
 | `velocity_dataset` | `velocity` | `velocity`, `velocity_coarse` | HDF5 dataset name to read for velocity model. |

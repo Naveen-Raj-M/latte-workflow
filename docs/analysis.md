@@ -374,7 +374,7 @@ basin_boundaries:
 travel_time_analysis:
   enabled: true
   comparison_mode: ground_truth
-  input_csv: /path/to/synthetic_travel_times_latte_output.csv
+  input_csv: /path/to/synthetic_traveltimes.csv
   output_dir: /path/to/output/travel_time
 
 velocity_analysis:

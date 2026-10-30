@@ -20,6 +20,20 @@ This document describes all input and output file formats across the three pipel
 
 ---
 
+## File Naming
+
+The per-pick CSV tables use the same names as the published data package (`analysis/geometry_and_travel_times/`):
+
+| Table | Standard name | Legacy names (read-only fallback) |
+|---|---|---|
+| Ground truth travel times (preprocess) | `geometry_ground_truth_traveltimes.csv` | `ground_truth_traveltimes.csv`, `ground_truth_travel_times_corrected.csv`, `ground_truth_travel_times.csv` |
+| Synthetic travel times (postprocess) | `synthetic_traveltimes.csv` | `synthetic_travel_times_latte_output.csv`, `travel_time_residuals*.csv` (iteration scans) |
+| Source relocation (postprocess) | `source_relocation.csv` | `source_parameters_latte_output.csv`, `synthetic_travel_times_latte_output.csv`, `source_corrections*.csv` (iteration scans) |
+
+New files are always written with the standard names. When a configured input is missing, the same directory is searched for the standard name and then the legacy names; a warning is logged whenever a legacy file is used.
+
+---
+
 ## 1. Preprocess
 
 ### 1.1 Inputs
@@ -252,7 +266,7 @@ One file per basin. Used as overlays on visualization plots.
 | Property | Value |
 |---|---|
 | **Format** | CSV |
-| **Config key** | `geometry_traveltime.csv_output_dir` (filename: `ground_truth_travel_times.csv`) |
+| **Config key** | `geometry_traveltime.csv_output_dir` (filename: `geometry_ground_truth_traveltimes.csv`) |
 | **Condition** | Written only if `generate_travel_time_csv: true` |
 
 | Column | Description | Units |
@@ -424,7 +438,7 @@ Output from the inversion kernel. Same memory layout as the preprocess velocity 
 | **Format** | CSV |
 | **Config key** | `travel_time_processing.ground_truth_csv` |
 
-Same schema as the preprocess output `ground_truth_travel_times.csv` (see [§1.2](#ground-truth-travel-times)).
+Same schema as the preprocess output `geometry_ground_truth_traveltimes.csv` (see [§1.2](#ground-truth-travel-times)).
 
 ---
 

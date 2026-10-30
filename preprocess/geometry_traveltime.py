@@ -18,7 +18,7 @@ from tqdm import tqdm
 
 from collections import defaultdict
 
-from utils.io_utils import ensure_directory_exists
+from utils.io_utils import ensure_directory_exists, GROUND_TRUTH_CSV_NAME
 from utils.origin_time_utils import (
     get_origin_time_for_event,
     save_origin_time_metadata
@@ -853,7 +853,7 @@ def write_output_files(events: Dict, config: DictConfig, origin_time_config: Dic
 def write_travel_time_csv(events: Dict, config: DictConfig) -> None:
     """
     Write comprehensive travel time data to CSV file with all metadata.
-    Creates ground_truth_traveltimes.csv.
+    Creates geometry_ground_truth_traveltimes.csv.
     """
     logger = logging.getLogger(__name__)
     geom_config = config.geometry_traveltime
@@ -953,7 +953,7 @@ def write_travel_time_csv(events: Dict, config: DictConfig) -> None:
     if csv_data:
         df = pd.DataFrame(csv_data)
         
-        csv_filename = "ground_truth_traveltimes.csv"
+        csv_filename = GROUND_TRUTH_CSV_NAME
         csv_path = Path(geom_config.csv_output_dir) / csv_filename
         df.to_csv(csv_path, index=False)
 

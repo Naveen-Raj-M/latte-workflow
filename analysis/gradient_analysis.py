@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 
-from utils.io_utils import write_text_file, ensure_directory_exists
+from utils.io_utils import write_text_file, ensure_directory_exists, resolve_csv_path
 from utils.velocity_io import read_velocity_file
 from utils.plot_utils import setup_plot_style, get_color_scheme
 
@@ -149,8 +149,8 @@ def analyze_source_gradients(config: Dict[str, Any]) -> Dict[str, Any]:
     if input_hdf5 and Path(input_hdf5).exists():
         input_file = input_hdf5
         logger.info(f"Loading source gradient data from HDF5: {input_file}")
-    elif input_csv and Path(input_csv).exists():
-        input_file = input_csv
+    elif input_csv and Path(resolve_csv_path(input_csv)).exists():
+        input_file = resolve_csv_path(input_csv)
         logger.info(f"Loading source gradient data from CSV: {input_file}")
     else:
         raise FileNotFoundError(
