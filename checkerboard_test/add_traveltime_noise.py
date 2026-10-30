@@ -20,6 +20,9 @@ from typing import Dict, List, Optional, Tuple
 from tqdm import tqdm
 
 from utils.io_utils import resolve_csv_path
+from utils.exchange import (
+    resolve_layout, match_stations, station_coordinates, check_binary_counts, check_array_size,
+)
 from utils.traveltime_io import read_traveltime_csv, write_traveltime_csv, event_station_distance_m
 
 logger = logging.getLogger(__name__)
@@ -577,115 +580,15 @@ def read_shot_geometry_file(geometry_file: Path) -> Tuple[np.ndarray, np.ndarray
     return np.array(source_coords, dtype=np.float64), np.array(receiver_coords, dtype=np.float64)
 
 
-def load_exchange_geometry(exchange_geometry_file: Path) -> Dict[int, Tuple[float, float, float]]:
-    """
-    Load the exchange geometry file that maps virtual shot ID to station
-    coordinates (in metres, matching station_x/y/z in the ground-truth CSV).
-
-    File format (one entry per line, comment lines start with '#'):
-        virtual_id  x_m  y_m  z_m
-
-    Args:
-        exchange_geometry_file: Path to the exchange geometry file.
-
-    Returns:
-        Dict mapping virtual_id (int) to (x, y, z) in metres.
-    """
-    virtual_id_to_coord: Dict[int, Tuple[float, float, float]] = {}
-    with open(exchange_geometry_file, 'r') as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith('#'):
-                parts = line.split()
-                if len(parts) >= 4:
-                    virtual_id = int(parts[0])
-                    x, y, z = float(parts[1]), float(parts[2]), float(parts[3])
-                    virtual_id_to_coord[virtual_id] = (x, y, z)
-    return virtual_id_to_coord
-
-
-def _build_station_to_virtual_id_map(
-    virtual_id_to_coord: Dict[int, Tuple[float, float, float]],
-    df_ground_truth: pd.DataFrame,
-    tolerance: float,
-) -> Dict[str, int]:
-    """
-    For each unique station in ground_truth_df, find the closest virtual_id in
-    exchange_geometry_file coordinates (both in metres, Cartesian system).
-
-    Returns Dict[station_name -> virtual_id].  Multiple stations at the same
-    geographic location (co-located instruments) all map to the same virtual_id
-    and each receives the same synthetic traveltime from that exchange binary.
-
-    This mirrors the matching strategy in the postprocess module's
-    load_virtual_station_geometry(), ensuring consistent behaviour between
-    the two modules.
-
-    Args:
-        virtual_id_to_coord: Dict from load_exchange_geometry().
-        df_ground_truth: Ground-truth DataFrame with station_x/y/z columns.
-        tolerance: Coordinate matching tolerance in metres.
-
-    Returns:
-        Dict mapping station_name → virtual_id.
-    """
-    station_coords_df = (
-        df_ground_truth[['station', 'station_x', 'station_y', 'station_z']]
-        .drop_duplicates(subset='station')
-        .reset_index(drop=True)
-    )
-
-    vids = list(virtual_id_to_coord.keys())
-    vcoords = np.array([virtual_id_to_coord[v] for v in vids], dtype=np.float64)
-
-    logger.info(f"  Matching {len(station_coords_df)} stations against "
-                f"{len(vids)} virtual station coordinates (tolerance={tolerance} m)...")
-
-    station_to_virtual: Dict[str, int] = {}
-    unmatched = []
-    co_located: Dict[int, List[str]] = {}  # virtual_id -> [stations] for logging
-
-    for _, row in station_coords_df.iterrows():
-        sx = row['station_x']
-        sy = row['station_y']
-        sz = row['station_z']
-        dists = np.sqrt(
-            (vcoords[:, 0] - sx) ** 2
-            + (vcoords[:, 1] - sy) ** 2
-            + (vcoords[:, 2] - sz) ** 2
-        )
-        min_idx = int(np.argmin(dists))
-        if dists[min_idx] <= tolerance:
-            vid = vids[min_idx]
-            station_to_virtual[row['station']] = vid
-            co_located.setdefault(vid, []).append(row['station'])
-        else:
-            unmatched.append((row['station'], float(dists[min_idx])))
-
-    logger.info(f"  Successfully matched: {len(station_to_virtual)}/{len(station_coords_df)} stations")
-
-    multi = {vid: names for vid, names in co_located.items() if len(names) > 1}
-    if multi:
-        logger.info(f"  Co-located station groups ({len(multi)} virtual IDs shared by multiple stations):")
-        for vid, names in sorted(multi.items()):
-            logger.info(f"    Virtual ID {vid}: {names}")
-
-    if unmatched:
-        logger.warning(f"  {len(unmatched)} stations could not be matched within {tolerance} m:")
-        for stn, dist in sorted(unmatched, key=lambda x: x[1])[:5]:
-            logger.warning(f"    Station '{stn}': closest virtual coord at {dist:.4f} m")
-
-    return station_to_virtual
-
-
 def process_traveltime_directory_with_exchange(
     input_dir: Path,
     output_dir: Path,
     geometry_dir: Path,
     ground_truth_csv: Path,
-    exchange_geometry_file: Path,
     noise_config: Dict,
-    removed_shots: Optional[List[int]] = None,
+    exchange_geometry_file: Optional[Path] = None,
+    filtered_shot_ids: Optional[List[int]] = None,
+    filtered_receiver_ids: Optional[List[str]] = None,
     random_seed: Optional[int] = None,
 ) -> Dict[str, int]:
     """
@@ -694,11 +597,10 @@ def process_traveltime_directory_with_exchange(
     and write output binaries **identical in format** to those produced by a
     standard (no-exchange) forward run.
 
-    Receiver-to-virtual-station matching uses the same strategy as the
-    postprocess module: virtual station coordinates from exchange_geometry_file
-    (in metres, Cartesian system) are matched against station_x/y/z
-    in the ground-truth CSV.  Geometry file coordinates are NOT used for
-    matching because they may be in a different coordinate system.
+    The exchange is rebuilt from the geometry files exactly as LATTE does it (virtual sources are the
+    unique receivers in order of first appearance, array index = kept shot in geometry.txt order).
+    ``exchange_geometry_file`` (LATTE output) is optional: if given it is the virtual-source table and
+    mismatches with the geometry only warn; without it any count mismatch raises an error.
 
     Receiver ordering in the output binary follows the sorted station name
     order, consistent with how the standard postprocess module reads LATTE
@@ -707,14 +609,13 @@ def process_traveltime_directory_with_exchange(
     Args:
         input_dir: Directory with exchange binaries (shot_<virtual_id>_traveltime_{p|s}.bin).
         output_dir: Directory for output standard binaries (shot_<id>_traveltime_{p|s}.bin).
-        geometry_dir: Directory containing shot_N_geometry.txt files (used for
-                      receiver count validation only; not used for coord matching).
+        geometry_dir: Directory with geometry.txt and shot_N_geometry.txt files.
         ground_truth_csv: CSV with shot_id, phase, station, origin_time_s, and
                           station_x/y/z columns.
-        exchange_geometry_file: File mapping virtual_id → station coords (km,
-                                same system as station_x/y/z in CSV; metres).
+        exchange_geometry_file: Optional LATTE exchange_geometry.txt (metres).
         noise_config: Noise configuration dict (same schema as standard mode).
-        removed_shots: Shot IDs removed by LATTE geometry filtering (compact arrays).
+        filtered_shot_ids: Shot IDs LATTE dropped (compact the binary arrays).
+        filtered_receiver_ids: Station names LATTE dropped.
         random_seed: Random seed for reproducibility.
 
     Returns:
@@ -726,8 +627,7 @@ def process_traveltime_directory_with_exchange(
 
     output_dir.mkdir(parents=True, exist_ok=True)
     random_state = np.random.RandomState(random_seed)
-    removed_shots = list(removed_shots) if removed_shots else []
-    removed_set = set(removed_shots)
+    removed_set = set(int(x) for x in (filtered_shot_ids or []))
 
     output_precision = noise_config.get("output_precision", "single")
     output_dtype = np.float32 if output_precision == "single" else np.float64
@@ -780,35 +680,46 @@ def process_traveltime_directory_with_exchange(
             logger.info(stat_msg)
 
     # ------------------------------------------------------------------ #
-    # 2. Array-index ↔ shot_id mapping (accounts for removed shots)       #
+    # 2. Exchange layout: kept shots (array index -> shot_id) and virtual   #
+    #    sources, rebuilt from the geometry files                          #
     # ------------------------------------------------------------------ #
-    if removed_set:
-        logger.info(f"Removed shots (filtered by LATTE): {sorted(removed_set)}")
-    valid_shot_ids = [sid for sid in unique_shot_ids if sid not in removed_set]
-    shot_id_to_array_index = {sid: idx for idx, sid in enumerate(valid_shot_ids)}
-    expected_array_size = len(valid_shot_ids)
-    logger.info(f"  Valid shots after removal: {expected_array_size}")
-
-    # ------------------------------------------------------------------ #
-    # 3. Match virtual stations → station names (same as postprocess)     #
-    # ------------------------------------------------------------------ #
-    logger.info(f"\nLoading exchange geometry: {exchange_geometry_file}")
-    virtual_id_to_coord = load_exchange_geometry(exchange_geometry_file)
-    logger.info(f"  Loaded {len(virtual_id_to_coord)} virtual station coordinates")
-
     coordinate_tolerance = noise_config.get("coordinate_tolerance", 1.0)  # m
-    station_to_virtual_id = _build_station_to_virtual_id_map(virtual_id_to_coord, df, coordinate_tolerance)
+    layout = resolve_layout(
+        df,
+        geometry_dir=geometry_dir,
+        exchange_geometry_file=exchange_geometry_file,
+        filtered_shot_ids=filtered_shot_ids or [],
+        filtered_receiver_ids=filtered_receiver_ids or [],
+        tolerance=coordinate_tolerance,
+    )
+    shot_id_to_array_index = {sid: idx for idx, sid in enumerate(layout.shot_ids)}
+    expected_array_size = layout.n_shots
+    logger.info(f"Exchange layout from {layout.source}: {layout.n_virtual} virtual sources, {layout.n_shots} shots")
+    if removed_set:
+        logger.info(f"Filtered shots (dropped by LATTE): {sorted(removed_set)}")
+
+    # ------------------------------------------------------------------ #
+    # 3. Match virtual sources → station names                            #
+    # ------------------------------------------------------------------ #
+    virtual_to_stations = match_stations(layout.virtual_coords, station_coordinates(df), layout.matching_tolerance(coordinate_tolerance))
+    station_to_virtual_id: Dict[str, int] = {
+        name: vid for vid, names in virtual_to_stations.items() for name in names
+    }
+    if len(virtual_to_stations) < layout.n_virtual:
+        logger.warning(f"  {layout.n_virtual - len(virtual_to_stations)} virtual sources matched no station "
+                       f"within {coordinate_tolerance} m")
 
     # ------------------------------------------------------------------ #
     # 4. Load all exchange binaries into memory                           #
     # ------------------------------------------------------------------ #
     logger.info(f"\nLoading exchange traveltime binaries from: {input_dir}")
+    check_binary_counts(layout, input_dir, phases_in_data)
     exchange_data: Dict[Tuple[int, str], np.ndarray] = {}
 
     for phase in phases_in_data:
         phase_lower = phase.lower()
         loaded = 0
-        for vid in virtual_id_to_coord:
+        for vid in range(1, layout.n_virtual + 1):
             bin_path = input_dir / f"shot_{vid}_traveltime_{phase_lower}.bin"
             if not bin_path.exists():
                 continue
@@ -816,16 +727,10 @@ def process_traveltime_directory_with_exchange(
             if data is None:
                 logger.warning(f"  Could not read {bin_path.name}, skipping")
                 continue
-            if len(data) != expected_array_size:
-                raise ValueError(
-                    f"Array size mismatch for {bin_path.name}: "
-                    f"expected {expected_array_size} elements (valid shots after "
-                    f"removing {sorted(removed_set) if removed_set else 'none'}), "
-                    f"got {len(data)}. Check the removed_shots configuration."
-                )
+            check_array_size(layout, bin_path.name, len(data))
             exchange_data[(vid, phase)] = data
             loaded += 1
-        logger.info(f"  {phase}-wave: loaded {loaded}/{len(virtual_id_to_coord)} binaries")
+        logger.info(f"  {phase}-wave: loaded {loaded}/{layout.n_virtual} binaries")
 
     # ------------------------------------------------------------------ #
     # 5. For every real shot, assemble traveltime array in sorted-station  #

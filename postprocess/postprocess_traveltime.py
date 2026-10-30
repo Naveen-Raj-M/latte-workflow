@@ -14,6 +14,7 @@ from tqdm import tqdm
 
 from utils.io_utils import ensure_directory_exists, resolve_csv_path
 from utils.traveltime_io import read_traveltime_csv, write_traveltime_csv
+from utils.exchange import resolve_layout, match_stations, station_coordinates, check_binary_counts, check_array_size
 
 
 def load_shot_mapping(shot_map_file: str) -> Dict[int, str]:
@@ -100,93 +101,6 @@ def load_source_correction_binaries(source_correction_file: str, mode: str = "st
     except Exception as e:
         print(f"Error loading source correction file {st0_file}: {e}")
         raise
-
-
-def load_virtual_station_geometry(exchange_geometry_file: str, ground_truth_csv: str, tolerance: float = 1.0) -> Dict[int, List[str]]:
-    """
-    Load virtual station geometry and match to actual station names by coordinates.
-
-    Returns a mapping of virtual_id -> list of station names at that location.
-    Multiple stations may share the same geographic location (co-located instruments);
-    all are included so that each co-located station receives the same synthetic traveltime.
-
-    Args:
-        exchange_geometry_file: Path to exchange geometry file with virtual station coordinates
-        ground_truth_csv: Path to ground truth CSV with station coordinates
-        tolerance: Coordinate matching tolerance in metres (exchange geometry file and the
-            ground-truth station_x/y/z coordinates are both in metres)
-
-    Returns:
-        Dictionary mapping virtual shot ID to list of matched station names
-    """
-    print(f"\nLoading virtual station geometry from: {exchange_geometry_file}")
-
-    # Read exchange geometry file
-    virtual_stations = {}
-    with open(exchange_geometry_file, 'r') as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith('#'):
-                parts = line.split()
-                if len(parts) >= 4:  # virtual_id, x, y, z
-                    virtual_id = int(parts[0])
-                    x, y, z = float(parts[1]), float(parts[2]), float(parts[3])
-                    virtual_stations[virtual_id] = (x, y, z)
-
-    print(f"  Loaded {len(virtual_stations)} virtual station coordinates")
-
-    # Load ground truth station coordinates (one row per unique station name)
-    print(f"  Loading ground truth station coordinates...")
-    df_gt = read_traveltime_csv(ground_truth_csv)
-    station_coords = (
-        df_gt[['station', 'station_x', 'station_y', 'station_z']]
-        .drop_duplicates(subset='station')
-    )
-    print(f"  Found {len(station_coords)} unique stations in ground truth")
-
-    # For each virtual_id, find ALL stations within tolerance.
-    # Co-located instruments (same geographic position, different names) all receive
-    # the same traveltime from the exchange binary for that location.
-    virtual_to_stations: Dict[int, List[str]] = {}
-    unmatched = []
-    co_located_count = 0
-
-    print(f"  Matching virtual stations to actual stations (tolerance={tolerance} m)...")
-    for virtual_id, (vx, vy, vz) in virtual_stations.items():
-        matched_names = []
-        min_distance = float('inf')
-        best_match = None
-
-        for _, row in station_coords.iterrows():
-            sx, sy, sz = row['station_x'], row['station_y'], row['station_z']
-            distance = np.sqrt((vx - sx)**2 + (vy - sy)**2 + (vz - sz)**2)
-
-            if distance < min_distance:
-                min_distance = distance
-                best_match = row['station']
-
-            if distance <= tolerance:
-                matched_names.append(row['station'])
-
-        if matched_names:
-            virtual_to_stations[virtual_id] = matched_names
-            if len(matched_names) > 1:
-                co_located_count += 1
-                print(f"  Virtual ID {virtual_id}: {len(matched_names)} co-located stations: {matched_names}")
-        else:
-            unmatched.append((virtual_id, min_distance, best_match))
-
-    print(f"  Successfully matched: {len(virtual_to_stations)}/{len(virtual_stations)} virtual stations")
-    if co_located_count:
-        print(f"  Co-located groups (multiple stations at same location): {co_located_count}")
-
-    if unmatched:
-        print(f"  Warning: {len(unmatched)} virtual stations could not be matched within tolerance")
-        print(f"  Closest mismatches (showing first 5):")
-        for i, (vid, dist, station) in enumerate(sorted(unmatched, key=lambda x: x[1])[:5]):
-            print(f"    Virtual ID {vid}: closest station '{station}' at {dist:.4f} m")
-
-    return virtual_to_stations
 
 
 def create_ground_truth_lookup(df_ground_truth: pd.DataFrame) -> Dict[Tuple[int, str, str], pd.Series]:
@@ -429,15 +343,22 @@ def create_synthetic_travel_time_csv_with_exchange(config: DictConfig) -> None:
     # OPTIMIZATION: Create lookup dictionary for O(1) access
     gt_lookup = create_ground_truth_lookup(df_ground_truth)
 
-    # Load shot mapping for event IDs
-    shot_map = load_shot_mapping(config.shot_map_file)
-
-    # Load virtual station geometry and match to actual station names
-    virtual_to_station = load_virtual_station_geometry(
-        config.exchange_geometry_file,
-        config.ground_truth_csv,
-        tolerance=config.get('coordinate_tolerance', 1.0)
+    # Rebuild LATTE's source-receiver exchange (optionally checked against exchange_geometry.txt)
+    tolerance = config.get('coordinate_tolerance', 1.0)
+    layout = resolve_layout(
+        df_ground_truth,
+        geometry_dir=config.get('geometry_dir', None),
+        geometry_file=config.get('geometry_file', 'geometry.txt'),
+        exchange_geometry_file=config.get('exchange_geometry_file', None),
+        filtered_shot_ids=config.get('filtered_shot_ids', None) or [],
+        filtered_receiver_ids=config.get('filtered_receiver_ids', None) or [],
+        tolerance=tolerance,
     )
+    print(f"  Exchange layout from {layout.source}: {layout.n_virtual} virtual sources, {layout.n_shots} shots")
+    virtual_to_station = match_stations(layout.virtual_coords, station_coordinates(df_ground_truth), layout.matching_tolerance(tolerance))
+    unmatched = layout.n_virtual - len(virtual_to_station)
+    if unmatched:
+        print(f"  Warning: {unmatched} virtual sources could not be matched to a station within {tolerance} m")
 
     # Load source correction if enabled (pre-load all corrections)
     corrected_origin_times = None
@@ -446,33 +367,35 @@ def create_synthetic_travel_time_csv_with_exchange(config: DictConfig) -> None:
             config.source_correction_file,
             mode="exchange",
         )
+        # st0 holds one value per kept shot (array index), not per original shot id
+        check_array_size(layout, "source correction file", len(corrected_origin_times))
+        corrected_origin_times = {layout.shot_ids[k - 1]: v for k, v in corrected_origin_times.items()}
         print("Source correction enabled")
 
-    # Build mapping from array index (0-based) to actual shot ID (1-based)
-    unique_shot_ids = sorted(df_ground_truth['shot_id'].unique())
-    array_index_to_shot_id = {idx: shot_id for idx, shot_id in enumerate(unique_shot_ids)}
-
-    # Expected array size
-    expected_array_size = len(array_index_to_shot_id)
+    # Array index (0-based) -> shot ID, in LATTE's (compacted) shot order
+    array_index_to_shot_id = dict(enumerate(layout.shot_ids))
 
     # Count binary files to verify
     bin_files = sorted([f for f in os.listdir(config.synthetic_tt_dir)
                        if f.startswith('shot_') and f.endswith('.bin')])
     print(f"\nFound {len(bin_files)} binary files in {config.synthetic_tt_dir}")
-    print(f"Expected {len(virtual_to_station) * 2} files (P and S for each virtual station)")
+    print(f"Expected {layout.n_virtual} files per phase (one per virtual source)")
     
     # Create output records matching ground truth
     output_records = []
     missing_pairs = []
     
-    print("\nProcessing binary files...")
-
     # Determine phases to process based on phase_type
     phases_to_process = []
     if phase_type in ['both', 'p']:
         phases_to_process.append('P')
     if phase_type in ['both', 's']:
         phases_to_process.append('S')
+
+    # Number of binaries must equal the number of virtual sources
+    check_binary_counts(layout, config.synthetic_tt_dir, phases_to_process)
+
+    print("\nProcessing binary files...")
 
     # Process each binary file (one per virtual station per phase)
     for phase in phases_to_process:
@@ -500,19 +423,8 @@ def create_synthetic_travel_time_csv_with_exchange(config: DictConfig) -> None:
             if travel_times is None:
                 continue
 
-            # CRITICAL: Validate array size matches expected size
-            actual_array_size = len(travel_times)
-            if actual_array_size != expected_array_size:
-                error_msg = (
-                    f"\n{'='*80}\n"
-                    f"ERROR: Array size mismatch for {bin_file}\n"
-                    f"  Expected: {expected_array_size} elements (ground truth has {len(unique_shot_ids)} unique shots)\n"
-                    f"  Actual:   {actual_array_size} elements\n"
-                    f"  Difference: {actual_array_size - expected_array_size}\n"
-                    f"\nThis indicates that the binary file does not match the ground truth.\n"
-                    f"{'='*80}\n"
-                )
-                raise ValueError(error_msg)
+            # CRITICAL: one value per kept shot
+            check_array_size(layout, bin_file, len(travel_times))
 
             # Process each array element using proper shot ID mapping
             for array_idx in range(len(travel_times)):

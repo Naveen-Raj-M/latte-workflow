@@ -42,8 +42,8 @@ input:
   # Files should be: updated_vp.bin, updated_vs.bin
   inverted_model_dir: "/path/to/latte/output/model"
 
-  # Maps virtual shot ID -> station coords (km): "virtual_id x_km y_km z_km" per line.
-  # Required only when traveltime_noise.source_receiver_exchange = true.
+  # Optional LATTE exchange_geometry.txt ("virtual_id x y z" per line, metres), used as the virtual-source table
+  # when traveltime_noise.source_receiver_exchange = true; geometry_dir is then used to cross-check it.
   exchange_geometry_file: null  # e.g., "/path/to/latte/output/exchange_geometry.txt" (coordinates in metres)
 
 # Checkerboard pattern configuration
@@ -120,10 +120,12 @@ traveltime_noise:
   # Set true when LATTE forward modeling used source-receiver exchange (stations as virtual sources).
   source_receiver_exchange: false
 
-  # Shot IDs removed by LATTE geometry filtering (compact the exchange binary arrays).
-  removed_shots: []  # e.g., [60]
+  # Only needed if LATTE dropped shots/receivers (sid_select, sid_exclude, no valid receivers, ...).
+  # Without them, a shot/receiver count mismatch between the geometry, ground truth and binaries raises an error.
+  filtered_shot_ids: []      # e.g., [60]  (legacy key: removed_shots)
+  filtered_receiver_ids: []  # station names, e.g., ["TX.ABC"]
 
-  # Tolerance (metres) for matching geometry-file receiver coords to exchange_geometry_file entries.
+  # Tolerance (metres) for matching geometry-file receiver coords to ground-truth stations.
   # Geometry files, exchange_geometry.txt and the travel-time CSV coordinates are all in metres.
   coordinate_tolerance: 0.01  # m
 

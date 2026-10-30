@@ -153,23 +153,21 @@ def run_spike_workflow(config: Union[Dict, DictConfig]) -> None:
                                 "traveltime_noise.source_receiver_exchange = true"
                             )
 
-                        # exchange_geometry_file comes from input config
+                        # exchange_geometry_file is optional (LATTE output used as a check / virtual-source table)
                         exchange_geometry_path = (
                             input_config.exchange_geometry_file
                             if isinstance(input_config, DictConfig)
                             else input_config.get("exchange_geometry_file")
                         )
-                        if not exchange_geometry_path:
-                            raise ValueError(
-                                "input.exchange_geometry_file must be set when "
-                                "traveltime_noise.source_receiver_exchange = true"
-                            )
 
-                        # removed_shots from noise config
-                        removed_shots = (
-                            list(traveltime_noise_config.removed_shots)
-                            if isinstance(traveltime_noise_config, DictConfig)
-                            else traveltime_noise_config.get("removed_shots", [])
+                        # Shots / receivers LATTE dropped (removed_shots is the legacy key)
+                        filtered_shot_ids = list(
+                            traveltime_noise_config.get("filtered_shot_ids", None)
+                            or traveltime_noise_config.get("removed_shots", None)
+                            or []
+                        )
+                        filtered_receiver_ids = list(
+                            traveltime_noise_config.get("filtered_receiver_ids", None) or []
                         )
 
                         process_traveltime_directory_with_exchange(
@@ -177,9 +175,10 @@ def run_spike_workflow(config: Union[Dict, DictConfig]) -> None:
                             output_dir=noisy_traveltime_dir,
                             geometry_dir=Path(geometry_dir_path),
                             ground_truth_csv=Path(ground_truth_path),
-                            exchange_geometry_file=Path(exchange_geometry_path),
                             noise_config=traveltime_noise_config,
-                            removed_shots=removed_shots,
+                            exchange_geometry_file=Path(exchange_geometry_path) if exchange_geometry_path else None,
+                            filtered_shot_ids=filtered_shot_ids,
+                            filtered_receiver_ids=filtered_receiver_ids,
                             random_seed=random_seed,
                         )
                     else:

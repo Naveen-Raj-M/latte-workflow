@@ -82,9 +82,17 @@ travel_time_processing:
 
   # Source-receiver exchange (reciprocity-based inversion)
   source_receiver_exchange: false
-  exchange_mapping_file: ${data.base_dir}/exchange_mapping.txt
-  exchange_geometry_file: ${data.base_dir}/exchange_geometry.txt
-  virtual_shot_mapping_file: ${data.base_dir}/shot_mapping.txt
+  # The exchange is rebuilt from the geometry files exactly as LATTE does it (virtual sources = unique
+  # receivers in order of first appearance; virtual receivers = kept shots in geometry.txt order).
+  geometry_dir: null                     # directory with geometry.txt and shot_<n>_geometry.txt (recommended)
+  geometry_file: "geometry.txt"
+  # Optional LATTE output used as the virtual-source table; if geometry_dir is also set, mismatches warn
+  # and the run proceeds with this file. Without it, any count mismatch raises an error.
+  exchange_geometry_file: null           # e.g. ${data.base_dir}/exchange_geometry.txt
+  # Only needed if LATTE dropped shots/receivers (sid_select, sid_exclude, no valid receivers, ...):
+  filtered_shot_ids: []                  # shot ids (geometry file ids) removed by LATTE
+  filtered_receiver_ids: []              # station names removed by LATTE
+  coordinate_tolerance: 0.01             # m, matches geometry receivers to ground-truth stations
 
   source_correction: false
   source_correction_file: ${data.base_dir}/model/updated_st0.bin

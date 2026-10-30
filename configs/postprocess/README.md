@@ -183,9 +183,12 @@ Merges observed ground truth travel times with synthetic predictions from LATTE 
 | Key | Default | Description |
 |-----|---------|-------------|
 | `source_receiver_exchange` | `false` | Enable reciprocity-based inversion mode where source and receiver roles are swapped. |
-| `exchange_mapping_file` | derived | Maps original shot IDs to virtual shot IDs used in exchange. |
-| `exchange_geometry_file` | derived | Geometry file for the exchange configuration. |
-| `virtual_shot_mapping_file` | derived | Maps virtual shots back to original event IDs. |
+| `geometry_dir` | `null` | Directory with `geometry.txt` and `shot_<n>_geometry.txt`. The exchange is rebuilt from it exactly as LATTE does: virtual sources are the unique receivers in order of first appearance, virtual receivers are the kept shots in `geometry.txt` order. |
+| `geometry_file` | `geometry.txt` | Name of the geometry index file in `geometry_dir`. |
+| `exchange_geometry_file` | `null` | Optional LATTE `exchange_geometry.txt`. If given it is the virtual-source table; with `geometry_dir` also set, mismatches only warn. Without it, any mismatch between geometry, ground truth and binaries raises an error. |
+| `filtered_shot_ids` | `[]` | Shot ids LATTE dropped (`sid_select`, `sid_exclude`, no valid sources/receivers). They are removed before numbering virtual sources and from the binary array indexing. |
+| `filtered_receiver_ids` | `[]` | Station names to drop from every shot before numbering virtual sources. |
+| `coordinate_tolerance` | `0.01` | Metres; matches geometry receivers to ground-truth stations. |
 
 #### Source correction
 
@@ -309,5 +312,5 @@ outputs/<YYYY-MM-DD>/<HH-MM-SS>_postprocess_<config_name>/
 - **`strict_mode: true` is recommended for production runs.** In lenient mode (`false`), a failed stage is skipped silently and downstream stages that depend on its output may also fail or produce incomplete results.
 - **`ray_path_diagnosis` requires `raypath_binary_dir` to be set.** It defaults to `null` and will raise an error if left unset when the stage is enabled.
 - **`ray_path_simplification` should run after `ray_path_diagnosis`.** It reads the HDF5 cache produced by that stage; if the cache does not exist the stage will fail.
-- **`source_receiver_exchange` requires all three exchange mapping files** (`exchange_mapping_file`, `exchange_geometry_file`, `virtual_shot_mapping_file`) to be valid paths. Missing any one will raise an error.
+- **`source_receiver_exchange` requires `geometry_dir` or `exchange_geometry_file`.** If the number of shots or virtual sources in the geometry, the ground truth and the LATTE binaries disagree (e.g. LATTE filtered shots), the stage raises an error unless `exchange_geometry_file` is given; list the dropped shots/stations in `filtered_shot_ids` / `filtered_receiver_ids`.
 - **`event_id_list_file` and `subsample_fraction` filtering applies only when `compute_dws: false`.** When DWS is enabled, all events are processed to ensure a complete sensitivity map.

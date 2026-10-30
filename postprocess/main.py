@@ -87,9 +87,12 @@ def postprocess_latte_outputs(config: DictConfig) -> None:
                 tt_config_dict['source_correction_file'] = config.travel_time_processing.source_correction_file
             if use_exchange:
                 print("Using SOURCE-RECEIVER EXCHANGE mode")
-                tt_config_dict['exchange_geometry_file'] = config.travel_time_processing.exchange_geometry_file
-                tt_config_dict['exchange_mapping_file'] = config.travel_time_processing.exchange_mapping_file
-                tt_config_dict['virtual_shot_mapping_file'] = config.travel_time_processing.get('virtual_shot_mapping_file', None)
+                tt = config.travel_time_processing
+                # geometry_dir rebuilds the exchange; exchange_geometry_file is an optional LATTE output used as a check
+                for key in ('geometry_dir', 'geometry_file', 'exchange_geometry_file',
+                            'filtered_shot_ids', 'filtered_receiver_ids', 'coordinate_tolerance'):
+                    if tt.get(key, None) is not None:
+                        tt_config_dict[key] = tt.get(key)
                 tt_config = OmegaConf.create(tt_config_dict)
                 create_synthetic_travel_time_csv_with_exchange(tt_config)
             else:
