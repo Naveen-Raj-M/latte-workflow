@@ -26,10 +26,10 @@ general:
 input:
   # Input velocity model CSV from preprocess module
   # Should contain: X_grid_km, Y_grid_km, Z_grid_km, vp, vs
-  velocity_model_csv: "/path/to/preprocess/output/velocity_model_cartesian.csv"
+  velocity_model_csv: "/path/to/preprocess/output/velocity_model_init.csv"
 
   # Optional HDF5 input (if specified, takes precedence over CSV)
-  velocity_model_hdf5: null  # e.g., "/path/to/preprocess/output/velocity_model_cartesian.h5"
+  velocity_model_hdf5: null  # e.g., "/path/to/preprocess/output/velocity_model_init.h5"
 
   # Directory containing original geometry files (to be reused)
   geometry_dir: "/path/to/preprocess/output/geometry"
@@ -243,8 +243,8 @@ model_conversion:
   # Options: "csv", "hdf5", "both"
   output_format: "csv"  # Default: CSV for backward compatibility
 
-  output_csv: "${model_conversion.output_dir}/velocity_model_inverted.csv"
-  output_hdf5: "${model_conversion.output_dir}/velocity_model_inverted.h5"
+  output_csv: "${model_conversion.output_dir}/velocity_model_final.csv"
+  output_hdf5: "${model_conversion.output_dir}/velocity_model_final.h5"
 
   # HDF5-specific options (used when output_format is "hdf5" or "both")
   hdf5_options:

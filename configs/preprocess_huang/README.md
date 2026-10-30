@@ -88,7 +88,7 @@ python -m preprocess.main --config-name=your_config
 output/
 ├── stations_cartesian.csv
 ├── events_cartesian.csv
-├── velocity_initial_cartesian.csv
+├── velocity_model_init.csv
 ├── model/
 │   ├── vp_init.bin
 │   ├── vs_init.bin

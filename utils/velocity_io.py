@@ -24,7 +24,7 @@ import h5py
 from tqdm import tqdm
 from joblib import Parallel, delayed
 
-from utils.io_utils import ensure_directory_exists
+from utils.io_utils import ensure_directory_exists, resolve_velocity_path
 
 logger = logging.getLogger(__name__)
 
@@ -567,7 +567,7 @@ def read_velocity_file(
         >>> # Memory efficient: read only necessary columns
         >>> df = read_velocity_file('velocity.h5', columns=['X_grid_km', 'Y_grid_km', 'Z_grid_km', 'vp'])
     """
-    filepath = Path(filepath)
+    filepath = Path(resolve_velocity_path(filepath))
 
     if not filepath.exists():
         raise FileNotFoundError(f"Velocity file not found: {filepath}")
@@ -741,7 +741,7 @@ def get_velocity_file_metadata(filepath: Union[str, Path]) -> Dict[str, Any]:
             'file_size_mb': float,
         }
     """
-    filepath = Path(filepath)
+    filepath = Path(resolve_velocity_path(filepath))
 
     if not filepath.exists():
         raise FileNotFoundError(f"File not found: {filepath}")

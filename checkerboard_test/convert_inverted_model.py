@@ -324,8 +324,8 @@ def convert_inverted_model(
 
     # Write output model (CSV and/or H5 based on config)
     output_format = config.get('output_format', 'csv')
-    output_csv = config.get('output_csv', output_dir / "velocity_model_inverted.csv")
-    output_hdf5 = config.get('output_hdf5', output_dir / "velocity_model_inverted.h5")
+    output_csv = config.get('output_csv', output_dir / "velocity_model_final.csv")
+    output_hdf5 = config.get('output_hdf5', output_dir / "velocity_model_final.h5")
     hdf5_options = config.get('hdf5_options', {})
 
     # Ensure output paths are Path objects

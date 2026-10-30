@@ -4,6 +4,7 @@ These functions can be reused across preprocessing, postprocessing, and analysis
 """
 
 import os
+import re
 import logging
 from pathlib import Path
 from typing import Union, List, Dict, Any, Optional
@@ -47,6 +48,25 @@ _LEGACY_CSV_GLOBS = {
     SOURCE_RELOCATION_CSV_NAME: ("source_parameters_latte_output.csv", "source_corrections*.csv"),
     GROUND_TRUTH_CSV_NAME: ("ground_truth_traveltimes.csv", "ground_truth_travel_times*.csv"),
 }
+
+# Velocity models: standard stem and legacy stems. The extension (.csv, .h5, .hdf5) is kept, and a
+# trailing grid/method suffix (_coarse, _exact, _chapman) carries over to the standard name.
+VELOCITY_INIT_STEM = "velocity_model_init"
+VELOCITY_FINAL_STEM = "velocity_model_final"
+
+_VELOCITY_STEMS = {
+    'init': (
+        VELOCITY_INIT_STEM,
+        ("velocity_model_cartesian", "velocity_initial_cartesian",
+         "velocity_cartesian_initial", "velocity_cartesian"),
+    ),
+    'final': (
+        VELOCITY_FINAL_STEM,
+        ("velocity_cartesian_latte_output", "velocity_cartesian_updated", "velocity_model_inverted"),
+    ),
+}
+_VELOCITY_EXTENSIONS = ('.csv', '.h5', '.hdf5')
+_VELOCITY_SUFFIX_RE = re.compile(r'^(?P<stem>.+?)(?P<suffix>(?:_exact|_chapman)?(?:_coarse)?)$')
 
 _logger = logging.getLogger(__name__)
 
@@ -116,6 +136,42 @@ def glob_csv(directory: Union[str, Path], pattern: str, recursive: bool = False)
                             f"'{legacy}' (rename to '{pattern}')")
             return matches
     return []
+
+
+def resolve_velocity_path(filepath: Union[str, Path]) -> str:
+    """
+    Resolve a velocity model file (CSV or HDF5) to one that exists, preferring the standard
+    stems 'velocity_model_init' and 'velocity_model_final'.
+
+    Behaves like resolve_csv_path: an existing path is returned as is, otherwise the same
+    directory is searched for the standard stem and then the legacy stems with the same
+    extension and suffix. A warning is logged whenever a legacy name is used. Other names, or
+    no match, return the path unchanged.
+    """
+    path = Path(filepath)
+    if path.suffix.lower() not in _VELOCITY_EXTENSIONS:
+        return str(filepath)
+    match = _VELOCITY_SUFFIX_RE.match(path.stem)
+    stem, suffix = match.group('stem'), match.group('suffix')
+    role = next((r for r, (std, legacy) in _VELOCITY_STEMS.items() if stem == std or stem in legacy), None)
+    if role is None:
+        return str(filepath)
+
+    standard, legacy_stems = _VELOCITY_STEMS[role]
+    standard_name = f"{standard}{suffix}{path.suffix}"
+    if path.exists():
+        if stem != standard:
+            _logger.warning(f"Legacy velocity model name '{path.name}' in use; standard name is '{standard_name}'")
+        return str(filepath)
+
+    for name_stem in (standard, *legacy_stems):
+        candidate = path.parent / f"{name_stem}{suffix}{path.suffix}"
+        if candidate.exists():
+            if name_stem != standard:
+                _logger.warning(f"'{standard_name}' not found in {path.parent}; "
+                                f"using legacy file '{candidate.name}' (rename it to '{standard_name}')")
+            return str(candidate)
+    return str(filepath)
 
 
 def check_file_exists(filepath: Union[str, Path]) -> None:
@@ -215,7 +271,7 @@ def read_csv_file(filepath: Union[str, Path], **kwargs) -> pd.DataFrame:
     Returns:
         pandas DataFrame
     """
-    filepath = resolve_csv_path(filepath)
+    filepath = resolve_velocity_path(resolve_csv_path(filepath))
     check_file_exists(filepath)
     
     # Default arguments

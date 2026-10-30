@@ -127,9 +127,9 @@ velocity_analysis:
   comparison_mode: "initial_vs_final"     # initial_vs_final | method_comparison | custom
 
   # Input files — HDF5 takes precedence over CSV when both are set
-  model1_csv: "data/processed/velocity_cartesian.csv"
+  model1_csv: "data/processed/velocity_model_init.csv"
   model1_hdf5: null                       # null = use CSV
-  model2_csv: "data/processed/velocity_cartesian_updated.csv"
+  model2_csv: "data/processed/velocity_model_final.csv"
   model2_hdf5: null                       # null = use CSV
   output_dir: "results/analysis/velocity_comparison"
 
@@ -539,7 +539,7 @@ paths:
   input_dir: "data/processed"
   output_base_dir: "results/analysis"
   travel_time_csv_pattern: "synthetic_traveltimes.csv"
-  velocity_csv_pattern: "velocity_cartesian*.csv"
+  velocity_csv_pattern: "velocity_model_final*.csv"
   station_csv_name: "stations_cartesian.csv"
   events_csv_name: "events_cartesian*.csv"
   source_csv_pattern: "source_relocation.csv"

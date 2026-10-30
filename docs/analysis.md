@@ -323,8 +323,8 @@ python -m analysis.main travel_time_analysis.enabled=true
 python -m analysis.main \
   velocity_analysis.enabled=true \
   velocity_analysis.comparison_mode=initial_vs_final \
-  velocity_analysis.model1_csv=/data/initial/velocity_model_cartesian.csv \
-  velocity_analysis.model2_csv=/data/iter10/velocity_model_cartesian.csv
+  velocity_analysis.model1_csv=/data/initial/velocity_model_init.csv \
+  velocity_analysis.model2_csv=/data/iter10/velocity_model_final.csv
 
 # Enable DWS analysis with custom depth slices
 python -m analysis.main \
@@ -380,8 +380,8 @@ travel_time_analysis:
 velocity_analysis:
   enabled: true
   comparison_mode: initial_vs_final
-  model1_csv: /path/to/initial/velocity_model_cartesian.csv
-  model2_csv: /path/to/final/velocity_model_cartesian.csv
+  model1_csv: /path/to/initial/velocity_model_init.csv
+  model2_csv: /path/to/final/velocity_model_final.csv
   output_dir: /path/to/output/velocity
 ```
 

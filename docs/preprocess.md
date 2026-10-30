@@ -179,8 +179,8 @@ All outputs are written under `preprocessing.output_dir`. The table below summar
 | `source/sx.bin`, `sy.bin`, `sz.bin`, `st0.bin` | Binary (float32) | Geom./TT | Source coordinate and origin time arrays |
 | `shot_to_source_id_map.txt` | Text | Geom./TT | Shot index ↔ event ID mapping |
 | `geometry_ground_truth_traveltimes.csv` | CSV | Geom./TT | Human-readable observed travel times |
-| `velocity_model_cartesian.csv` | CSV | Velocity model | 3D grid with Vp and Vs |
-| `velocity_model_cartesian.h5` | HDF5 | Velocity model | Same data with compression |
+| `velocity_model_init.csv` | CSV | Velocity model | 3D grid with Vp and Vs |
+| `velocity_model_init.h5` | HDF5 | Velocity model | Same data with compression |
 | `vp_init.bin`, `vs_init.bin` | Binary (float32) | Velocity model | LATTE-ready velocity binaries |
 | `plots/` | PNG | Visualization | Maps, cross-sections, depth slices, ray density |
 

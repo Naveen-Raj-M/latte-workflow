@@ -701,15 +701,15 @@ def transform_coordinates(full_config: DictConfig) -> None:
         }
 
     # Save INITIAL velocity model
-    initial_csv_path = os.path.join(config.output_dir, f"velocity_initial_cartesian{method_suffix}.csv")
-    initial_h5_path = os.path.join(config.output_dir, f"velocity_initial_cartesian{method_suffix}.h5")
+    initial_csv_path = os.path.join(config.output_dir, f"velocity_model_init{method_suffix}.csv")
+    initial_h5_path = os.path.join(config.output_dir, f"velocity_model_init{method_suffix}.h5")
 
     if vel_format in ['csv', 'both']:
         write_velocity_file(velocity_processed_df, initial_csv_path, format='csv',
                            show_progress=config.get('velocity_show_progress', True))
         print(f"  - stations_cartesian{method_suffix}.csv")
         print(f"  - events_cartesian{method_suffix}{event_file_suffix}.csv")
-        print(f"  - velocity_initial_cartesian{method_suffix}.csv (INITIAL model)")
+        print(f"  - velocity_model_init{method_suffix}.csv (INITIAL model)")
 
     if vel_format in ['hdf5', 'both']:
         write_velocity_file(
@@ -724,7 +724,7 @@ def transform_coordinates(full_config: DictConfig) -> None:
         if vel_format == 'hdf5':
             print(f"  - stations_cartesian{method_suffix}.csv")
             print(f"  - events_cartesian{method_suffix}{event_file_suffix}.csv")
-        print(f"  - velocity_initial_cartesian{method_suffix}.h5 (INITIAL model)")
+        print(f"  - velocity_model_init{method_suffix}.h5 (INITIAL model)")
 
     # Save FINAL velocity if processed
     if config.process_final_velocity and final_velocity_processed_df is not None:
@@ -758,7 +758,7 @@ def transform_coordinates(full_config: DictConfig) -> None:
         fine_dx, fine_dy, fine_dz = config.grid_spacing_km
 
         # Coarse initial velocity
-        initial_coarse_csv = os.path.join(config.output_dir, f"velocity_initial_cartesian{method_suffix}_coarse.csv")
+        initial_coarse_csv = os.path.join(config.output_dir, f"velocity_model_init{method_suffix}_coarse.csv")
         grid_df_coarse = subsample_to_coarse_grid(
             velocity_processed_df,
             dx_coarse=coarse_config['dx_coarse'],
@@ -770,7 +770,7 @@ def transform_coordinates(full_config: DictConfig) -> None:
         )
         write_velocity_file(grid_df_coarse, initial_coarse_csv, format='csv',
                            show_progress=config.get('velocity_show_progress', True))
-        print(f"  - velocity_initial_cartesian{method_suffix}_coarse.csv ({len(grid_df_coarse):,} points)")
+        print(f"  - velocity_model_init{method_suffix}_coarse.csv ({len(grid_df_coarse):,} points)")
 
         # Coarse final velocity if available
         if config.process_final_velocity and final_velocity_processed_df is not None:

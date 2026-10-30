@@ -14,7 +14,7 @@ from pathlib import Path
 import sys
 
 from utils.logging_utils import setup_logging, ProcessTimer
-from utils.io_utils import ensure_directory_exists, resolve_csv_path
+from utils.io_utils import ensure_directory_exists, resolve_csv_path, resolve_velocity_path
 
 # Import analysis functions
 from .traveltime_analysis import analyze_travel_time_residuals
@@ -672,9 +672,9 @@ def _validate_velocity_config(cfg: DictConfig) -> None:
 
         # Validate Model 1
         if model1_csv or model1_hdf5:
-            if model1_hdf5 and Path(model1_hdf5).exists():
+            if model1_hdf5 and Path(resolve_velocity_path(model1_hdf5)).exists():
                 logger.info(f"Velocity model 1: Using HDF5 file: {model1_hdf5}")
-            elif model1_csv and Path(model1_csv).exists():
+            elif model1_csv and Path(resolve_velocity_path(model1_csv)).exists():
                 logger.info(f"Velocity model 1: Using CSV file: {model1_csv}")
             else:
                 logger.error(f"Velocity model 1 file not found (tried CSV: {model1_csv}, HDF5: {model1_hdf5})")
@@ -682,9 +682,9 @@ def _validate_velocity_config(cfg: DictConfig) -> None:
 
         # Validate Model 2
         if model2_csv or model2_hdf5:
-            if model2_hdf5 and Path(model2_hdf5).exists():
+            if model2_hdf5 and Path(resolve_velocity_path(model2_hdf5)).exists():
                 logger.info(f"Velocity model 2: Using HDF5 file: {model2_hdf5}")
-            elif model2_csv and Path(model2_csv).exists():
+            elif model2_csv and Path(resolve_velocity_path(model2_csv)).exists():
                 logger.info(f"Velocity model 2: Using CSV file: {model2_csv}")
             else:
                 logger.error(f"Velocity model 2 file not found (tried CSV: {model2_csv}, HDF5: {model2_hdf5})")
@@ -841,9 +841,9 @@ def _validate_gradient_config(cfg: DictConfig) -> None:
             velocity_gradient_hdf5 = cfg.gradient_analysis.get('velocity_input_hdf5')
 
             if velocity_gradient_csv or velocity_gradient_hdf5:
-                if velocity_gradient_hdf5 and Path(velocity_gradient_hdf5).exists():
+                if velocity_gradient_hdf5 and Path(resolve_velocity_path(velocity_gradient_hdf5)).exists():
                     logger.info(f"Velocity gradient analysis: Using HDF5 file: {velocity_gradient_hdf5}")
-                elif velocity_gradient_csv and Path(velocity_gradient_csv).exists():
+                elif velocity_gradient_csv and Path(resolve_velocity_path(velocity_gradient_csv)).exists():
                     logger.info(f"Velocity gradient analysis: Using CSV file: {velocity_gradient_csv}")
                 else:
                     logger.error(f"Velocity gradient file not found (tried CSV: {velocity_gradient_csv}, HDF5: {velocity_gradient_hdf5})")
@@ -854,7 +854,7 @@ def _validate_gradient_config(cfg: DictConfig) -> None:
             source_gradient_hdf5 = cfg.gradient_analysis.get('source_input_hdf5')
 
             if source_gradient_csv or source_gradient_hdf5:
-                if source_gradient_hdf5 and Path(source_gradient_hdf5).exists():
+                if source_gradient_hdf5 and Path(resolve_velocity_path(source_gradient_hdf5)).exists():
                     logger.info(f"Source gradient analysis: Using HDF5 file: {source_gradient_hdf5}")
                 elif source_gradient_csv and Path(resolve_csv_path(source_gradient_csv)).exists():
                     logger.info(f"Source gradient analysis: Using CSV file: {source_gradient_csv}")
@@ -919,12 +919,12 @@ def _validate_tradeoff_config(cfg: DictConfig) -> None:
     if cfg.get('quality_control', {}).get('validate_input_data', True):
         hdf5 = tcfg.get('initial_model_hdf5')
         csv = tcfg.get('initial_model_csv')
-        if hdf5 and not Path(hdf5).exists():
+        if hdf5 and not Path(resolve_velocity_path(hdf5)).exists():
             logger.error(
                 f"tradeoff_analysis: initial_model_hdf5 not found: {hdf5}"
             )
             sys.exit(1)
-        elif not hdf5 and csv and not Path(csv).exists():
+        elif not hdf5 and csv and not Path(resolve_velocity_path(csv)).exists():
             logger.error(
                 f"tradeoff_analysis: initial_model_csv not found: {csv}"
             )

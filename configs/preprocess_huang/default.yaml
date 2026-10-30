@@ -91,7 +91,7 @@ geometry_traveltime:
 
 velocity_binary:
   enabled: true
-  input_csv: "${coordinate_transform.output_dir}/velocity_initial_cartesian.csv"
+  input_csv: "${coordinate_transform.output_dir}/velocity_model_init.csv"
   vp_output: "${data.output_base_dir}/model/vp_init.bin"
   vs_output: "${data.output_base_dir}/model/vs_init.bin"
   create_final_binaries: false
@@ -112,7 +112,7 @@ visualization:
     view_from_direction: "southeast"  # Options: south, east, west, north, southeast
     view_elevation: 20
   velocity_vis:
-    csv_file: "${coordinate_transform.output_dir}/velocity_initial_cartesian.csv"
+    csv_file: "${coordinate_transform.output_dir}/velocity_model_init.csv"
     bin_file: "${data.output_base_dir}/model/vp_init.bin"
     coord_system: "flattened"  # Options: flattened, enu
   velocity_animation:

@@ -48,8 +48,8 @@ travel_time_analysis:
 
 velocity_analysis:
   enabled: true
-  model1_csv: "/path/to/velocity_cartesian_initial.csv"
-  model2_csv: "/path/to/velocity_cartesian_latte_output.csv"
+  model1_csv: "/path/to/velocity_model_init.csv"
+  model2_csv: "/path/to/velocity_model_final.csv"
   output_dir: "/path/to/analysis/output/velocity_comparison"
 ```
 
@@ -85,7 +85,7 @@ Global path patterns used as defaults across all analysis modules. Module-level 
 | `input_dir` | `data/processed` | Root directory for all input files. Used to resolve relative paths within modules. |
 | `output_base_dir` | `results/analysis` | Root directory for all analysis outputs. |
 | `travel_time_csv_pattern` | `synthetic_traveltimes.csv` | Glob pattern for travel time residual CSVs. |
-| `velocity_csv_pattern` | `velocity_cartesian*.csv` | Glob pattern for velocity model CSVs. |
+| `velocity_csv_pattern` | `velocity_model_final*.csv` | Glob pattern for velocity model CSVs. |
 | `station_csv_name` | `stations_cartesian.csv` | Filename for the Cartesian station list. |
 | `events_csv_name` | `events_cartesian*.csv` | Glob pattern for the Cartesian events file. |
 | `source_csv_pattern` | `source_relocation.csv` | Glob pattern for source parameter CSVs. |

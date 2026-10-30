@@ -288,9 +288,9 @@ Reduces the memory footprint of the ray path HDF5 cache using the Ramer–Dougla
 
 ```
 analysis_output_dir/
-├── velocity_cartesian_latte_output.csv       # Vp/Vs model (CSV)
-├── velocity_cartesian_latte_output.h5        # Vp/Vs model (HDF5)
-├── velocity_cartesian_latte_output_coarse.csv  # (optional) coarse-sampled CSV
+├── velocity_model_final.csv       # Vp/Vs model (CSV)
+├── velocity_model_final.h5        # Vp/Vs model (HDF5)
+├── velocity_model_final_coarse.csv  # (optional) coarse-sampled CSV
 ├── synthetic_traveltimes.csv          # Ground truth + synthetic TT comparison
 ├── source_relocation.csv              # Updated source locations and origin times
 ├── dws_values.h5                             # Derivative Weight Sum grid

@@ -126,7 +126,7 @@ For detailed documentation, see [docs/analysis.md](docs/analysis.md).
 1. Preprocessing            2. LATTE Inversion          3. Post-Processing           4. Analysis
    ↓                           ↓                            ↓                            ↓
 Input Data                 Binary Outputs               Analysis-Ready Files         Results & Plots
-├─ Event catalog           ├─ updated_vp.bin            ├─ velocity_cartesian.csv    ├─ Residual plots
+├─ Event catalog           ├─ updated_vp.bin            ├─ velocity_model_final.csv   ├─ Residual plots
 │  (QuakeML / HDF5)        ├─ updated_vs.bin            ├─ synthetic_traveltimes.csv  ├─ Velocity comparisons
 ├─ Station inventory       ├─ updated_sx/sy/sz.bin      ├─ source_relocation.csv     ├─ DWS coverage maps
 └─ 1D reference model      ├─ updated_st0.bin           ├─ ray_paths.h5              ├─ Ray path projections

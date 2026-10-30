@@ -161,8 +161,8 @@ All outputs are written to paths specified in the configuration. See [`docs/file
 
 | File | Format | Stage | Description |
 |---|---|---|---|
-| `velocity_model_cartesian.csv` | CSV | Velocity | Updated Vp/Vs on reference grid |
-| `velocity_model_cartesian.h5` | HDF5 | Velocity | Same data with compression |
+| `velocity_model_final.csv` | CSV | Velocity | Updated Vp/Vs on reference grid |
+| `velocity_model_final.h5` | HDF5 | Velocity | Same data with compression |
 | `synthetic_traveltimes.csv` | CSV | Travel time | Observed + synthetic TT, residuals, metadata |
 | `source_relocation.csv` | CSV | Source | Updated source coordinates and origin times |
 | `ray_paths.h5` | HDF5 | Ray path | Cached ray paths grouped by phase and shot |
@@ -238,7 +238,7 @@ velocity_processing:
   enabled: true
   vp_binary: ${data.base_dir}/model/updated_vp.bin
   vs_binary: ${data.base_dir}/model/updated_vs.bin
-  reference_velocity_file: /path/to/preprocess/velocity_model_cartesian.csv
+  reference_velocity_file: /path/to/preprocess/velocity_model_init.csv
   fine_grid:
     nx: 60    # must match LATTE inversion grid
     ny: 60

@@ -24,6 +24,7 @@ from checkerboard_test.add_traveltime_noise import (
 )
 from checkerboard_test.convert_inverted_model import convert_inverted_model
 from checkerboard_test.visualize_slices import visualize_checkerboard_test
+from utils.io_utils import resolve_velocity_path
 from utils.logging_utils import setup_logging
 
 
@@ -257,11 +258,11 @@ def run_checkerboard_workflow(config: Union[Dict, DictConfig]) -> None:
                 def get_model_path(base_dir: Path, base_name: str, format_config: str) -> Optional[Path]:
                     """Get model path based on output format, preferring H5 if both exist."""
                     if format_config in ["hdf5", "both"]:
-                        h5_path = base_dir / f"{base_name}.h5"
+                        h5_path = Path(resolve_velocity_path(base_dir / f"{base_name}.h5"))
                         if h5_path.exists():
                             return h5_path
                     if format_config in ["csv", "both"]:
-                        csv_path = base_dir / f"{base_name}.csv"
+                        csv_path = Path(resolve_velocity_path(base_dir / f"{base_name}.csv"))
                         if csv_path.exists():
                             return csv_path
                     return None
@@ -270,7 +271,7 @@ def run_checkerboard_workflow(config: Union[Dict, DictConfig]) -> None:
                 input_model_path = input_config.velocity_model_hdf5 if (isinstance(input_config, DictConfig) and input_config.get('velocity_model_hdf5')) else (input_config.get('velocity_model_hdf5') if isinstance(input_config, dict) else None)
                 if not input_model_path or input_model_path == "null":
                     input_model_path = input_config.velocity_model_csv if isinstance(input_config, DictConfig) else input_config["velocity_model_csv"]
-                input_csv = Path(input_model_path) if Path(input_model_path).exists() else None
+                input_csv = Path(resolve_velocity_path(input_model_path)) if Path(resolve_velocity_path(input_model_path)).exists() else None
 
                 # Get checkerboard model path based on output format
                 checkerboard_format = checkerboard_config.output_format if isinstance(checkerboard_config, DictConfig) else checkerboard_config.get("output_format", "csv")
@@ -284,20 +285,20 @@ def run_checkerboard_workflow(config: Union[Dict, DictConfig]) -> None:
                 inverted_format = model_conversion_config.output_format if isinstance(model_conversion_config, DictConfig) else model_conversion_config.get("output_format", "csv")
                 viz_inverted_dir_config = visualization_config.get('inverted_model_dir')
                 if viz_inverted_dir_config:
-                    inverted_csv = get_model_path(Path(viz_inverted_dir_config), "velocity_model_inverted", inverted_format)
+                    inverted_csv = get_model_path(Path(viz_inverted_dir_config), "velocity_model_final", inverted_format)
                 else:
                     # Use exact paths from model_conversion config
                     inverted_csv = None
                     if inverted_format in ["hdf5", "both"]:
                         h5_cfg = model_conversion_config.output_hdf5 if isinstance(model_conversion_config, DictConfig) else model_conversion_config.get("output_hdf5")
                         if h5_cfg:
-                            h5_path = Path(str(h5_cfg))
+                            h5_path = Path(resolve_velocity_path(str(h5_cfg)))
                             if h5_path.exists():
                                 inverted_csv = h5_path
                     if inverted_csv is None and inverted_format in ["csv", "both"]:
                         csv_cfg = model_conversion_config.output_csv if isinstance(model_conversion_config, DictConfig) else model_conversion_config.get("output_csv")
                         if csv_cfg:
-                            csv_path = Path(str(csv_cfg))
+                            csv_path = Path(resolve_velocity_path(str(csv_cfg)))
                             if csv_path.exists():
                                 inverted_csv = csv_path
                 if inverted_csv is None:

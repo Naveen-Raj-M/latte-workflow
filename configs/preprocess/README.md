@@ -279,7 +279,7 @@ output_base_dir/
 │   ├── vp_init.bin
 │   ├── vs_init.bin
 │   └── <source binaries>
-├── velocity_model_cartesian.csv     # (or .h5)
+├── velocity_model_init.csv     # (or .h5)
 ├── geometry_csv/                    # Human-readable travel time CSVs
 └── visualizations/
     ├── <station_event plots>

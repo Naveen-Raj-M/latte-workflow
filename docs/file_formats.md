@@ -22,13 +22,15 @@ This document describes all input and output file formats across the three pipel
 
 ## File Naming
 
-The per-pick CSV tables use the same names as the published data package (`analysis/geometry_and_travel_times/`):
+The per-pick CSV tables and velocity models use the same names as the published data package (`analysis/geometry_and_travel_times/`):
 
 | Table | Standard name | Legacy names (read-only fallback) |
 |---|---|---|
 | Ground truth travel times (preprocess) | `geometry_ground_truth_traveltimes.csv` | `ground_truth_traveltimes.csv`, `ground_truth_travel_times_corrected.csv`, `ground_truth_travel_times.csv` |
 | Synthetic travel times (postprocess) | `synthetic_traveltimes.csv` | `synthetic_travel_times_latte_output.csv`, `travel_time_residuals*.csv` (iteration scans) |
 | Source relocation (postprocess) | `source_relocation.csv` | `source_parameters_latte_output.csv`, `synthetic_travel_times_latte_output.csv`, `source_corrections*.csv` (iteration scans) |
+| Initial velocity model (preprocess) | `velocity_model_init.{csv,h5}` (also `_coarse`, `_exact`, `_chapman` variants) | `velocity_model_cartesian`, `velocity_initial_cartesian`, `velocity_cartesian_initial`, `velocity_cartesian` |
+| Final velocity model (postprocess, spike/checkerboard inverted model) | `velocity_model_final.{csv,h5}` (also `_coarse`) | `velocity_cartesian_latte_output`, `velocity_cartesian_updated`, `velocity_model_inverted` |
 
 New files are always written with the standard names. When a configured input is missing, the same directory is searched for the standard name and then the legacy names; a warning is logged whenever a legacy file is used.
 

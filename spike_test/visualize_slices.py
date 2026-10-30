@@ -323,7 +323,7 @@ if __name__ == "__main__":
     base_dir = Path(full_config["general"]["output_dir"])
     input_csv = Path(full_config["input"]["velocity_model_csv"])
     spike_csv = base_dir / "spike_model" / "velocity_model_spike.csv"
-    inverted_csv = base_dir / "inverted_model" / "velocity_model_inverted.csv"
+    inverted_csv = base_dir / "inverted_model" / "velocity_model_final.csv"
 
     # Get output directory from config, default to visualizations/
     output_dir = Path(full_config["visualization"].get("output_dir", base_dir / "visualizations"))

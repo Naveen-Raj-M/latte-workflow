@@ -12,7 +12,7 @@ from typing import Tuple
 from omegaconf import DictConfig
 from pathlib import Path
 
-from utils.io_utils import ensure_directory_exists
+from utils.io_utils import ensure_directory_exists, resolve_velocity_path
 
 
 def get_grid_dimensions_from_csv(df: pd.DataFrame) -> Tuple[int, int, int]:
@@ -37,7 +37,7 @@ def get_grid_dimensions_from_csv(df: pd.DataFrame) -> Tuple[int, int, int]:
 
 def load_transformed_data(config: DictConfig) -> pd.DataFrame:
     """Load and validate CSV velocity data."""
-    file_path = config.input_csv
+    file_path = resolve_velocity_path(config.input_csv)
     
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"Input CSV file not found at: {file_path}")

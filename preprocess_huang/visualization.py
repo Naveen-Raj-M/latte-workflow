@@ -14,7 +14,7 @@ from pathlib import Path
 from omegaconf import DictConfig
 from typing import Tuple
 
-from utils.io_utils import ensure_directory_exists
+from utils.io_utils import ensure_directory_exists, resolve_velocity_path
 
 
 def create_station_event_visualization(config: DictConfig) -> None:
@@ -86,7 +86,7 @@ def create_station_event_visualization(config: DictConfig) -> None:
 
 def auto_detect_dimensions_from_csv(csv_file: str) -> Tuple[int, int, int]:
     """Auto-detect grid dimensions from CSV file to match writing script."""
-    df = pd.read_csv(csv_file)
+    df = pd.read_csv(resolve_velocity_path(csv_file))
     nx = int(df['i'].max())
     ny = int(df['j'].max()) 
     nz = int(df['k'].max())
@@ -121,7 +121,7 @@ def load_velocity_model_binary(bin_file: str, shape: Tuple[int, int, int]) -> np
 
 def plot_velocity_from_csv(config: DictConfig, output_png: str) -> None:
     """Create velocity visualization from CSV file."""
-    df = pd.read_csv(config.csv_file)
+    df = pd.read_csv(resolve_velocity_path(config.csv_file))
 
     if config.coord_system == "flattened" or config.coord_system == "enu":
         x = df["X_grid_km"].values

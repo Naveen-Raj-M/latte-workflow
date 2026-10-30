@@ -13,7 +13,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
-from utils.io_utils import read_csv_file, glob_csv
+from utils.io_utils import read_csv_file, glob_csv, resolve_velocity_path
 from utils.velocity_io import read_velocity_file
 
 logger = logging.getLogger(__name__)
@@ -620,12 +620,12 @@ def load_initial_velocity_model(
         )
 
     if hdf5_path:
-        filepath = Path(hdf5_path)
+        filepath = Path(resolve_velocity_path(hdf5_path))
         if not filepath.exists():
             raise FileNotFoundError(f"Initial model HDF5 not found: {hdf5_path}")
         logger.info(f"Loading initial velocity model from HDF5: {hdf5_path}")
     else:
-        filepath = Path(csv_path)
+        filepath = Path(resolve_velocity_path(csv_path))
         if not filepath.exists():
             raise FileNotFoundError(f"Initial model CSV not found: {csv_path}")
         logger.info(f"Loading initial velocity model from CSV: {csv_path}")

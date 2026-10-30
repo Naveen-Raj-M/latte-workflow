@@ -43,8 +43,8 @@ velocity_processing:
 
   interpolation_mode: "sample_at_coarse" # sample_at_coarse | expand_to_fine
   velocity_output_format: "csv"          # csv | hdf5 | both
-  velocity_output_csv: "${data.analysis_output_dir}/velocity_cartesian_latte_output.csv"
-  velocity_output_hdf5: "${data.analysis_output_dir}/velocity_cartesian_latte_output.h5"
+  velocity_output_csv: "${data.analysis_output_dir}/velocity_model_final.csv"
+  velocity_output_hdf5: "${data.analysis_output_dir}/velocity_model_final.h5"
 
   # HDF5 output options; used when velocity_output_format is 'hdf5' or 'both'
   hdf5_options:
@@ -53,7 +53,7 @@ velocity_processing:
     use_coarse_dataset: false            # true = read from coarse dataset for faster processing
     create_coarse_dataset: false         # true = write coarse dataset inside the HDF5 file
     write_coarse_csv: false              # true = write a separate coarse CSV file
-    output_coarse_csv: "${data.analysis_output_dir}/velocity_cartesian_latte_output_coarse.csv"
+    output_coarse_csv: "${data.analysis_output_dir}/velocity_model_final_coarse.csv"
     coarse_grid:
       dx: 2.0                            # km; must be an integer multiple of fine dx
       dy: 2.0                            # km; must be an integer multiple of fine dy

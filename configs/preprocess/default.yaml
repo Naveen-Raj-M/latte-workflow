@@ -142,8 +142,8 @@ initial_velocity_model:
   z_max: null
 
   output_format: "csv"                    # csv | hdf5 | both
-  output_csv: "${data.output_base_dir}/velocity_model_cartesian.csv"
-  output_hdf5: "${data.output_base_dir}/velocity_model_cartesian.h5"
+  output_csv: "${data.output_base_dir}/velocity_model_init.csv"
+  output_hdf5: "${data.output_base_dir}/velocity_model_init.h5"
   vp_binary: "${data.output_base_dir}/model/vp_init.bin"
   vs_binary: "${data.output_base_dir}/model/vs_init.bin"
 
@@ -156,7 +156,7 @@ initial_velocity_model:
     show_progress: true
     create_coarse_dataset: false          # true = write coarse dataset inside the HDF5 file
     write_coarse_csv: false               # true = write a separate coarse CSV file
-    output_coarse_csv: "${data.output_base_dir}/velocity_model_cartesian_coarse.csv"
+    output_coarse_csv: "${data.output_base_dir}/velocity_model_init_coarse.csv"
     coarse_grid:
       dx: 2.0                             # km; must be an integer multiple of fine dx
       dy: 2.0                             # km; must be an integer multiple of fine dy
