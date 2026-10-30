@@ -271,8 +271,34 @@ One file per basin. Used as overlays on visualization plots.
 | **Config key** | `geometry_traveltime.csv_output_dir` (filename: `geometry_ground_truth_traveltimes.csv`) |
 | **Condition** | Written only if `generate_travel_time_csv: true` |
 
+One row per pick. The same layout (and the same units) is used by the synthetic travel-time CSV and the source-relocation CSV, which add columns to it.
+
 | Column | Description | Units |
 |---|---|---|
+| `shot_id` | Shot number (matches the binary file numbering) | — |
+| `event_id` | Event identifier | — |
+| `station` | Station name | — |
+| `phase` | Phase label (`P` or `S`) | — |
+| `observed_tt` | Observed (physical) travel time | s |
+| `weight` | Arrival weight | — |
+| `event_longitude`, `event_latitude` | Event geographic position | degrees |
+| `event_depth_km` | Event depth, absolute, positive down | km |
+| `station_longitude`, `station_latitude` | Station geographic position | degrees |
+| `station_depth_km` | Station depth, absolute, positive down (negative above MSL) | km |
+| `event_x`, `event_y`, `event_z` | Event Cartesian coordinates (relative to the coordinate-transform origin) | **m** |
+| `station_x`, `station_y`, `station_z` | Station Cartesian coordinates | **m** |
+| `origin_time_s` | Configured origin time | s |
+| `magnitude` | Event magnitude *(only if `include_magnitude_in_csv: true`)* | — |
+
+Residuals (`observed_tt − synthetic_tt`) and source–receiver distances are **not stored**; they are computed from these columns wherever they are needed.
+
+**Units and metadata.** Geometry files (`shot_*_geometry.txt`, `sx/sy/sz.bin`, `exchange_geometry.txt`) and the Cartesian coordinates in these CSVs are in metres, as before; the velocity model files are in km. The CSV header carries `# key: value` comment lines: `data_type` (`geometry_traveltime`, `synthetic_traveltime`, `source_relocation`, `noisy_traveltime`) and `units.<column>` for every column. Readers skip these lines. Files without the header (legacy files) are read with the same units, so nothing is converted.
+
+**Synthetic travel times** (`synthetic_traveltimes.csv`) add `synthetic_tt` (s) and, when a source correction was applied, `corrected_origin_time_s` (s). **Source relocation** (`source_relocation.csv`) is the synthetic table plus `corrected_event_x`, `corrected_event_y`, `corrected_event_z` (m), `corrected_origin_time_s` (s; an existing column of that name is overwritten, with a warning) and the optional `grad_*` / `srch_*` columns.
+
+**Legacy names.** Older files with `event_x_transformed` … `corrected_event_z_transformed` are read transparently (the `_transformed` suffix is dropped), and their `weighted_rms`, `residual`, `residual_s` and `distance_m` columns are ignored, with a warning.
+
+---|---|---|
 | `event_id` | Event identifier | — |
 | `station_id` | Station identifier | — |
 | `phase` | Phase label (P or S) | — |

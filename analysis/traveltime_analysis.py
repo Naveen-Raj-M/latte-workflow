@@ -14,6 +14,7 @@ import logging
 from datetime import datetime
 
 from utils.io_utils import read_csv_file, write_text_file, ensure_directory_exists
+from utils.traveltime_io import add_residual_s
 from utils.plot_utils import setup_plot_style
 
 from .traveltime_plots import create_travel_time_plots
@@ -70,7 +71,7 @@ def _analyze_ground_truth_comparison(config: Dict[str, Any]) -> Dict[str, Any]:
     input_csv = config['travel_time_analysis']['input_csv']
 
     logger.info(f"Loading travel time data from: {input_csv}")
-    df = read_csv_file(input_csv)
+    df = add_residual_s(read_csv_file(input_csv))  # residual_s is computed, not stored in the file
 
     # Apply analysis filters (depth and phase type)
     df = apply_analysis_filters(df, config, data_type="travel time data")

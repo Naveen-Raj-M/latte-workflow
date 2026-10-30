@@ -10,6 +10,8 @@ import pandas as pd
 import logging
 from typing import Dict, List
 
+from utils.traveltime_io import km_per_unit
+
 logger = logging.getLogger(__name__)
 
 # Earth's mean radius in kilometers
@@ -181,14 +183,12 @@ def calculate_all_distances(df: pd.DataFrame, coordinate_type: str,
     use_spherical = False
 
     if coordinate_type == "transformed":
-        if 'event_x_transformed' in df.columns and 'station_x_transformed' in df.columns:
-            # Direct columns without suffixes
-            event_x = df['event_x_transformed'] / 1000
-            event_y = df['event_y_transformed'] / 1000
-            event_z = df['event_z_transformed'] / 1000
-            station_x = df['station_x_transformed'] / 1000
-            station_y = df['station_y_transformed'] / 1000
-            station_z = df['station_z_transformed'] / 1000
+        if 'event_x' in df.columns and 'station_x' in df.columns:
+            # Cartesian coordinates are stored in metres (units metadata); distances are in km
+            event_x, event_y, event_z, station_x, station_y, station_z = (
+                df[col] * km_per_unit(df, col)
+                for col in ('event_x', 'event_y', 'event_z', 'station_x', 'station_y', 'station_z')
+            )
         else:
             raise KeyError("Could not find transformed coordinate columns in dataframe")
     else:  # original

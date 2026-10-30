@@ -915,9 +915,9 @@ def process_single_shot(shot_id: int,
         # Get source position
         source_row = shot_data.iloc[0]
         source_pos = (
-            source_row['event_x_transformed'],
-            source_row['event_y_transformed'],
-            source_row['event_z_transformed']
+            source_row['event_x'],
+            source_row['event_y'],
+            source_row['event_z']
         )
 
         ray_paths = []
@@ -927,9 +927,9 @@ def process_single_shot(shot_id: int,
         slow_rays_count = 0
         for _, row in shot_data.iterrows():
             receiver_pos = (
-                row['station_x_transformed'],
-                row['station_y_transformed'],
-                row['station_z_transformed']
+                row['station_x'],
+                row['station_y'],
+                row['station_z']
             )
             receiver_positions.append(receiver_pos)
 

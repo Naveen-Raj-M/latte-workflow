@@ -87,3 +87,51 @@ def resolve_column_names(requested: Iterable[str], available: Iterable[str]) -> 
         elif _CURRENT_TO_LEGACY.get(name) in available:
             resolved.append(_CURRENT_TO_LEGACY[name])
     return resolved
+
+
+# ---------------------------------------------------------------------------
+# Geometry / travel-time tables (ground-truth, synthetic and source-relocation CSVs)
+# ---------------------------------------------------------------------------
+
+# Legacy ``*_transformed`` coordinate columns -> current names
+LEGACY_GEOMETRY_COLUMNS = {
+    f'{prefix}_{axis}_transformed': f'{prefix}_{axis}'
+    for prefix in ('event', 'station', 'corrected_event')
+    for axis in ('x', 'y', 'z')
+}
+
+# Columns that are no longer written; residuals and distances are computed where needed
+REMOVED_GEOMETRY_COLUMNS = ('weighted_rms', 'residual', 'residual_s', 'distance_m')
+
+
+def normalize_geometry_columns(df: pd.DataFrame, context: str = '') -> pd.DataFrame:
+    """
+    Return ``df`` using the current geometry column names, accepting legacy files.
+
+    - ``event_x_transformed`` and friends are renamed to ``event_x`` (likewise
+      ``station_*`` and ``corrected_event_*``).
+    - ``weighted_rms``, ``residual``, ``residual_s`` and ``distance_m`` are dropped.
+      Residuals and distances are computed from the other columns where needed.
+
+    Values are not modified (legacy files already hold these coordinates in metres).
+    The input DataFrame is not modified; it is returned as is when nothing changes.
+    """
+    legacy_found = [c for c in LEGACY_GEOMETRY_COLUMNS if c in df.columns]
+    removed_found = [c for c in REMOVED_GEOMETRY_COLUMNS if c in df.columns]
+    if not legacy_found and not removed_found:
+        return df
+
+    label = f" in {context}" if context else ""
+    if legacy_found:
+        _warn_once(('legacy_geometry', context, tuple(legacy_found)),
+                   f"Legacy geometry columns{label} renamed (the '_transformed' suffix was dropped): "
+                   f"{legacy_found}")
+    if removed_found:
+        _warn_once(('removed_geometry', context, tuple(removed_found)),
+                   f"Columns {removed_found}{label} are no longer used and were dropped; "
+                   f"residuals and distances are computed from the other columns")
+
+    duplicates = [LEGACY_GEOMETRY_COLUMNS[c] for c in legacy_found
+                  if LEGACY_GEOMETRY_COLUMNS[c] in df.columns]
+    df_out = df.drop(columns=duplicates + removed_found)
+    return df_out.rename(columns=LEGACY_GEOMETRY_COLUMNS)

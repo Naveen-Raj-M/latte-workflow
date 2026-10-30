@@ -338,8 +338,6 @@ Analyzes source parameter corrections (location shifts and origin time changes) 
 | `method1_name` / `method2_name` | `Method 1` / `Method 2` | — | Display names for each method. |
 | `use_log_scale` | `false` | `true`, `false` | Use log scale on correction magnitude axes. |
 | `enable_depth_analysis` | `true` | `true`, `false` | Generate correction vs. depth profiles. |
-| `origin_time_metadata_dir` | `null` | — | Directory containing origin time metadata CSVs. `null` = skip temporal analysis. |
-| `zero_initial_origin_time` | `true` | `true`, `false` | Treat the initial origin time as 0 s when computing corrections. |
 | `depth_bins` | `10` | — | Number of depth bins for depth-profile analysis. |
 | `min_events_per_bin` | `5` | — | Minimum events required per depth bin. |
 | `histogram_bins` | `50` | — | Number of bins for correction magnitude histograms. |

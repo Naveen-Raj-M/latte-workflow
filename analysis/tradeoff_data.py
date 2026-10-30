@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 
 from utils.io_utils import read_csv_file, glob_csv, resolve_velocity_path
+from utils.traveltime_io import add_residual_s
 from utils.velocity_io import read_velocity_file
 
 logger = logging.getLogger(__name__)
@@ -176,6 +177,10 @@ def load_traveltime_residuals_for_iteration(
     except Exception as e:
         logger.error(f"Failed to load traveltime CSV {chosen}: {e}")
         return None
+
+    # Residuals are not stored in the files; compute them (observed_tt - synthetic_tt)
+    if {'observed_tt', 'synthetic_tt'} <= set(df.columns):
+        df = add_residual_s(df)
 
     missing = _TT_REQUIRED_COLS - set(df.columns)
     if missing:

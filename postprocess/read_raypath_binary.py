@@ -25,6 +25,7 @@ from joblib import Parallel, delayed
 import warnings
 
 from utils.io_utils import resolve_csv_path
+from utils.traveltime_io import read_traveltime_csv, convert_coordinates_to_km
 
 from postprocess.compute_ray_paths import (
     get_performance_setting,
@@ -282,9 +283,9 @@ def process_single_shot_from_binary(
         # Get source position (in km)
         source_row = shot_data.iloc[0]
         source_pos = (
-            source_row['event_x_transformed'],
-            source_row['event_y_transformed'],
-            source_row['event_z_transformed']
+            source_row['event_x'],
+            source_row['event_y'],
+            source_row['event_z']
         )
 
         # Get receivers and weights
@@ -292,9 +293,9 @@ def process_single_shot_from_binary(
         weights = []
         for _, row in shot_data.iterrows():
             receiver_pos = (
-                row['station_x_transformed'],
-                row['station_y_transformed'],
-                row['station_z_transformed']
+                row['station_x'],
+                row['station_y'],
+                row['station_z']
             )
             receivers.append(receiver_pos)
 
@@ -307,7 +308,7 @@ def process_single_shot_from_binary(
         # If all y-coordinates are the same, assume 2D
         is_3d = True
         if len(shot_data) > 1:
-            y_coords = shot_data['station_y_transformed'].values
+            y_coords = shot_data['station_y'].values
             if np.allclose(y_coords, y_coords[0], atol=1e-6):
                 is_3d = False
 
@@ -447,24 +448,12 @@ def compute_all_ray_paths_from_binary(
 
     # Load ground truth data
     print(f"\nLoading ground truth data: {config.ground_truth_csv}")
-    df_gt = pd.read_csv(resolve_csv_path(config.ground_truth_csv))
+    df_gt = read_traveltime_csv(config.ground_truth_csv)
 
-    # Convert coordinates from meters to kilometers if needed
-    # (Binary files are in meters, ground truth should match)
-    coordinate_columns = [
-        'event_x_transformed', 'event_y_transformed', 'event_z_transformed',
-        'station_x_transformed', 'station_y_transformed', 'station_z_transformed'
-    ]
-
-    # Check if coordinates are in meters (values > 1000 suggest meters)
-    sample_col = 'event_x_transformed'
-    if sample_col in df_gt.columns and df_gt[sample_col].abs().max() > 1000:
-        print("  Converting coordinates from meters to kilometers")
-        for col in coordinate_columns:
-            if col in df_gt.columns:
-                df_gt[col] = df_gt[col] / 1000.0
-    else:
-        print("  Coordinates already in kilometers")
+    # Ray tracing works in km. Ray-path binaries and the ground-truth coordinates are in
+    # metres (see the file's units metadata); convert once, here.
+    df_gt = convert_coordinates_to_km(df_gt)
+    print("  Converted coordinates from meters to kilometers")
 
     print(f"  Total source-receiver pairs: {len(df_gt)}")
 

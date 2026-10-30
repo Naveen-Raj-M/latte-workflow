@@ -13,7 +13,8 @@ import pickle
 import numpy as np
 import pandas as pd
 
-from utils.column_utils import normalize_coordinate_columns
+from utils.column_utils import normalize_coordinate_columns, normalize_geometry_columns
+from utils.csv_metadata import read_csv_header_metadata
 
 
 # --------------------------------------------------------------------------- #
@@ -285,8 +286,13 @@ def read_csv_file(filepath: Union[str, Path], **kwargs) -> pd.DataFrame:
     default_kwargs.update(kwargs)
     
     df = pd.read_csv(filepath, **default_kwargs)
-    # Legacy X_grid_km/Y_grid_km/Z_grid_km columns are renamed to x/y/z
-    return normalize_coordinate_columns(df, drop_index_columns=False, context=Path(filepath).name)
+    # Legacy column names are renamed (X_grid_km -> x, event_x_transformed -> event_x, ...)
+    context = Path(filepath).name
+    df = normalize_coordinate_columns(df, drop_index_columns=False, context=context)
+    df = normalize_geometry_columns(df, context=context)
+    # Metadata stored as "# key: value" header lines (empty for legacy files)
+    df.attrs['metadata'] = read_csv_header_metadata(filepath)
+    return df
 
 
 def write_csv_file(df: pd.DataFrame, 

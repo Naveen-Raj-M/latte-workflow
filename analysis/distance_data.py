@@ -10,6 +10,7 @@ import logging
 from typing import Dict, Any
 
 from utils.io_utils import read_csv_file
+from utils.traveltime_io import add_residual_s
 from utils.distance_utils import (
     calculate_all_distances, validate_distance_types,
     get_distance_column_name
@@ -40,7 +41,7 @@ def load_and_merge_distance_data(config: Dict[str, Any]) -> pd.DataFrame:
     logger.info(f"  Events: {events_csv}")
     
     # Load data
-    df_tt = read_csv_file(travel_time_csv)
+    df_tt = add_residual_s(read_csv_file(travel_time_csv))  # residual_s is computed, not stored in the file
     df_stations = read_csv_file(station_csv)
     df_events = read_csv_file(events_csv)
     

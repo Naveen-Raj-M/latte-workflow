@@ -19,10 +19,8 @@ from tqdm import tqdm
 from collections import defaultdict
 
 from utils.io_utils import ensure_directory_exists, GROUND_TRUTH_CSV_NAME
-from utils.origin_time_utils import (
-    get_origin_time_for_event,
-    save_origin_time_metadata
-)
+from utils.traveltime_io import write_traveltime_csv
+from utils.origin_time_utils import get_origin_time_for_event
 
 
 def compute_back_azimuth(station_x: float, station_y: float,
@@ -735,7 +733,6 @@ def write_source_binary_files(events: Dict, config: DictConfig, origin_time_conf
     sy_values = []
     sz_values = []
     st0_values = []
-    event_original_times = {}
 
     for eid, data in sorted_events:
         ex, ey, ez = data['coords']
@@ -743,7 +740,6 @@ def write_source_binary_files(events: Dict, config: DictConfig, origin_time_conf
         sy_values.append(ey)
         sz_values.append(ez)
         st0_values.append(data['origin_time_s'])
-        event_original_times[eid] = data.get('original_origin_time_s', 0.0)
 
     # Convert to numpy arrays
     sx_array = np.array(sx_values, dtype='<f4')  # Little-endian 32-bit float
@@ -769,14 +765,6 @@ def write_source_binary_files(events: Dict, config: DictConfig, origin_time_conf
     logger.info(f"  sy.bin: {len(sy_values)} values (y-coordinates, single precision)")
     logger.info(f"  sz.bin: {len(sz_values)} values (z-coordinates, single precision)")
     logger.info(f"  st0.bin: {len(st0_values)} values (origin times in {origin_time_config.mode} mode, single precision (4 bytes))")
-
-    # Save origin time metadata
-    save_origin_time_metadata(
-        output_dir=geom_config.source_dir,
-        mode=origin_time_config.mode,
-        fixed_value=origin_time_config.get('fixed_value', 0.0),
-        event_original_times=event_original_times
-    )
 
     # Print summary statistics
     if sx_values:
@@ -905,11 +893,6 @@ def write_travel_time_csv(events: Dict, config: DictConfig) -> None:
                 sx_transformed, sy_transformed, sz_transformed = pick['coords']
                 station_lon, station_lat, station_depth_km = pick['original_coords']
 
-                # Calculate distance using transformed coordinates
-                distance_m = np.sqrt((ex_transformed - sx_transformed)**2 +
-                                   (ey_transformed - sy_transformed)**2 +
-                                   (ez_transformed - sz_transformed)**2)
-
                 row = {
                     # Identifiers
                     'shot_id': shot_id,
@@ -920,7 +903,6 @@ def write_travel_time_csv(events: Dict, config: DictConfig) -> None:
                     # Travel time data (CSV uses physical travel time only)
                     'observed_tt': physical_travel_time,
                     'weight': weight,
-                    'residual': 0.0,  # Not available in new format
 
                     # Original coordinates (lat/lon/depth)
                     'event_longitude': event_lon,
@@ -930,18 +912,15 @@ def write_travel_time_csv(events: Dict, config: DictConfig) -> None:
                     'station_latitude': station_lat,
                     'station_depth_km': station_depth_km,
 
-                    # Transformed coordinates (cartesian)
-                    'event_x_transformed': ex_transformed,
-                    'event_y_transformed': ey_transformed,
-                    'event_z_transformed': ez_transformed,
-                    'station_x_transformed': sx_transformed,
-                    'station_y_transformed': sy_transformed,
-                    'station_z_transformed': sz_transformed,
+                    # Cartesian coordinates (metres, relative to the coordinate origin)
+                    'event_x': ex_transformed,
+                    'event_y': ey_transformed,
+                    'event_z': ez_transformed,
+                    'station_x': sx_transformed,
+                    'station_y': sy_transformed,
+                    'station_z': sz_transformed,
 
-                    # Derived quantities
-                    'distance_m': distance_m,
                     'origin_time_s': origin_time_s,
-                    'weighted_rms': 0.0  # Not available in new format
                 }
 
                 if include_magnitude:
@@ -955,7 +934,8 @@ def write_travel_time_csv(events: Dict, config: DictConfig) -> None:
         
         csv_filename = GROUND_TRUTH_CSV_NAME
         csv_path = Path(geom_config.csv_output_dir) / csv_filename
-        df.to_csv(csv_path, index=False)
+        # Units (m for the Cartesian coordinates, km for depths, ...) go in the header metadata
+        write_traveltime_csv(df, csv_path, data_type='geometry_traveltime')
 
         logger.info(f"Comprehensive travel time CSV written: {csv_filename}")
         logger.info(f"  Phase type: {phase_type}")
@@ -977,8 +957,11 @@ def write_travel_time_csv(events: Dict, config: DictConfig) -> None:
                 logger.info(f"  S-wave travel times: {s_data['observed_tt'].min():.3f} to {s_data['observed_tt'].max():.3f} s (mean: {s_data['observed_tt'].mean():.3f} s)")
 
         # Print coordinate range information
-        if not df['distance_m'].isna().all():
-            logger.info(f"  Distance range: {df['distance_m'].min():.1f} to {df['distance_m'].max():.1f} m")
+        distance_m = np.sqrt((df['event_x'] - df['station_x'])**2 +
+                             (df['event_y'] - df['station_y'])**2 +
+                             (df['event_z'] - df['station_z'])**2)
+        if not distance_m.isna().all():
+            logger.info(f"  Distance range: {distance_m.min():.1f} to {distance_m.max():.1f} m")
 
         logger.info(f"  CSV columns: {', '.join(df.columns)}")
         logger.info("  Note: Shot ID matches binary file numbering - no separate mapping file needed")

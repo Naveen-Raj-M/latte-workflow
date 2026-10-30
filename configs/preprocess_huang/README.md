@@ -90,8 +90,7 @@ output/
 ├── model/
 │   ├── vp_init.bin
 │   ├── vs_init.bin
-│   ├── sx.bin, sy.bin, sz.bin, st0.bin
-│   └── origin_time_metadata.json
+│   └── sx.bin, sy.bin, sz.bin, st0.bin
 ├── geometry/
 │   └── geometry.txt
 └── ground_truth_traveltimes/

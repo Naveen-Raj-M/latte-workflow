@@ -8,9 +8,7 @@ postprocessing, and analysis modules with support for:
 """
 
 from datetime import datetime, timezone
-from typing import Dict, Tuple
-import json
-import os
+from typing import Tuple
 
 
 def convert_to_unix_epoch(year: int, jday: int, hour: int, minute: int, second: float) -> float:
@@ -78,96 +76,3 @@ def get_origin_time_for_event(
 
     else:
         raise ValueError(f"Invalid origin time mode: {mode}. Must be 'fixed' or 'unix_epoch'")
-
-
-def save_origin_time_metadata(
-    output_dir: str,
-    mode: str,
-    fixed_value: float = 0.0,
-    event_original_times: Dict[str, float] = None
-) -> None:
-    """
-    Save origin time configuration metadata for use in postprocessing and analysis.
-
-    Args:
-        output_dir: Directory to save metadata file
-        mode: Origin time mode used
-        fixed_value: Fixed value used (if mode is "fixed")
-        event_original_times: Mapping of event_id -> original origin time in seconds
-    """
-    metadata = {
-        'mode': mode,
-        'fixed_value': fixed_value,
-        'event_original_times': event_original_times or {}
-    }
-
-    os.makedirs(output_dir, exist_ok=True)
-    metadata_file = os.path.join(output_dir, 'origin_time_metadata.json')
-
-    with open(metadata_file, 'w') as f:
-        json.dump(metadata, f, indent=2)
-
-    print(f"Origin time metadata saved to: {metadata_file}")
-
-
-def load_origin_time_metadata(metadata_dir: str) -> Dict:
-    """
-    Load origin time configuration metadata from preprocessing.
-
-    Args:
-        metadata_dir: Directory containing metadata file
-
-    Returns:
-        Dictionary with 'mode', 'fixed_value', and 'event_original_times'
-
-    Raises:
-        FileNotFoundError: If metadata file doesn't exist
-    """
-    metadata_file = os.path.join(metadata_dir, 'origin_time_metadata.json')
-
-    if not os.path.exists(metadata_file):
-        raise FileNotFoundError(
-            f"Origin time metadata not found: {metadata_file}\n"
-            "This file should be created during preprocessing."
-        )
-
-    with open(metadata_file, 'r') as f:
-        metadata = json.load(f)
-
-    return metadata
-
-
-def get_corrected_origin_time(
-    event_id: str,
-    corrected_time_from_inversion: float,
-    metadata: Dict
-) -> float:
-    """
-    Get the actual corrected origin time by adding back the original time.
-
-    This is used in postprocessing to convert the inverted origin time
-    back to the original time reference.
-
-    Args:
-        event_id: Event identifier
-        corrected_time_from_inversion: Corrected time from inversion (relative to mode)
-        metadata: Origin time metadata from preprocessing
-
-    Returns:
-        Actual corrected origin time in the original reference frame
-    """
-    mode = metadata['mode']
-
-    if mode == "fixed":
-        # For fixed mode, the correction from inversion is relative to the fixed value
-        # The actual origin time is: original_time + (inverted_time - fixed_value)
-        original_time = metadata['event_original_times'].get(event_id, 0.0)
-        fixed_value = metadata['fixed_value']
-        return original_time + (corrected_time_from_inversion - fixed_value)
-
-    elif mode == "unix_epoch":
-        # For unix_epoch mode, the corrected time is already in Unix epoch
-        return corrected_time_from_inversion
-
-    else:
-        raise ValueError(f"Invalid origin time mode in metadata: {mode}")

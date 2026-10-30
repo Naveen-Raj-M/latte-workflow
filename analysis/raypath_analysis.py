@@ -20,6 +20,8 @@ import pandas as pd
 
 from scipy.spatial import KDTree
 from tqdm import tqdm
+from utils.io_utils import read_csv_file
+from utils.traveltime_io import km_per_unit
 
 from .raypath_data import (
     load_ray_paths_from_cache,
@@ -165,7 +167,7 @@ def analyze_ray_paths(config_dict: Dict[str, Any]) -> Dict[str, Any]:
     filter_csv = config.get('filter_csv', None)
     if filter_csv and filter_csv not in ('null', '~', ''):
         try:
-            fdf = pd.read_csv(filter_csv)
+            fdf = read_csv_file(filter_csv)
             logger.info(f"Loaded filter CSV: {filter_csv}  ({len(fdf):,} rows)")
 
             # Pre-filter shots if shot_id column is present
@@ -183,13 +185,13 @@ def analyze_ray_paths(config_dict: Dict[str, Any]) -> Dict[str, Any]:
             # that appears in shot A's allowed set must not accidentally match a
             # ray in shot B that travels to the same station for a different event.
             recv_coord_cols = [
-                'station_x_transformed', 'station_y_transformed', 'station_z_transformed'
+                'station_x', 'station_y', 'station_z'
             ]
             if 'shot_id' in fdf.columns and all(c in fdf.columns for c in recv_coord_cols):
                 receiver_filter_by_shot = {}
                 for shot_id_str, grp in fdf.groupby(fdf['shot_id'].astype(str)):
-                    # ground_truth_csv stores coords in metres; divide by 1000 → km
-                    coords_km = grp[recv_coord_cols].dropna().values / 1000.0
+                    # ground_truth_csv stores coords in metres (units metadata) → km
+                    coords_km = grp[recv_coord_cols].dropna().values * km_per_unit(fdf, 'station_x')
                     if len(coords_km) > 0:
                         receiver_filter_by_shot[shot_id_str] = KDTree(coords_km)
                 n_shots_with_filter = len(receiver_filter_by_shot)
@@ -201,7 +203,7 @@ def analyze_ray_paths(config_dict: Dict[str, Any]) -> Dict[str, Any]:
                 )
             else:
                 logger.warning(
-                    "filter_csv missing shot_id or station_x/y/z_transformed columns; "
+                    "filter_csv missing shot_id or station_x/y/z columns; "
                     "only shot-level pre-filtering will be applied."
                 )
         except Exception as e:

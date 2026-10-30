@@ -13,6 +13,7 @@ from typing import Dict, Optional
 from omegaconf import DictConfig
 
 from utils.io_utils import resolve_csv_path
+from utils.traveltime_io import read_traveltime_csv, write_traveltime_csv
 
 logger = logging.getLogger(__name__)
 
@@ -24,9 +25,9 @@ _PARAM_FILE_KEY = {
 }
 
 _PARAM_COLUMN = {
-    'sx': 'corrected_event_x_transformed',
-    'sy': 'corrected_event_y_transformed',
-    'sz': 'corrected_event_z_transformed',
+    'sx': 'corrected_event_x',
+    'sy': 'corrected_event_y',
+    'sz': 'corrected_event_z',
     'st0': 'corrected_origin_time_s',
 }
 
@@ -192,7 +193,7 @@ def process_source_updates(cfg: DictConfig) -> pd.DataFrame:
         raise FileNotFoundError(f"Travel time CSV not found: {tt_csv_path}")
 
     logger.info(f"\nLoading travel time CSV: {tt_csv_path}")
-    df = pd.read_csv(tt_csv_path)
+    df = read_traveltime_csv(tt_csv_path)
     logger.info(f"  Loaded {len(df)} travel time records")
     logger.info(f"  Columns: {', '.join(df.columns.tolist())}")
 
@@ -232,6 +233,9 @@ def process_source_updates(cfg: DictConfig) -> pd.DataFrame:
             shots_without_corrections.add(shot_id)
 
     for col, values in output_columns.items():
+        if col in df.columns:
+            logger.warning(f"Column '{col}' already exists in the travel time CSV and is overwritten "
+                           f"with the value from the updated source binaries")
         df[col] = values
 
     # Report statistics
@@ -245,27 +249,27 @@ def process_source_updates(cfg: DictConfig) -> pd.DataFrame:
         logger.info(f"  Optional fields added: {', '.join(optional_cols)}")
 
     # Calculate correction magnitudes (only when all spatial and temporal params were processed)
-    spatial_out = ['corrected_event_x_transformed', 'corrected_event_y_transformed', 'corrected_event_z_transformed']
-    spatial_orig = ['event_x_transformed', 'event_y_transformed', 'event_z_transformed']
+    spatial_out = ['corrected_event_x', 'corrected_event_y', 'corrected_event_z']
+    spatial_orig = ['event_x', 'event_y', 'event_z']
     if (all(c in df.columns for c in spatial_out + spatial_orig) and
             'corrected_origin_time_s' in df.columns and 'origin_time_s' in df.columns):
-        dx = df['corrected_event_x_transformed'] - df['event_x_transformed']
-        dy = df['corrected_event_y_transformed'] - df['event_y_transformed']
-        dz = df['corrected_event_z_transformed'] - df['event_z_transformed']
+        dx = df['corrected_event_x'] - df['event_x']
+        dy = df['corrected_event_y'] - df['event_y']
+        dz = df['corrected_event_z'] - df['event_z']
         dt = df['corrected_origin_time_s'] - df['origin_time_s']
         spatial_change = np.sqrt(dx**2 + dy**2 + dz**2)
 
         logger.info(f"\nCorrection magnitudes:")
-        logger.info(f"  X shift: mean={dx.mean():.3f} km, std={dx.std():.3f} km, range=[{dx.min():.3f}, {dx.max():.3f}]")
-        logger.info(f"  Y shift: mean={dy.mean():.3f} km, std={dy.std():.3f} km, range=[{dy.min():.3f}, {dy.max():.3f}]")
-        logger.info(f"  Z shift: mean={dz.mean():.3f} km, std={dz.std():.3f} km, range=[{dz.min():.3f}, {dz.max():.3f}]")
-        logger.info(f"  3D spatial shift: mean={spatial_change.mean():.3f} km, max={spatial_change.max():.3f} km")
+        logger.info(f"  X shift: mean={dx.mean():.3f} m, std={dx.std():.3f} m, range=[{dx.min():.3f}, {dx.max():.3f}] m")
+        logger.info(f"  Y shift: mean={dy.mean():.3f} m, std={dy.std():.3f} m, range=[{dy.min():.3f}, {dy.max():.3f}] m")
+        logger.info(f"  Z shift: mean={dz.mean():.3f} m, std={dz.std():.3f} m, range=[{dz.min():.3f}, {dz.max():.3f}] m")
+        logger.info(f"  3D spatial shift: mean={spatial_change.mean():.3f} m, max={spatial_change.max():.3f} m")
         logger.info(f"  Origin time shift: mean={dt.mean():.6f} s, std={dt.std():.6f} s, range=[{dt.min():.6f}, {dt.max():.6f}]")
 
     # Save output CSV
     out_path = Path(str(cfg["output_csv"]))
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    df.to_csv(out_path, index=False)
+    write_traveltime_csv(df, out_path, data_type='source_relocation')
 
     logger.info(f"\n=== OUTPUT SUMMARY ===")
     logger.info(f"Source-corrected travel time CSV written: {out_path}")

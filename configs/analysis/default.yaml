@@ -278,8 +278,6 @@ source_analysis:
 
   use_log_scale: false
   enable_depth_analysis: true
-  origin_time_metadata_dir: null          # null = skip origin-time metadata loading
-  zero_initial_origin_time: true          # true = treat initial origin time as 0 s
 
   depth_bins: 10
   min_events_per_bin: 5

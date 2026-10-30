@@ -27,6 +27,7 @@ dataset; in CSV it is stored as ``# key: value`` comment lines at the top of the
 - ``data_type`` (``velocity`` or ``dws``)
 - Coarse files additionally carry ``fine_nx ... fine_origin_z`` (the grid of the
   original fine model) and ``stride_x, stride_y, stride_z``
+- ``units.<name>``: the unit of every column and grid key (km, km/s, deg, ...)
 - Module specific provenance (e.g. ``interpolation_mode``) as extra keys
 
 Grid spacing and origin are defined once, in preprocessing. Every other module reads them
@@ -36,7 +37,6 @@ Author: LATTE Workflow Team
 """
 
 import os
-import json
 import logging
 from pathlib import Path
 from typing import Union, Dict, Any, Optional, List, Tuple, Sequence
@@ -49,6 +49,7 @@ from tqdm import tqdm
 from joblib import Parallel, delayed
 
 from utils.io_utils import ensure_directory_exists, resolve_velocity_path
+from utils.csv_metadata import flatten_metadata, read_csv_header_metadata, csv_header_lines, to_builtin
 from utils.column_utils import (
     normalize_coordinate_columns,
     resolve_column_names,
@@ -66,6 +67,17 @@ DWS_VALUE_COLUMNS = ['dws']
 VELOCITY_COLUMNS = GEO_COLUMNS + COORDINATE_COLUMNS + VELOCITY_VALUE_COLUMNS
 OPTIONAL_VELOCITY_COLUMNS = ['grad_vp', 'grad_vs', 'srch_vp', 'srch_vs']
 DWS_COLUMNS = GEO_COLUMNS + COORDINATE_COLUMNS + DWS_VALUE_COLUMNS
+
+# Units of the columns and grid keys, written as ``units.<name>`` metadata
+VELOCITY_UNITS = {
+    'lat': 'deg', 'lon': 'deg', 'depth': 'km',
+    'x': 'km', 'y': 'km', 'z': 'km',
+    'vp': 'km/s', 'vs': 'km/s',
+    'dws': 'km^2',
+    'dx': 'km', 'dy': 'km', 'dz': 'km',
+    'origin_x': 'km', 'origin_y': 'km', 'origin_z': 'km',
+    'origin_depth_km': 'km', 'origin_lon': 'deg', 'origin_lat': 'deg',
+}
 
 # Standard metadata keys
 GRID_KEYS = ('nx', 'ny', 'nz', 'dx', 'dy', 'dz', 'origin_x', 'origin_y', 'origin_z')
@@ -98,29 +110,7 @@ _CSV_COMMENT = '#'
 # Metadata helpers
 # ---------------------------------------------------------------------------
 
-def _to_builtin(value: Any) -> Any:
-    """Convert numpy / bytes values to plain Python values."""
-    if isinstance(value, bytes):
-        return value.decode('utf-8')
-    if isinstance(value, np.generic):
-        return value.item()
-    if isinstance(value, np.ndarray):
-        return [_to_builtin(v) for v in value.tolist()]
-    if isinstance(value, (list, tuple)):
-        return [_to_builtin(v) for v in value]
-    return value
-
-
-def flatten_metadata(metadata: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    """Flatten nested dicts to ``key.subkey``, convert to plain Python types, drop None values."""
-    flat: Dict[str, Any] = {}
-    for key, value in (metadata or {}).items():
-        if isinstance(value, dict):
-            for subkey, subvalue in flatten_metadata(value).items():
-                flat[f'{key}.{subkey}'] = subvalue
-        elif value is not None:
-            flat[key] = _to_builtin(value)
-    return flat
+_to_builtin = to_builtin
 
 
 def normalize_metadata(raw: Optional[Dict[str, Any]]) -> Dict[str, Any]:
@@ -360,26 +350,8 @@ def _fine_spacing(fine_grid: Dict[str, Any], coarse_config: Dict[str, float]) ->
     )
 
 
-def _read_csv_header_metadata(filepath: Union[str, Path]) -> Dict[str, Any]:
-    """Read the ``# key: value`` comment lines at the top of a CSV file."""
-    raw: Dict[str, Any] = {}
-    with open(filepath, 'r') as f:
-        for line in f:
-            if not line.startswith(_CSV_COMMENT):
-                break
-            key, sep, value = line[1:].strip().partition(':')
-            if not sep:
-                continue
-            value = value.strip()
-            try:
-                raw[key.strip()] = json.loads(value)
-            except ValueError:
-                raw[key.strip()] = value
-    return raw
-
-
-def _csv_header_lines(metadata: Dict[str, Any]) -> List[str]:
-    return [f"{_CSV_COMMENT} {key}: {json.dumps(value)}\n" for key, value in metadata.items()]
+_read_csv_header_metadata = read_csv_header_metadata
+_csv_header_lines = csv_header_lines
 
 
 def read_velocity_metadata(filepath: Union[str, Path], dataset: str = 'velocity') -> Dict[str, Any]:
@@ -1032,6 +1004,11 @@ def write_velocity_file(
 
     # Grid metadata: given values are authoritative, cross-checked against the columns
     metadata.update(resolve_grid_metadata(df, metadata, source=filepath.name))
+
+    # Units of every known column / grid key
+    for name in list(df.columns) + [k for k in metadata if k in VELOCITY_UNITS]:
+        if name in VELOCITY_UNITS:
+            metadata.setdefault(f'units.{name}', VELOCITY_UNITS[name])
 
     # Write based on format
     if format == 'csv':

@@ -13,10 +13,6 @@ from .distance_utils import (
     calculate_hypocentral_distance,
     calculate_epicentral_distance,
 )
-from .origin_time_utils import (
-    load_origin_time_metadata,
-    save_origin_time_metadata
-)
 from .plot_utils import (
     setup_plot_style,
     save_figure,
@@ -64,8 +60,6 @@ __all__ = [
     'calculate_epicentral_distance',
 
     # Origin time utilities
-    'load_origin_time_metadata',
-    'save_origin_time_metadata',
 
     # Plot utilities
     'setup_plot_style',

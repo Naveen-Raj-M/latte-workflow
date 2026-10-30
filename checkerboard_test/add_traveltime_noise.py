@@ -20,6 +20,7 @@ from typing import Dict, List, Optional, Tuple
 from tqdm import tqdm
 
 from utils.io_utils import resolve_csv_path
+from utils.traveltime_io import read_traveltime_csv, write_traveltime_csv, event_station_distance_m
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +109,21 @@ def generate_uniform_noise(
 
     noise = random_state.uniform(low, high, size)
     return noise
+
+
+def _read_ground_truth(ground_truth_csv) -> pd.DataFrame:
+    """
+    Read the ground-truth CSV (legacy column names are accepted).
+
+    The hypocentral source-receiver distance is not stored in the file; it is added here as
+    the in-memory column ``distance_m`` (metres), used by the magnitude-distance noise model.
+    It is removed again before any CSV is written.
+    """
+    df = read_traveltime_csv(ground_truth_csv)
+    coord_cols = [f"{p}_{a}" for p in ("event", "station") for a in "xyz"]
+    if all(c in df.columns for c in coord_cols):
+        df["distance_m"] = event_station_distance_m(df, "hypocentral")
+    return df
 
 
 def compute_snr_sigma(
@@ -244,7 +260,7 @@ def process_traveltime_directory(
 
     # Read ground truth CSV to get all shot/phase combinations
     logger.info(f"Reading ground truth CSV: {ground_truth_csv}")
-    df = pd.read_csv(resolve_csv_path(ground_truth_csv))
+    df = _read_ground_truth(ground_truth_csv)
 
     # Get unique shot_id and phase combinations
     combinations = df.groupby(["shot_id", "phase"]).size().reset_index(name="count")
@@ -507,7 +523,9 @@ def create_noisy_traveltimes_csv(
 
     # Save to CSV
     output_csv = output_dir / "noisy_traveltimes.csv"
-    output_df.to_csv(output_csv, index=False)
+    # distance_m is an in-memory working column and is not written
+    output_df = output_df.drop(columns=["distance_m"], errors="ignore")
+    write_traveltime_csv(output_df, output_csv, data_type="noisy_traveltime")
     logger.info(f"Noisy traveltimes CSV saved to: {output_csv}")
 
     # Log how many rows have valid observed_tt values
@@ -562,16 +580,16 @@ def read_shot_geometry_file(geometry_file: Path) -> Tuple[np.ndarray, np.ndarray
 def load_exchange_geometry(exchange_geometry_file: Path) -> Dict[int, Tuple[float, float, float]]:
     """
     Load the exchange geometry file that maps virtual shot ID to station
-    coordinates (in km, matching station_x/y/z_transformed in the ground-truth CSV).
+    coordinates (in metres, matching station_x/y/z in the ground-truth CSV).
 
     File format (one entry per line, comment lines start with '#'):
-        virtual_id  x_km  y_km  z_km
+        virtual_id  x_m  y_m  z_m
 
     Args:
         exchange_geometry_file: Path to the exchange geometry file.
 
     Returns:
-        Dict mapping virtual_id (int) to (x, y, z) in km.
+        Dict mapping virtual_id (int) to (x, y, z) in metres.
     """
     virtual_id_to_coord: Dict[int, Tuple[float, float, float]] = {}
     with open(exchange_geometry_file, 'r') as f:
@@ -593,7 +611,7 @@ def _build_station_to_virtual_id_map(
 ) -> Dict[str, int]:
     """
     For each unique station in ground_truth_df, find the closest virtual_id in
-    exchange_geometry_file coordinates (both in km, transformed system).
+    exchange_geometry_file coordinates (both in metres, Cartesian system).
 
     Returns Dict[station_name -> virtual_id].  Multiple stations at the same
     geographic location (co-located instruments) all map to the same virtual_id
@@ -605,14 +623,14 @@ def _build_station_to_virtual_id_map(
 
     Args:
         virtual_id_to_coord: Dict from load_exchange_geometry().
-        df_ground_truth: Ground-truth DataFrame with station_x/y/z_transformed columns.
-        tolerance: Coordinate matching tolerance in km.
+        df_ground_truth: Ground-truth DataFrame with station_x/y/z columns.
+        tolerance: Coordinate matching tolerance in metres.
 
     Returns:
         Dict mapping station_name → virtual_id.
     """
     station_coords_df = (
-        df_ground_truth[['station', 'station_x_transformed', 'station_y_transformed', 'station_z_transformed']]
+        df_ground_truth[['station', 'station_x', 'station_y', 'station_z']]
         .drop_duplicates(subset='station')
         .reset_index(drop=True)
     )
@@ -621,16 +639,16 @@ def _build_station_to_virtual_id_map(
     vcoords = np.array([virtual_id_to_coord[v] for v in vids], dtype=np.float64)
 
     logger.info(f"  Matching {len(station_coords_df)} stations against "
-                f"{len(vids)} virtual station coordinates (tolerance={tolerance} km)...")
+                f"{len(vids)} virtual station coordinates (tolerance={tolerance} m)...")
 
     station_to_virtual: Dict[str, int] = {}
     unmatched = []
     co_located: Dict[int, List[str]] = {}  # virtual_id -> [stations] for logging
 
     for _, row in station_coords_df.iterrows():
-        sx = row['station_x_transformed']
-        sy = row['station_y_transformed']
-        sz = row['station_z_transformed']
+        sx = row['station_x']
+        sy = row['station_y']
+        sz = row['station_z']
         dists = np.sqrt(
             (vcoords[:, 0] - sx) ** 2
             + (vcoords[:, 1] - sy) ** 2
@@ -653,9 +671,9 @@ def _build_station_to_virtual_id_map(
             logger.info(f"    Virtual ID {vid}: {names}")
 
     if unmatched:
-        logger.warning(f"  {len(unmatched)} stations could not be matched within {tolerance} km:")
+        logger.warning(f"  {len(unmatched)} stations could not be matched within {tolerance} m:")
         for stn, dist in sorted(unmatched, key=lambda x: x[1])[:5]:
-            logger.warning(f"    Station '{stn}': closest virtual coord at {dist:.4f} km")
+            logger.warning(f"    Station '{stn}': closest virtual coord at {dist:.4f} m")
 
     return station_to_virtual
 
@@ -678,7 +696,7 @@ def process_traveltime_directory_with_exchange(
 
     Receiver-to-virtual-station matching uses the same strategy as the
     postprocess module: virtual station coordinates from exchange_geometry_file
-    (in km, transformed system) are matched against station_x/y/z_transformed
+    (in metres, Cartesian system) are matched against station_x/y/z
     in the ground-truth CSV.  Geometry file coordinates are NOT used for
     matching because they may be in a different coordinate system.
 
@@ -692,9 +710,9 @@ def process_traveltime_directory_with_exchange(
         geometry_dir: Directory containing shot_N_geometry.txt files (used for
                       receiver count validation only; not used for coord matching).
         ground_truth_csv: CSV with shot_id, phase, station, origin_time_s, and
-                          station_x/y/z_transformed columns.
+                          station_x/y/z columns.
         exchange_geometry_file: File mapping virtual_id → station coords (km,
-                                same system as station_x/y/z_transformed in CSV).
+                                same system as station_x/y/z in CSV; metres).
         noise_config: Noise configuration dict (same schema as standard mode).
         removed_shots: Shot IDs removed by LATTE geometry filtering (compact arrays).
         random_seed: Random seed for reproducibility.
@@ -718,7 +736,7 @@ def process_traveltime_directory_with_exchange(
     # 1. Ground-truth CSV                                                  #
     # ------------------------------------------------------------------ #
     logger.info(f"Reading ground truth CSV: {ground_truth_csv}")
-    df = pd.read_csv(resolve_csv_path(ground_truth_csv))
+    df = _read_ground_truth(ground_truth_csv)
     logger.info(f"  Ground truth: {len(df)} records")
     logger.info(f"  Unique shots: {df['shot_id'].nunique()}, unique stations: {df['station'].nunique()}")
 
@@ -778,7 +796,7 @@ def process_traveltime_directory_with_exchange(
     virtual_id_to_coord = load_exchange_geometry(exchange_geometry_file)
     logger.info(f"  Loaded {len(virtual_id_to_coord)} virtual station coordinates")
 
-    coordinate_tolerance = noise_config.get("coordinate_tolerance", 1.0)  # km
+    coordinate_tolerance = noise_config.get("coordinate_tolerance", 1.0)  # m
     station_to_virtual_id = _build_station_to_virtual_id_map(virtual_id_to_coord, df, coordinate_tolerance)
 
     # ------------------------------------------------------------------ #
@@ -986,7 +1004,9 @@ def process_traveltime_directory_with_exchange(
         output_df = df.iloc[:0].copy()
         output_df['observed_tt'] = pd.Series(dtype=float)
     output_csv = output_dir / "noisy_traveltimes.csv"
-    output_df.to_csv(output_csv, index=False)
+    # distance_m is an in-memory working column and is not written
+    output_df = output_df.drop(columns=["distance_m"], errors="ignore")
+    write_traveltime_csv(output_df, output_csv, data_type="noisy_traveltime")
     logger.info(f"Noisy traveltimes CSV saved to: {output_csv}")
     removed_count = len(df) - len(output_df)
     logger.info(f"  {len(output_df)}/{len(df)} rows have valid observed_tt (noisy) values"

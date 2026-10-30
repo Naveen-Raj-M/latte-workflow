@@ -16,7 +16,7 @@ from datetime import datetime
 
 from utils.io_utils import read_csv_file, write_text_file, ensure_directory_exists
 from utils.plot_utils import setup_plot_style, get_color_scheme, save_figure
-from utils.origin_time_utils import load_origin_time_metadata
+from utils.traveltime_io import km_per_unit
 from .basin_boundaries import load_basin_boundaries
 
 logger = logging.getLogger(__name__)
@@ -201,22 +201,22 @@ def prepare_method_comparison_data(df1: pd.DataFrame, df2: pd.DataFrame,
     rename_map = {}
 
     # Handle both possible column name patterns.
-    # Prefer corrected_event_*_transformed (post-inversion LATTE locations) over
-    # event_*_transformed (initial catalog, identical across all runs) so that
+    # Prefer corrected_event_* (post-inversion LATTE locations) over
+    # event_* (initial catalog, identical across all runs) so that
     # method_comparison reflects actual inversion differences.
     for coord in ['x', 'y', 'z']:
-        # Pattern 1: corrected_event_x_transformed (LATTE output with both initial/corrected)
-        if f'corrected_event_{coord}_transformed_method1' in df_merged.columns:
-            rename_map[f'corrected_event_{coord}_transformed_method1'] = f'event_{coord}_transformed'
-            rename_map[f'corrected_event_{coord}_transformed_method2'] = f'corrected_event_{coord}_transformed'
-        # Pattern 2: event_x_transformed only (single-location output)
-        elif f'event_{coord}_transformed_method1' in df_merged.columns:
-            rename_map[f'event_{coord}_transformed_method1'] = f'event_{coord}_transformed'
-            rename_map[f'event_{coord}_transformed_method2'] = f'corrected_event_{coord}_transformed'
+        # Pattern 1: corrected_event_x (LATTE output with both initial/corrected)
+        if f'corrected_event_{coord}_method1' in df_merged.columns:
+            rename_map[f'corrected_event_{coord}_method1'] = f'event_{coord}'
+            rename_map[f'corrected_event_{coord}_method2'] = f'corrected_event_{coord}'
+        # Pattern 2: event_x only (single-location output)
+        elif f'event_{coord}_method1' in df_merged.columns:
+            rename_map[f'event_{coord}_method1'] = f'event_{coord}'
+            rename_map[f'event_{coord}_method2'] = f'corrected_event_{coord}'
         # Pattern 3: x, y, z (velocity-format coordinate columns)
         elif f'{coord}_method1' in df_merged.columns:
-            rename_map[f'{coord}_method1'] = f'event_{coord}_transformed'
-            rename_map[f'{coord}_method2'] = f'corrected_event_{coord}_transformed'
+            rename_map[f'{coord}_method1'] = f'event_{coord}'
+            rename_map[f'{coord}_method2'] = f'corrected_event_{coord}'
 
     # Handle origin time: prefer corrected times (post-inversion) for method comparison
     if 'corrected_origin_time_s_method1' in df_merged.columns:
@@ -258,32 +258,15 @@ def compute_source_corrections(df: pd.DataFrame,
 
     # Temporal correction (only when st0 is in parameters_to_process)
     if has_st0:
-        try:
-            metadata_dir = config['source_analysis'].get('origin_time_metadata_dir',
-                                                         config.get('model_dir', ''))
-
-            if metadata_dir:
-                origin_time_metadata = load_origin_time_metadata(metadata_dir)
-                origin_time_mode = origin_time_metadata['mode']
-                logger.info(f"Origin time mode from preprocessing: {origin_time_mode}")
-
-            df['delta_time_s'] = df['corrected_origin_time_s'] - df['origin_time_s']
-
-        except FileNotFoundError as e:
-            logger.warning(f"Origin time metadata not found: {e}")
-            logger.warning("Falling back to 'zero_initial_origin_time' config flag")
-
-            if config['source_analysis'].get('zero_initial_origin_time', False):
-                df['delta_time_s'] = df['corrected_origin_time_s']
-            else:
-                df['delta_time_s'] = df['corrected_origin_time_s'] - df['origin_time_s']
+        # origin_time_s is the configured (initial) origin time stored in the CSV
+        df['delta_time_s'] = df['corrected_origin_time_s'] - df['origin_time_s']
     else:
         logger.info("Skipping origin time (st0 not in parameters_to_process)")
 
-    # Spatial corrections (in transformed coordinates, assumed to be in meters)
-    df['delta_x_km'] = (df['corrected_event_x_transformed'] - df['event_x_transformed']) / 1000
-    df['delta_y_km'] = (df['corrected_event_y_transformed'] - df['event_y_transformed']) / 1000
-    df['delta_z_km'] = (df['corrected_event_z_transformed'] - df['event_z_transformed']) / 1000
+    # Spatial corrections: the coordinates are in metres (units metadata); the deltas are in km
+    df['delta_x_km'] = (df['corrected_event_x'] - df['event_x']) * km_per_unit(df, 'event_x')
+    df['delta_y_km'] = (df['corrected_event_y'] - df['event_y']) * km_per_unit(df, 'event_y')
+    df['delta_z_km'] = (df['corrected_event_z'] - df['event_z']) * km_per_unit(df, 'event_z')
 
     # Horizontal shift magnitude
     df['delta_horiz_km'] = np.sqrt(df['delta_x_km']**2 + df['delta_y_km']**2)
@@ -392,7 +375,7 @@ def compute_depth_dependent_stats(df: pd.DataFrame,
     n_bins = config['source_analysis'].get('depth_bins', 10)
     
     df_copy = df.copy()
-    df_copy['depth_bin'] = pd.cut(df_copy['event_z_transformed'], bins=n_bins)
+    df_copy['depth_bin'] = pd.cut(df_copy['event_z'], bins=n_bins)
 
     params_to_process = config['source_analysis'].get('parameters_to_process', ['sx', 'sy', 'sz', 'st0'])
     agg_dict = {

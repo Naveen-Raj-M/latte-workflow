@@ -13,6 +13,7 @@ from typing import Dict, Any, Optional
 import logging
 
 from utils.plot_utils import save_figure, create_multi_panel_figure
+from utils.traveltime_io import km_per_unit
 from .basin_boundaries import plot_basin_boundaries
 
 logger = logging.getLogger(__name__)
@@ -149,7 +150,7 @@ def create_scatter_relationships(df: pd.DataFrame, colors: Dict[str, str],
     fig, axes = plt.subplots(2, 2, figsize=(12, 10))
 
     # Depth vs horizontal shift
-    axes[0, 0].scatter(df['event_z_transformed'] / 1000, df['delta_horiz_km'],
+    axes[0, 0].scatter(df['event_z'] * km_per_unit(df, 'event_z'), df['delta_horiz_km'],
                       alpha=0.6, s=20, color='#2E86AB',
                       edgecolors='black', linewidth=0.3)
     axes[0, 0].set_xlabel('Original Depth (km)', fontsize=10)
@@ -161,7 +162,7 @@ def create_scatter_relationships(df: pd.DataFrame, colors: Dict[str, str],
     axes[0, 0].grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
 
     # Depth vs depth correction
-    axes[0, 1].scatter(df['event_z_transformed'] / 1000, df['delta_depth_km'],
+    axes[0, 1].scatter(df['event_z'] * km_per_unit(df, 'event_z'), df['delta_depth_km'],
                       alpha=0.6, s=20, color='#A23B72',
                       edgecolors='black', linewidth=0.3)
     axes[0, 1].set_xlabel('Original Depth (km)', fontsize=10)
@@ -242,13 +243,14 @@ def _single_geographic_plot(df: pd.DataFrame, colors: Dict[str, str],
     fig, ax = plt.subplots(figsize=(12, 10))
     
     # Plot original locations
-    ax.scatter(df[f'event_{plane[0]}_transformed'] / 1000, df[f'event_{plane[1]}_transformed'] / 1000, 
+    ax.scatter(df[f'event_{plane[0]}'] * km_per_unit(df, f'event_{plane[0]}'),
+              df[f'event_{plane[1]}'] * km_per_unit(df, f'event_{plane[1]}'),
               c='#3498db', s=40, alpha=0.5, label=f'{labels["original"]} Locations',
               zorder=2, edgecolors='black', linewidth=0.5)
     
     # Plot corrected locations
-    ax.scatter(df[f'corrected_event_{plane[0]}_transformed'] / 1000, 
-              df[f'corrected_event_{plane[1]}_transformed'] / 1000,
+    ax.scatter(df[f'corrected_event_{plane[0]}'] * km_per_unit(df, f'corrected_event_{plane[0]}'),
+              df[f'corrected_event_{plane[1]}'] * km_per_unit(df, f'corrected_event_{plane[1]}'),
               c='#e74c3c', s=40, alpha=0.5, label=f'{labels["corrected"]} Locations',
               zorder=3, edgecolors='black', linewidth=0.5)
     
@@ -256,8 +258,10 @@ def _single_geographic_plot(df: pd.DataFrame, colors: Dict[str, str],
     max_arrows = config['source_analysis'].get('max_arrows_map', 5000)
     sample_df = df.sample(min(max_arrows, len(df))) if len(df) > max_arrows else df
     
+    km_x = km_per_unit(df, f'event_{plane[0]}')
+    km_y = km_per_unit(df, f'event_{plane[1]}')
     for _, row in sample_df.iterrows():
-        ax.arrow(row[f'event_{plane[0]}_transformed'] / 1000, row[f'event_{plane[1]}_transformed'] / 1000,
+        ax.arrow(row[f'event_{plane[0]}'] * km_x, row[f'event_{plane[1]}'] * km_y,
                 row[f'delta_{plane[0]}_km'], row[f'delta_{plane[1]}_km'],
                 head_width=0, head_length=0, fc='#2c3e50',
                 ec='#2c3e50', alpha=0.4,
@@ -327,8 +331,8 @@ def create_depth_analysis(df: pd.DataFrame, colors: Dict[str, str],
     
     fig, axes = plt.subplots(1, 2, figsize=(14, 6))
 
-    original_depth = (df['event_z_transformed']) / 1000
-    corrected_depth = (df['corrected_event_z_transformed']) / 1000
+    original_depth = df['event_z'] * km_per_unit(df, 'event_z')
+    corrected_depth = df['corrected_event_z'] * km_per_unit(df, 'corrected_event_z')
     
     # Original vs corrected depth
     axes[0].scatter(original_depth, 
@@ -361,7 +365,7 @@ def create_depth_analysis(df: pd.DataFrame, colors: Dict[str, str],
     # Depth correction by depth bins
     df_copy = df.copy()
     n_bins = config['source_analysis'].get('depth_bins', 10)
-    df_copy['depth_bin'] = pd.cut(df_copy['event_z_transformed'], bins=n_bins)
+    df_copy['depth_bin'] = pd.cut(df_copy['event_z'], bins=n_bins)
     
     depth_stats = df_copy.groupby('depth_bin')['delta_depth_km'].agg(
         ['mean', 'std', 'count']

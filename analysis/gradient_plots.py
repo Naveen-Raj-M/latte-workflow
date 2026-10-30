@@ -13,6 +13,7 @@ from typing import Dict, Any, List
 import logging
 
 from utils.plot_utils import save_figure, create_multi_panel_figure, get_color_scheme
+from utils.traveltime_io import km_per_unit
 from .basin_boundaries import load_basin_boundaries, plot_basin_boundaries
 
 logger = logging.getLogger(__name__)
@@ -401,8 +402,8 @@ def create_source_spatial_gradient_plots(df: pd.DataFrame,
             
             fig, ax = plt.subplots(figsize=(10, 8))
             
-            scatter = ax.scatter(plot_data['corrected_event_x_transformed'] / 1000,
-                               plot_data['corrected_event_y_transformed'] / 1000,
+            scatter = ax.scatter(plot_data['corrected_event_x'] * km_per_unit(plot_data, 'corrected_event_x'),
+                               plot_data['corrected_event_y'] * km_per_unit(plot_data, 'corrected_event_y'),
                                c=plot_data['horiz_grad_mag'], cmap='viridis',
                                s=30, alpha=0.7, edgecolors='black', linewidth=0.5)
             

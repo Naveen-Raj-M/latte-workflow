@@ -23,6 +23,7 @@ from joblib import Parallel, delayed
 import warnings
 
 from utils.io_utils import ensure_directory_exists, resolve_csv_path
+from utils.traveltime_io import read_traveltime_csv, convert_coordinates_to_km
 from utils.velocity_io import write_velocity_file
 from .postprocess_raypath import (
     read_gradient_metadata,
@@ -215,16 +216,11 @@ def compute_dws_from_ray_paths(config: DictConfig) -> np.ndarray:
 
     # Load ground truth data
     print(f"\nLoading ground truth data: {config.ground_truth_csv}")
-    df_gt = pd.read_csv(resolve_csv_path(config.ground_truth_csv))
+    df_gt = read_traveltime_csv(config.ground_truth_csv)
 
-    # Convert coordinates from meters to kilometers
-    coordinate_columns = [
-        'event_x_transformed', 'event_y_transformed', 'event_z_transformed',
-        'station_x_transformed', 'station_y_transformed', 'station_z_transformed'
-    ]
-    for col in coordinate_columns:
-        if col in df_gt.columns:
-            df_gt[col] = df_gt[col] / 1000.0
+    # Ray tracing and DWS work in km; the ground-truth coordinates are in the unit given by
+    # the file's units metadata (metres)
+    df_gt = convert_coordinates_to_km(df_gt)
     print("  Converted coordinates from meters to kilometers")
 
     # Check if weight column exists
@@ -275,17 +271,17 @@ def compute_dws_from_ray_paths(config: DictConfig) -> np.ndarray:
             # Get source position (same for all receivers in this shot)
             source_row = shot_data.iloc[0]
             source_pos = (
-                source_row['event_x_transformed'],
-                source_row['event_y_transformed'],
-                source_row['event_z_transformed']
+                source_row['event_x'],
+                source_row['event_y'],
+                source_row['event_z']
             )
 
             # Create task for each receiver
             for _, row in shot_data.iterrows():
                 receiver_pos = (
-                    row['station_x_transformed'],
-                    row['station_y_transformed'],
-                    row['station_z_transformed']
+                    row['station_x'],
+                    row['station_y'],
+                    row['station_z']
                 )
                 weight = row[weight_column]
                 tasks.append((shot_id, source_pos, receiver_pos, weight))
@@ -409,8 +405,7 @@ def save_dws_to_hdf5(
         'dx': dx, 'dy': dy, 'dz': dz,
         'origin_x': ox, 'origin_y': oy, 'origin_z': oz,
         'data_type': 'dws',
-        'description': 'Derivative Weight Sum computed from ray paths',
-        'units': 'km^2 (weighted squared path length)'
+        'description': 'Derivative Weight Sum computed from ray paths (weighted squared path length)'
     }
 
     # Write using velocity_io utility

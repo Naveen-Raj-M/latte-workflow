@@ -13,6 +13,7 @@ from omegaconf import DictConfig
 from tqdm import tqdm
 
 from utils.io_utils import ensure_directory_exists, resolve_csv_path
+from utils.traveltime_io import read_traveltime_csv, write_traveltime_csv
 
 
 def load_shot_mapping(shot_map_file: str) -> Dict[int, str]:
@@ -112,7 +113,8 @@ def load_virtual_station_geometry(exchange_geometry_file: str, ground_truth_csv:
     Args:
         exchange_geometry_file: Path to exchange geometry file with virtual station coordinates
         ground_truth_csv: Path to ground truth CSV with station coordinates
-        tolerance: Coordinate matching tolerance
+        tolerance: Coordinate matching tolerance in metres (exchange geometry file and the
+            ground-truth station_x/y/z coordinates are both in metres)
 
     Returns:
         Dictionary mapping virtual shot ID to list of matched station names
@@ -135,9 +137,9 @@ def load_virtual_station_geometry(exchange_geometry_file: str, ground_truth_csv:
 
     # Load ground truth station coordinates (one row per unique station name)
     print(f"  Loading ground truth station coordinates...")
-    df_gt = pd.read_csv(resolve_csv_path(ground_truth_csv))
+    df_gt = read_traveltime_csv(ground_truth_csv)
     station_coords = (
-        df_gt[['station', 'station_x_transformed', 'station_y_transformed', 'station_z_transformed']]
+        df_gt[['station', 'station_x', 'station_y', 'station_z']]
         .drop_duplicates(subset='station')
     )
     print(f"  Found {len(station_coords)} unique stations in ground truth")
@@ -149,14 +151,14 @@ def load_virtual_station_geometry(exchange_geometry_file: str, ground_truth_csv:
     unmatched = []
     co_located_count = 0
 
-    print(f"  Matching virtual stations to actual stations (tolerance={tolerance})...")
+    print(f"  Matching virtual stations to actual stations (tolerance={tolerance} m)...")
     for virtual_id, (vx, vy, vz) in virtual_stations.items():
         matched_names = []
         min_distance = float('inf')
         best_match = None
 
         for _, row in station_coords.iterrows():
-            sx, sy, sz = row['station_x_transformed'], row['station_y_transformed'], row['station_z_transformed']
+            sx, sy, sz = row['station_x'], row['station_y'], row['station_z']
             distance = np.sqrt((vx - sx)**2 + (vy - sy)**2 + (vz - sz)**2)
 
             if distance < min_distance:
@@ -182,7 +184,7 @@ def load_virtual_station_geometry(exchange_geometry_file: str, ground_truth_csv:
         print(f"  Warning: {len(unmatched)} virtual stations could not be matched within tolerance")
         print(f"  Closest mismatches (showing first 5):")
         for i, (vid, dist, station) in enumerate(sorted(unmatched, key=lambda x: x[1])[:5]):
-            print(f"    Virtual ID {vid}: closest station '{station}' at {dist:.4f}")
+            print(f"    Virtual ID {vid}: closest station '{station}' at {dist:.4f} m")
 
     return virtual_to_stations
 
@@ -225,7 +227,7 @@ def create_synthetic_travel_time_csv(config: DictConfig) -> None:
 
     # Load ground truth CSV for structure and metadata
     print(f"Loading ground truth travel time CSV: {config.ground_truth_csv}")
-    df_ground_truth = pd.read_csv(resolve_csv_path(config.ground_truth_csv))
+    df_ground_truth = read_traveltime_csv(config.ground_truth_csv)
 
     # Load shot mapping
     shot_map = load_shot_mapping(config.shot_map_file)
@@ -330,30 +332,27 @@ def create_synthetic_travel_time_csv(config: DictConfig) -> None:
                     'station': gt_row['station'],
                     'phase': phase,
                     
-                    # Travel times
+                    # Travel times (residual = observed_tt - synthetic_tt is computed where needed)
                     'observed_tt': observed_tt,
                     'synthetic_tt': synthetic_tt,
-                    'residual_s': observed_tt - synthetic_tt,  # observed - synthetic
                     
                     # Metadata (from ground truth)
                     'weight': gt_row['weight'],
                     
-                    # Coordinates (from ground truth)
+                    # Coordinates (from ground truth; Cartesian coordinates in metres)
                     'event_longitude': gt_row.get('event_longitude', np.nan),
                     'event_latitude': gt_row.get('event_latitude', np.nan),
                     'event_depth_km': gt_row.get('event_depth_km', np.nan),
                     'station_longitude': gt_row.get('station_longitude', np.nan),
                     'station_latitude': gt_row.get('station_latitude', np.nan),
                     'station_depth_km': gt_row.get('station_depth_km', np.nan),
-                    'event_x_transformed': gt_row.get('event_x_transformed', np.nan),
-                    'event_y_transformed': gt_row.get('event_y_transformed', np.nan),
-                    'event_z_transformed': gt_row.get('event_z_transformed', np.nan),
-                    'station_x_transformed': gt_row.get('station_x_transformed', np.nan),
-                    'station_y_transformed': gt_row.get('station_y_transformed', np.nan),
-                    'station_z_transformed': gt_row.get('station_z_transformed', np.nan),
-                    'distance_m': gt_row.get('distance_m', np.nan),
+                    'event_x': gt_row.get('event_x', np.nan),
+                    'event_y': gt_row.get('event_y', np.nan),
+                    'event_z': gt_row.get('event_z', np.nan),
+                    'station_x': gt_row.get('station_x', np.nan),
+                    'station_y': gt_row.get('station_y', np.nan),
+                    'station_z': gt_row.get('station_z', np.nan),
                     'origin_time_s': gt_row.get('origin_time_s', np.nan),
-                    'weighted_rms': gt_row.get('weighted_rms', np.nan)
                 }
                 
                 # Add source correction metadata
@@ -372,7 +371,7 @@ def create_synthetic_travel_time_csv(config: DictConfig) -> None:
         df_synthetic = pd.DataFrame(csv_data)
 
         ensure_directory_exists(os.path.dirname(config.synthetic_tt_output_csv))
-        df_synthetic.to_csv(config.synthetic_tt_output_csv, index=False)
+        write_traveltime_csv(df_synthetic, config.synthetic_tt_output_csv, data_type='synthetic_traveltime')
 
         print(f"\nSynthetic travel time CSV written: {config.synthetic_tt_output_csv}")
         print(f"  Total records: {len(df_synthetic)}")
@@ -384,7 +383,8 @@ def create_synthetic_travel_time_csv(config: DictConfig) -> None:
         
         # Calculate basic statistics
         weights = df_synthetic['weight']
-        rms_error = np.sqrt(np.sum(weights * df_synthetic['residual_s']**2) / np.sum(weights))
+        residual_s = df_synthetic['observed_tt'] - df_synthetic['synthetic_tt']
+        rms_error = np.sqrt(np.sum(weights * residual_s**2) / np.sum(weights))
         print(f"  Weighted RMS residual: {rms_error:.4f} s")
         
         if corrected_origin_times is not None:
@@ -420,7 +420,7 @@ def create_synthetic_travel_time_csv_with_exchange(config: DictConfig) -> None:
 
     # Load ground truth CSV
     print(f"Loading ground truth travel time CSV: {config.ground_truth_csv}")
-    df_ground_truth = pd.read_csv(resolve_csv_path(config.ground_truth_csv))
+    df_ground_truth = read_traveltime_csv(config.ground_truth_csv)
 
     print(f"  Ground truth: {len(df_ground_truth)} records")
     print(f"  Unique shots: {df_ground_truth['shot_id'].nunique()}")
@@ -552,7 +552,8 @@ def create_synthetic_travel_time_csv_with_exchange(config: DictConfig) -> None:
                         synthetic_tt = synthetic_tt_raw - configured_origin_time
                         origin_correction = 0.0
 
-                    # Create output record matching ground truth format exactly
+                    # Create output record matching ground truth format
+                    # (residual = observed_tt - synthetic_tt is computed where needed)
                     record = {
                         'shot_id': shot_id,
                         'event_id': gt_row['event_id'],
@@ -560,7 +561,6 @@ def create_synthetic_travel_time_csv_with_exchange(config: DictConfig) -> None:
                         'phase': phase,
                         'observed_tt': observed_tt,
                         'synthetic_tt': synthetic_tt,
-                        'residual_s': observed_tt - synthetic_tt,
                         'weight': gt_row['weight'],
                         'event_longitude': gt_row['event_longitude'],
                         'event_latitude': gt_row['event_latitude'],
@@ -568,16 +568,19 @@ def create_synthetic_travel_time_csv_with_exchange(config: DictConfig) -> None:
                         'station_longitude': gt_row['station_longitude'],
                         'station_latitude': gt_row['station_latitude'],
                         'station_depth_km': gt_row['station_depth_km'],
-                        'event_x_transformed': gt_row['event_x_transformed'],
-                        'event_y_transformed': gt_row['event_y_transformed'],
-                        'event_z_transformed': gt_row['event_z_transformed'],
-                        'station_x_transformed': gt_row['station_x_transformed'],
-                        'station_y_transformed': gt_row['station_y_transformed'],
-                        'station_z_transformed': gt_row['station_z_transformed'],
-                        'distance_m': gt_row['distance_m'],
+                        'event_x': gt_row['event_x'],
+                        'event_y': gt_row['event_y'],
+                        'event_z': gt_row['event_z'],
+                        'station_x': gt_row['station_x'],
+                        'station_y': gt_row['station_y'],
+                        'station_z': gt_row['station_z'],
                         'origin_time_s': gt_row['origin_time_s'],
-                        'weighted_rms': gt_row['weighted_rms']
                     }
+
+                    # Carry over any further ground-truth columns (e.g. magnitude), as in standard mode
+                    for col in gt_row.index:
+                        if col not in record:
+                            record[col] = gt_row[col]
 
                     # Add source correction if applied
                     if corrected_origin_times is not None:
@@ -594,7 +597,7 @@ def create_synthetic_travel_time_csv_with_exchange(config: DictConfig) -> None:
 
         # Save output
         ensure_directory_exists(os.path.dirname(config.synthetic_tt_output_csv))
-        df_output.to_csv(config.synthetic_tt_output_csv, index=False)
+        write_traveltime_csv(df_output, config.synthetic_tt_output_csv, data_type='synthetic_traveltime')
         
         print(f"\n=== OUTPUT SUMMARY ===")
         print(f"Synthetic travel time CSV written: {config.synthetic_tt_output_csv}")
@@ -606,8 +609,9 @@ def create_synthetic_travel_time_csv_with_exchange(config: DictConfig) -> None:
         
         # Statistics
         weights = df_output['weight']
-        rms_error = np.sqrt(np.sum(weights * df_output['residual_s']**2) / np.sum(weights))
-        mae = np.mean(np.abs(df_output['residual_s']))
+        residual_s = df_output['observed_tt'] - df_output['synthetic_tt']
+        rms_error = np.sqrt(np.sum(weights * residual_s**2) / np.sum(weights))
+        mae = np.mean(np.abs(residual_s))
         print(f"  Weighted RMS residual: {rms_error:.4f} s")
         print(f"  MAE residual: {mae:.4f} s")
         

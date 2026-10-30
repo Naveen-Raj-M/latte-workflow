@@ -64,7 +64,7 @@ Merges observed ground truth travel times with synthetic predictions from the in
   1. Subtracts the configured origin time offset (the binary stores `physical_tt + origin_time`).
   2. Optionally applies a per-shot source correction (corrected origin time from `source_correction_file`).
 - Supports **source-receiver exchange mode** (`source_receiver_exchange: true`): in this mode the virtual stations are events, and the pipeline first matches virtual station coordinates to actual station names before reading binaries indexed by shot rather than by station.
-- Computes per-pick residuals (`observed_tt − synthetic_tt`) and a weighted RMS.
+- Reports the per-pick residuals (`observed_tt − synthetic_tt`) as a weighted RMS (the residual column is not written).
 - Writes a single merged CSV containing both observed and synthetic columns, plus all available metadata.
 
 > **Critical (exchange mode):** Binary array size must match the number of sources. If a mismatch is detected, the pipeline prints a detailed comparison and raises an error.
@@ -163,7 +163,7 @@ All outputs are written to paths specified in the configuration. See [`docs/file
 |---|---|---|---|
 | `velocity_model_final.csv` | CSV | Velocity | Updated Vp/Vs on reference grid |
 | `velocity_model_final.h5` | HDF5 | Velocity | Same data with compression |
-| `synthetic_traveltimes.csv` | CSV | Travel time | Observed + synthetic TT, residuals, metadata |
+| `synthetic_traveltimes.csv` | CSV | Travel time | Observed + synthetic TT and ground-truth metadata (residuals are computed, not stored) |
 | `source_relocation.csv` | CSV | Source | Updated source coordinates and origin times |
 | `ray_paths.h5` | HDF5 | Ray path | Cached ray paths grouped by phase and shot |
 | `ray_paths_simplified.h5` | HDF5 | Ray path | RDP-simplified ray paths (optional) |

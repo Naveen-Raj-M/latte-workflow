@@ -78,8 +78,9 @@ def generate_dws_report(
             f.write(f"Data type: {metadata['data_type']}\n")
         if 'description' in metadata:
             f.write(f"Description: {metadata['description']}\n")
-        if 'units' in metadata:
-            f.write(f"Units: {metadata['units']}\n")
+        dws_units = metadata.get('units.dws', metadata.get('units'))
+        if dws_units:
+            f.write(f"Units: {dws_units}\n")
         f.write("\n")
 
         # Grid Information
