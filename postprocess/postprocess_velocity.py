@@ -5,6 +5,7 @@ Fresh implementation with proper grid handling and coordinate-based sampling.
 """
 
 import os
+from types import SimpleNamespace
 import numpy as np
 import pandas as pd
 from typing import Tuple, Optional, Dict
@@ -16,30 +17,25 @@ from utils.io_utils import ensure_directory_exists
 from utils.velocity_io import read_velocity_file, write_velocity_file, subsample_to_coarse_grid
 
 
-class GridParameters:
-    """Container for grid parameters."""
-    def __init__(self, nx: int, ny: int, nz: int, 
-                 dx: float, dy: float, dz: float,
-                 origin_x: float, origin_y: float, origin_z: float):
-        self.nx = nx
-        self.ny = ny
-        self.nz = nz
-        self.dx = dx
-        self.dy = dy
-        self.dz = dz
-        self.origin_x = origin_x
-        self.origin_y = origin_y
-        self.origin_z = origin_z
-        
-        # Build coordinate arrays (1-based indexing)
-        self.x_coords = origin_x + np.arange(nx) * dx
-        self.y_coords = origin_y + np.arange(ny) * dy
-        self.z_coords = origin_z + np.arange(nz) * dz
-    
-    def __repr__(self):
-        return (f"Grid({self.nx}x{self.ny}x{self.nz}, "
-                f"dx={self.dx:.3f}, dy={self.dy:.3f}, dz={self.dz:.3f}, "
-                f"origin=({self.origin_x:.3f}, {self.origin_y:.3f}, {self.origin_z:.3f}))")
+def make_grid(nx: int, ny: int, nz: int,
+              dx: float, dy: float, dz: float,
+              origin_x: float, origin_y: float, origin_z: float) -> SimpleNamespace:
+    """Build grid parameters and coordinate arrays (1-based indexing)."""
+    return SimpleNamespace(
+        nx=nx, ny=ny, nz=nz,
+        dx=dx, dy=dy, dz=dz,
+        origin_x=origin_x, origin_y=origin_y, origin_z=origin_z,
+        x_coords=origin_x + np.arange(nx) * dx,
+        y_coords=origin_y + np.arange(ny) * dy,
+        z_coords=origin_z + np.arange(nz) * dz,
+    )
+
+
+def format_grid(grid: SimpleNamespace) -> str:
+    """Format grid parameters as a one-line summary."""
+    return (f"Grid({grid.nx}x{grid.ny}x{grid.nz}, "
+            f"dx={grid.dx:.3f}, dy={grid.dy:.3f}, dz={grid.dz:.3f}, "
+            f"origin=({grid.origin_x:.3f}, {grid.origin_y:.3f}, {grid.origin_z:.3f}))")
 
 
 def detect_coarse_grid_from_csv(df: pd.DataFrame) -> Tuple[int, int, int]:
@@ -54,7 +50,7 @@ def detect_coarse_grid_from_csv(df: pd.DataFrame) -> Tuple[int, int, int]:
 def infer_coarse_grid_parameters(df: pd.DataFrame, 
                                   nx: Optional[int] = None,
                                   ny: Optional[int] = None,
-                                  nz: Optional[int] = None) -> GridParameters:
+                                  nz: Optional[int] = None) -> SimpleNamespace:
     """
     Infer coarse grid parameters from CSV data.
     Uses provided dimensions if available, otherwise auto-detects.
@@ -81,8 +77,8 @@ def infer_coarse_grid_parameters(df: pd.DataFrame,
     origin_y = y_unique[0]
     origin_z = z_unique[0]
     
-    grid = GridParameters(nx, ny, nz, dx, dy, dz, origin_x, origin_y, origin_z)
-    print(f"Coarse grid: {grid}")
+    grid = make_grid(nx, ny, nz, dx, dy, dz, origin_x, origin_y, origin_z)
+    print(f"Coarse grid: {format_grid(grid)}")
     
     return grid
 
@@ -176,7 +172,7 @@ def find_nearest_grid_indices(query_coords: np.ndarray,
 
 
 def sample_fine_grid_at_coarse_points(df_coarse: pd.DataFrame,
-                                       fine_grid: GridParameters,
+                                       fine_grid: SimpleNamespace,
                                        vp_fine: np.ndarray,
                                        vs_fine: np.ndarray,
                                        auxiliary_fields: Dict) -> pd.DataFrame:
@@ -368,8 +364,8 @@ def sample_fine_grid_at_coarse_points(df_coarse: pd.DataFrame,
 
 
 def expand_to_fine_grid(df_coarse: pd.DataFrame,
-                        coarse_grid: GridParameters,
-                        fine_grid: GridParameters,
+                        coarse_grid: SimpleNamespace,
+                        fine_grid: SimpleNamespace,
                         vp_fine: np.ndarray,
                         vs_fine: np.ndarray,
                         auxiliary_fields: Dict) -> pd.DataFrame:
@@ -559,7 +555,7 @@ def create_velocity_csv_from_binaries(config: DictConfig) -> None:
     
     # Get fine grid parameters from config
     print(f"\nFine grid configuration:")
-    fine_grid = GridParameters(
+    fine_grid = make_grid(
         nx=config.fine_grid.nx,
         ny=config.fine_grid.ny,
         nz=config.fine_grid.nz,
@@ -570,7 +566,7 @@ def create_velocity_csv_from_binaries(config: DictConfig) -> None:
         origin_y=config.fine_grid.origin_y,
         origin_z=config.fine_grid.origin_z
     )
-    print(f"Fine grid: {fine_grid}")
+    print(f"Fine grid: {format_grid(fine_grid)}")
     
     # Load binary files based on phase_type
     print(f"\nLoading binary files...")
