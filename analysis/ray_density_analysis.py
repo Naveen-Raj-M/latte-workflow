@@ -68,8 +68,19 @@ def analyze_ray_density(config_dict: Dict[str, Any]) -> Dict[str, Any]:
 
     logger.info(f"Loading ray paths from: {cache_path}")
 
-    # Get grid dimensions
+    # Get grid dimensions. There is no velocity model among the inputs, so the grid is
+    # defined in the configuration; the origin keys are origin_x/y/z (legacy x_min/y_min/z_min
+    # are still accepted).
     grid_config = config['grid']
+    origin = {}
+    for axis in ('x', 'y', 'z'):
+        if grid_config.get(f'origin_{axis}') is not None:
+            origin[axis] = grid_config[f'origin_{axis}']
+        elif grid_config.get(f'{axis}_min') is not None:
+            logger.warning(f"ray_density.grid.{axis}_min is a legacy key; use origin_{axis}")
+            origin[axis] = grid_config[f'{axis}_min']
+        else:
+            raise KeyError(f"ray_density.grid.origin_{axis} is required")
     grid_dims = {
         'nx': grid_config['nx'],
         'ny': grid_config['ny'],
@@ -77,12 +88,12 @@ def analyze_ray_density(config_dict: Dict[str, Any]) -> Dict[str, Any]:
         'dx': grid_config['dx'],
         'dy': grid_config['dy'],
         'dz': grid_config['dz'],
-        'x_min': grid_config['x_min'],
-        'y_min': grid_config['y_min'],
-        'z_min': grid_config['z_min'],
-        'x_max': grid_config['x_min'] + (grid_config['nx'] - 1) * grid_config['dx'],
-        'y_max': grid_config['y_min'] + (grid_config['ny'] - 1) * grid_config['dy'],
-        'z_max': grid_config['z_min'] + (grid_config['nz'] - 1) * grid_config['dz'],
+        'x_min': origin['x'],
+        'y_min': origin['y'],
+        'z_min': origin['z'],
+        'x_max': origin['x'] + (grid_config['nx'] - 1) * grid_config['dx'],
+        'y_max': origin['y'] + (grid_config['ny'] - 1) * grid_config['dy'],
+        'z_max': origin['z'] + (grid_config['nz'] - 1) * grid_config['dz'],
     }
 
     logger.info(f"Grid dimensions: {grid_dims['nx']} x {grid_dims['ny']} x {grid_dims['nz']}")

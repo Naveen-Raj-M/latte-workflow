@@ -25,6 +25,14 @@ from .velocity_io import (
     read_velocity_file,
     write_velocity_file,
     get_velocity_file_metadata,
+    read_velocity_metadata,
+    resolve_grid_metadata,
+    resolve_binary_grid,
+    get_velocity_grid,
+)
+from .column_utils import (
+    normalize_coordinate_columns,
+    resolve_column_names,
 )
 
 __all__ = [
@@ -67,4 +75,12 @@ __all__ = [
     'read_velocity_file',
     'write_velocity_file',
     'get_velocity_file_metadata',
+    'read_velocity_metadata',
+    'resolve_grid_metadata',
+    'resolve_binary_grid',
+    'get_velocity_grid',
+
+    # Column conventions
+    'normalize_coordinate_columns',
+    'resolve_column_names',
 ]

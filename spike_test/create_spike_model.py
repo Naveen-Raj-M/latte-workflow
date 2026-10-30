@@ -23,11 +23,11 @@ import pandas as pd
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from utils.velocity_io import read_velocity_file, write_velocity_file
+from utils.velocity_io import read_velocity_file, write_velocity_file, normalize_metadata
 
 # Grid/binary helpers are perturbation-agnostic and reused from the checkerboard module.
 from checkerboard_test.create_checkerboard_model import (
-    get_grid_dimensions,
+    get_grid,
     write_velocity_binary,
 )
 
@@ -320,16 +320,16 @@ def apply_spike_perturbation(
     multiplicatively: v_perturbed = v_original * (1 + sum_of_fractional_perturbations).
 
     Args:
-        df: Velocity model DataFrame with X_grid_km, Y_grid_km, Z_grid_km, vp, vs.
+        df: Velocity model DataFrame with x, y, z, vp, vs.
             NOTE: This function modifies the input DataFrame in place for memory efficiency.
         config: Spike configuration dictionary
 
     Returns:
         DataFrame with perturbed velocities (same object as input)
     """
-    x = df["X_grid_km"].values
-    y = df["Y_grid_km"].values
-    z = df["Z_grid_km"].values
+    x = df["x"].values
+    y = df["y"].values
+    z = df["z"].values
 
     apply_to_vp = config.get("apply_to_vp", True)
     apply_to_vs = config.get("apply_to_vs", True)
@@ -438,7 +438,7 @@ def create_spike_model(
     logger.info(f"  Loaded {len(df)} grid points")
 
     # Verify required columns
-    required_cols = ["X_grid_km", "Y_grid_km", "Z_grid_km", "vp", "vs"]
+    required_cols = ["x", "y", "z", "vp", "vs"]
     missing_cols = [col for col in required_cols if col not in df.columns]
     if missing_cols:
         raise ValueError(f"Missing required columns: {missing_cols}")
@@ -447,7 +447,7 @@ def create_spike_model(
     df_perturbed = apply_spike_perturbation(df, config)
 
     # Get grid dimensions
-    nx, ny, nz = get_grid_dimensions(df_perturbed)
+    grid = get_grid(df)
 
     # Write perturbed velocity model (CSV and/or H5 based on config)
     output_format = config.get("output_format", "csv")
@@ -461,29 +461,26 @@ def create_spike_model(
     if isinstance(output_hdf5, str):
         output_hdf5 = Path(output_hdf5)
 
+    # Metadata for every output: grid and geography carried over from the input model
+    anomalies = list(config.get("anomalies", []) or [])
+    metadata = {
+        **normalize_metadata(df.attrs.get("metadata")),
+        "data_type": "velocity",
+        "spike_config": {
+            "n_anomalies": len(anomalies),
+            "anomaly_types": [a.get("type") for a in anomalies],
+            "truncate_at_sigma": config.get("truncate_at_sigma"),
+        },
+    }
+
     # Write CSV if requested
     if output_format in ["csv", "both"]:
         logger.info(f"Writing perturbed velocity model CSV: {output_csv}")
-        write_velocity_file(df_perturbed, output_csv, format="csv", show_progress=True)
+        write_velocity_file(df_perturbed, output_csv, format="csv", metadata=metadata, show_progress=True)
 
     # Write HDF5 if requested
     if output_format in ["hdf5", "both"]:
         logger.info(f"Writing perturbed velocity model H5: {output_hdf5}")
-
-        # Prepare metadata
-        anomalies = list(config.get("anomalies", []) or [])
-        metadata = {
-            "spike_config": {
-                "n_anomalies": len(anomalies),
-                "anomaly_types": [a.get("type") for a in anomalies],
-                "truncate_at_sigma": config.get("truncate_at_sigma"),
-            },
-            "grid_dimensions": {
-                "nx": nx,
-                "ny": ny,
-                "nz": nz,
-            },
-        }
 
         # Extract H5 options
         compression = hdf5_options.get("compression", "gzip")
@@ -513,8 +510,8 @@ def create_spike_model(
     logger.info(f"Writing binary velocity files for LATTE:")
     logger.info(f"  - {vp_bin_path}")
     logger.info(f"  - {vs_bin_path}")
-    write_velocity_binary(df_perturbed, vp_bin_path, "vp", nx, ny, nz)
-    write_velocity_binary(df_perturbed, vs_bin_path, "vs", nx, ny, nz)
+    write_velocity_binary(df_perturbed, vp_bin_path, "vp", grid)
+    write_velocity_binary(df_perturbed, vs_bin_path, "vs", grid)
 
     logger.info("Spike model creation completed successfully!")
 

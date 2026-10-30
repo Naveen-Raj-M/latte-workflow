@@ -13,7 +13,12 @@ from pathlib import Path
 from typing import Dict, Tuple, Optional
 from scipy.interpolate import RegularGridInterpolator
 
-from utils.velocity_io import read_velocity_file, write_velocity_file
+from utils.velocity_io import (
+    read_velocity_file, write_velocity_file, read_velocity_metadata,
+    resolve_binary_grid, resolve_grid_metadata, get_fine_grid_metadata,
+    normalize_metadata, GRID_KEYS, FINE_GRID_KEYS,
+)
+from utils.column_utils import normalize_coordinate_columns
 
 logger = logging.getLogger(__name__)
 
@@ -67,42 +72,6 @@ def load_velocity_binary(
     return array_3d
 
 
-def apply_chapman_inverse_transform(
-    velocity: np.ndarray,
-    z_coords: np.ndarray,
-    earth_radius_km: float = 6371.0,
-) -> np.ndarray:
-    """
-    Apply Chapman inverse transform to convert from spherical to Cartesian.
-
-    Formula: v_cartesian = exp(-depth/R) * v_spherical
-
-    Args:
-        velocity: Velocity array
-        z_coords: Depth coordinates (km)
-        earth_radius_km: Earth radius
-
-    Returns:
-        Transformed velocity array
-    """
-    logger.info("Applying Chapman inverse transform")
-
-    # Create depth grid matching velocity array shape
-    if velocity.ndim == 3:
-        nz, ny, nx = velocity.shape
-        depth_grid = np.tile(z_coords[:, np.newaxis, np.newaxis], (1, ny, nx))
-    else:
-        raise ValueError("Expected 3D velocity array")
-
-    # Apply transform
-    velocity_cartesian = np.exp(-depth_grid / earth_radius_km) * velocity
-
-    logger.info(f"  Transformed velocity range: {velocity_cartesian.min():.3f} - "
-                f"{velocity_cartesian.max():.3f}")
-
-    return velocity_cartesian
-
-
 def sample_at_coarse_points(
     velocity_3d: np.ndarray,
     coarse_df: pd.DataFrame,
@@ -114,7 +83,7 @@ def sample_at_coarse_points(
 
     Args:
         velocity_3d: 3D velocity array (nz, ny, nx) from LATTE
-        coarse_df: Coarse grid DataFrame with X_grid_km, Y_grid_km, Z_grid_km
+        coarse_df: Coarse grid DataFrame with x, y, z
         fine_grid_config: Fine grid configuration (nx, ny, nz, dx, dy, dz, origin)
         batch_size: Number of points to process at once (default: 1M)
 
@@ -153,9 +122,9 @@ def sample_at_coarse_points(
 
     # Get coarse grid coordinates
     coarse_points = np.column_stack([
-        df["Z_grid_km"].values,
-        df["Y_grid_km"].values,
-        df["X_grid_km"].values,
+        df["z"].values,
+        df["y"].values,
+        df["x"].values,
     ])
 
     # Interpolate in batches to avoid memory issues
@@ -231,21 +200,75 @@ def expand_to_fine_grid(
 
     # Create DataFrame
     df = pd.DataFrame({
-        "X_grid_km": x_flat,
-        "Y_grid_km": y_flat,
-        "Z_grid_km": z_flat,
+        "x": x_flat,
+        "y": y_flat,
+        "z": z_flat,
         field_name: velocity_flat,  # Keep in km/s for CSV
     })
-
-    # Add grid indices (1-based, Fortran convention)
-    # i corresponds to x, j to y, k to z
-    df["i"] = np.tile(np.arange(1, nx + 1), ny * nz)
-    df["j"] = np.tile(np.repeat(np.arange(1, ny + 1), nx), nz)
-    df["k"] = np.repeat(np.arange(1, nz + 1), nx * ny)
 
     logger.info(f"  Created {len(df)} fine grid points")
 
     return df
+
+
+def _resolve_conversion_grid(input_csv: Optional[Path], config: Dict,
+                             binary_files) -> Dict:
+    """
+    Grid of the inverted binaries (the fine model grid).
+
+    Read from the metadata of the input velocity model (checked against its x/y/z
+    columns). Only if the input model has no grid metadata (legacy file) is the grid
+    inferred from its columns, and as a last resort taken from ``config['grid']``.
+    """
+    metadata, df_xyz = {}, None
+    if input_csv is not None and Path(input_csv).exists():
+        metadata = read_velocity_metadata(input_csv)
+        if not all(k in get_fine_grid_metadata(metadata) for k in GRID_KEYS):
+            df_xyz = read_velocity_file(input_csv, show_progress=False, columns=['x', 'y', 'z'])
+    else:
+        logger.warning("No input velocity model found; the grid must be given in the configuration")
+    return resolve_binary_grid(
+        metadata=metadata, df=df_xyz, config_grid=config.get("grid"),
+        binary_files=binary_files,
+        source=Path(input_csv).name if input_csv is not None else "model_conversion",
+    )
+
+
+def _same_grid(a: Dict, b: Dict, tol: float = 1e-6) -> bool:
+    return all(
+        np.isclose(float(a[k]), float(b[k]), rtol=tol, atol=tol)
+        for k in GRID_KEYS if a.get(k) is not None and b.get(k) is not None
+    )
+
+
+def _carry_over_geography(df_fine: pd.DataFrame, input_csv: Optional[Path],
+                          grid: Dict) -> pd.DataFrame:
+    """
+    Fill lat/lon/depth of the full fine-grid DataFrame from the input model.
+
+    Only possible when the input model is on the same grid; otherwise they stay NaN.
+    """
+    for column in ("lat", "lon", "depth"):
+        df_fine[column] = np.nan
+    if input_csv is None or not Path(input_csv).exists():
+        logger.warning("No input model to take lat/lon/depth from; they are written as NaN")
+        return df_fine
+
+    df_in = read_velocity_file(input_csv, show_progress=False)
+    in_grid = resolve_grid_metadata(df_in, source=Path(input_csv).name)
+    if not _same_grid(in_grid, grid) or not {"lat", "lon", "depth"} <= set(df_in.columns):
+        logger.warning("Input model is not on the fine grid (or has no lat/lon/depth); "
+                       "lat/lon/depth are written as NaN")
+        return df_fine
+
+    nx, ny, nz = grid["nx"], grid["ny"], grid["nz"]
+    idx = [np.round((df_in[a].values - grid[f"origin_{a}"]) / grid.get(f"d{a}", 1.0)).astype(int)
+           for a in ("x", "y", "z")]
+    for column in ("lat", "lon", "depth"):
+        values = np.full((nz, ny, nx), np.nan)
+        values[idx[2], idx[1], idx[0]] = df_in[column].values
+        df_fine[column] = values.ravel()  # (nz, ny, nx) C-order matches the x-fastest fine grid
+    return df_fine
 
 
 def convert_inverted_model(
@@ -274,26 +297,20 @@ def convert_inverted_model(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Extract config
-    grid_config = config["grid"]
     processing_mode = config.get("processing_mode", "sample")
     convert_to_kms = config.get("convert_to_kms", True)
-    apply_chapman = config.get("apply_chapman_inverse", False)
-    earth_radius = config.get("earth_radius_km", 6371.0)
 
-    # Load binary files
+    # Binary files
     vp_bin = input_model_dir / "updated_vp.bin"
     vs_bin = input_model_dir / "updated_vs.bin"
+
+    # Grid of the binaries: from the input model's metadata
+    grid_config = _resolve_conversion_grid(input_csv, config, [vp_bin, vs_bin])
 
     vp_3d = load_velocity_binary(vp_bin, grid_config["nx"], grid_config["ny"],
                                   grid_config["nz"], convert_to_kms)
     vs_3d = load_velocity_binary(vs_bin, grid_config["nx"], grid_config["ny"],
                                   grid_config["nz"], convert_to_kms)
-
-    # Apply Chapman inverse transform if requested
-    if apply_chapman:
-        z_coords = grid_config["origin_z"] + np.arange(grid_config["nz"]) * grid_config["dz"]
-        vp_3d = apply_chapman_inverse_transform(vp_3d, z_coords, earth_radius)
-        vs_3d = apply_chapman_inverse_transform(vs_3d, z_coords, earth_radius)
 
     # Process based on mode
     if processing_mode == "sample":
@@ -310,6 +327,13 @@ def convert_inverted_model(
         df["vp"] = vp_sampled if convert_to_kms else vp_sampled * 1000.0
         df["vs"] = vs_sampled if convert_to_kms else vs_sampled * 1000.0
 
+        # Same points as the input model: carry over its metadata, adding the fine grid
+        file_metadata = normalize_metadata(df.attrs.get("metadata"))
+        own_grid = resolve_grid_metadata(df, file_metadata, source=Path(input_csv).name)
+        file_metadata.update(own_grid)
+        if not _same_grid(own_grid, grid_config):
+            file_metadata.update({f"fine_{k}": v for k, v in grid_config.items()})
+
     elif processing_mode == "expand":
         # Expand to full fine grid
         df_vp = expand_to_fine_grid(vp_3d, None, grid_config, "vp")
@@ -318,9 +342,19 @@ def convert_inverted_model(
         # Merge
         df = df_vp.copy()
         df["vs"] = df_vs["vs"]
+        df = _carry_over_geography(df, input_csv, grid_config)
+
+        # Geography from the input model, grid of the full fine grid
+        input_metadata = read_velocity_metadata(input_csv) if input_csv is not None and Path(input_csv).exists() else {}
+        file_metadata = {k: v for k, v in input_metadata.items()
+                         if k not in GRID_KEYS and k not in FINE_GRID_KEYS and not k.startswith("stride_")}
+        file_metadata.update(grid_config)
 
     else:
         raise ValueError(f"Unknown processing_mode: {processing_mode}")
+
+    file_metadata["data_type"] = "velocity"
+    file_metadata["processing_mode"] = processing_mode
 
     # Write output model (CSV and/or H5 based on config)
     output_format = config.get('output_format', 'csv')
@@ -337,27 +371,11 @@ def convert_inverted_model(
     # Write CSV if requested
     if output_format in ['csv', 'both']:
         logger.info(f"Writing inverted model CSV: {output_csv}")
-        write_velocity_file(df, output_csv, format='csv', show_progress=True)
+        write_velocity_file(df, output_csv, format='csv', metadata=file_metadata, show_progress=True)
 
     # Write HDF5 if requested
     if output_format in ['hdf5', 'both']:
         logger.info(f"Writing inverted model H5: {output_hdf5}")
-
-        # Prepare metadata
-        metadata = {
-            'grid_dimensions': {
-                'nx': grid_config['nx'],
-                'ny': grid_config['ny'],
-                'nz': grid_config['nz']
-            },
-            'grid_spacing': {
-                'dx': grid_config['dx'],
-                'dy': grid_config['dy'],
-                'dz': grid_config['dz']
-            },
-            'processing_mode': processing_mode,
-            'apply_chapman_inverse': apply_chapman,
-        }
 
         # Extract H5 options
         compression = hdf5_options.get('compression', 'gzip')
@@ -374,7 +392,7 @@ def convert_inverted_model(
             format='hdf5',
             compression=compression,
             compression_opts=compression_level,
-            metadata=metadata,
+            metadata=file_metadata,
             coarse_grid_config=coarse_grid_config,
             n_jobs=n_jobs,
             show_progress=show_progress

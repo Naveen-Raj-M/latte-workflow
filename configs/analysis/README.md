@@ -463,7 +463,7 @@ Cartesian grid definition used to bin ray paths. Must match the inversion grid e
 |-----|------|-------------|
 | `nx`, `ny`, `nz` | — | Number of grid nodes along x, y, z axes. |
 | `dx`, `dy`, `dz` | km | Grid spacing along each axis. |
-| `x_min`, `y_min`, `z_min` | km | Cartesian origin of the grid. |
+| `origin_x`, `origin_y`, `origin_z` | km | Cartesian origin of the grid (legacy keys `x_min`, `y_min`, `z_min` are still accepted). |
 
 ---
 

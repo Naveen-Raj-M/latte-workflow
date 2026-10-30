@@ -12,13 +12,8 @@ data:
 velocity_processing:
   enabled: true
   reference_velocity_file: "/path/to/velocity_cartesian_final.csv"
-  fine_grid:
-    nx: 401
-    ny: 361
-    nz: 43
-    dx: 0.5
-    dy: 0.5
-    dz: 0.5
+  # Grid of the LATTE binaries comes from the reference file's metadata; add a fine_grid
+  # block (nx, ny, nz, dx, dy, dz, origin_x/y/z) only for legacy files without it.
 
 travel_time_processing:
   enabled: true

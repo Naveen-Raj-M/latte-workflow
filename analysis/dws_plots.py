@@ -59,8 +59,8 @@ def plot_horizontal_slice(
     fig, ax = plt.subplots(figsize=(config.get('figure_width', 12), config.get('figure_height', 10)))
 
     # Prepare data for pcolormesh
-    x = df_slice['X_grid_km'].values
-    y = df_slice['Y_grid_km'].values
+    x = df_slice['x'].values
+    y = df_slice['y'].values
     dws = df_slice['dws'].values
 
     # Unit conversion: check if we should use m² instead of km²
@@ -76,8 +76,8 @@ def plot_horizontal_slice(
     dws_grid = np.full((len(y_unique), len(x_unique)), np.nan)
 
     for _, row in df_slice.iterrows():
-        i_x = np.searchsorted(x_unique, row['X_grid_km'])
-        i_y = np.searchsorted(y_unique, row['Y_grid_km'])
+        i_x = np.searchsorted(x_unique, row['x'])
+        i_y = np.searchsorted(y_unique, row['y'])
         if i_x < len(x_unique) and i_y < len(y_unique):
             dws_grid[i_y, i_x] = row['dws'] * unit_conversion
 
@@ -182,15 +182,15 @@ def plot_vertical_slice(
 
     # Prepare data
     if slice_type == 'xz':
-        x = df_slice['X_grid_km'].values
+        x = df_slice['x'].values
         xlabel = 'X (km)'
     elif slice_type == 'yz':
-        x = df_slice['Y_grid_km'].values
+        x = df_slice['y'].values
         xlabel = 'Y (km)'
     else:
         raise ValueError(f"Invalid slice_type: {slice_type}")
 
-    z = df_slice['Z_grid_km'].values
+    z = df_slice['z'].values
     dws = df_slice['dws'].values
 
     # Unit conversion: check if we should use m² instead of km²
@@ -207,12 +207,12 @@ def plot_vertical_slice(
 
     for _, row in df_slice.iterrows():
         if slice_type == 'xz':
-            x_val = row['X_grid_km']
+            x_val = row['x']
         else:
-            x_val = row['Y_grid_km']
+            x_val = row['y']
 
         i_x = np.searchsorted(x_unique, x_val)
-        i_z = np.searchsorted(z_unique, row['Z_grid_km'])
+        i_z = np.searchsorted(z_unique, row['z'])
 
         if i_x < len(x_unique) and i_z < len(z_unique):
             dws_grid[i_z, i_x] = row['dws'] * unit_conversion
@@ -369,8 +369,8 @@ def plot_coverage_map(
     fig, ax = plt.subplots(figsize=(config.get('figure_width', 12), config.get('figure_height', 10)))
 
     # Prepare data
-    x = df_slice['X_grid_km'].values
-    y = df_slice['Y_grid_km'].values
+    x = df_slice['x'].values
+    y = df_slice['y'].values
     covered = (df_slice['dws'].values > threshold).astype(int)
 
     # Create grid
@@ -381,8 +381,8 @@ def plot_coverage_map(
     coverage_grid = np.full((len(y_unique), len(x_unique)), np.nan)
 
     for _, row in df_slice.iterrows():
-        i_x = np.searchsorted(x_unique, row['X_grid_km'])
-        i_y = np.searchsorted(y_unique, row['Y_grid_km'])
+        i_x = np.searchsorted(x_unique, row['x'])
+        i_y = np.searchsorted(y_unique, row['y'])
         if i_x < len(x_unique) and i_y < len(y_unique):
             coverage_grid[i_y, i_x] = 1 if row['dws'] > threshold else 0
 

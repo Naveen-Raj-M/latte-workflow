@@ -33,6 +33,7 @@ from preprocess.ray_density_visualization import create_ray_density_visualizatio
 # Import utilities
 from utils.logging_utils import setup_logging, ProcessTimer
 from utils.io_utils import ensure_directory_exists
+from utils.column_utils import normalize_coordinate_columns
 
 
 def run_data_loading(cfg: DictConfig):
@@ -219,15 +220,15 @@ def load_existing_data_for_visualization(cfg: DictConfig) -> Tuple[Optional[pd.D
 
     if events_cart_path.exists() and stations_cart_path.exists():
         try:
-            events_cart = pd.read_csv(events_cart_path)
-            stations_cart = pd.read_csv(stations_cart_path)
+            events_cart = normalize_coordinate_columns(pd.read_csv(events_cart_path), context=events_cart_path.name)
+            stations_cart = normalize_coordinate_columns(pd.read_csv(stations_cart_path), context=stations_cart_path.name)
             logger.info(f"Loaded Cartesian data: {len(events_cart)} events, {len(stations_cart.drop_duplicates(subset=['x', 'y', 'z']))} stations (unique positions)")
         except Exception as e:
             logger.warning(f"Failed to load Cartesian CSVs: {e}")
 
     if picks_path.exists():
         try:
-            picks_df = pd.read_csv(picks_path)
+            picks_df = normalize_coordinate_columns(pd.read_csv(picks_path), context=picks_path.name)
             logger.info(f"Loaded picks: {len(picks_df)} picks")
         except Exception as e:
             logger.warning(f"Failed to load picks CSV: {e}")

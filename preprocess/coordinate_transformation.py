@@ -70,60 +70,14 @@ def flattening_transformation(df: pd.DataFrame, origin_lon: float,
     # z: Depth direction (positive down, relative to origin)
     z_km = df_out['depth'] - origin_depth
 
-    df_out['X_grid_km'] = x_km
-    df_out['Y_grid_km'] = y_km
-    df_out['Z_grid_km'] = z_km
-
-    # Also keep lowercase versions for backward compatibility
     df_out['x'] = x_km
     df_out['y'] = y_km
     df_out['z'] = z_km
 
     logger.debug(f"Transformed {len(df_out)} points to Cartesian coordinates")
-    logger.debug(f"  x range: [{df_out['X_grid_km'].min():.2f}, {df_out['X_grid_km'].max():.2f}] km")
-    logger.debug(f"  y range: [{df_out['Y_grid_km'].min():.2f}, {df_out['Y_grid_km'].max():.2f}] km")
-    logger.debug(f"  z range: [{df_out['Z_grid_km'].min():.2f}, {df_out['Z_grid_km'].max():.2f}] km")
-
-    return df_out
-
-
-def compute_grid_indices(df: pd.DataFrame, grid_spacing: Tuple[float, float, float],
-                         min_coords: Tuple[float, float, float]) -> pd.DataFrame:
-    """Compute grid indices from Cartesian coordinates.
-
-    Args:
-        df: DataFrame with columns ['X_grid_km', 'Y_grid_km', 'Z_grid_km'] or ['x', 'y', 'z'] in km.
-        grid_spacing: Tuple of (dx, dy, dz) spacing in km.
-        min_coords: Tuple of (min_x, min_y, min_z) to define grid origin.
-
-    Returns:
-        DataFrame with added columns ['i', 'j', 'k'] (1-based indices).
-    """
-    logger = logging.getLogger(__name__)
-    df_out = df.copy()
-
-    dx, dy, dz = grid_spacing
-    min_x, min_y, min_z = min_coords
-
-    # Use capital case columns if available, otherwise lowercase
-    x_col = 'X_grid_km' if 'X_grid_km' in df_out.columns else 'x'
-    y_col = 'Y_grid_km' if 'Y_grid_km' in df_out.columns else 'y'
-    z_col = 'Z_grid_km' if 'Z_grid_km' in df_out.columns else 'z'
-
-    # Shift coordinates to grid origin
-    x_grid = df_out[x_col] - min_x
-    y_grid = df_out[y_col] - min_y
-    z_grid = df_out[z_col] - min_z
-
-    # Compute indices (1-based for Fortran compatibility)
-    df_out['i'] = np.round(x_grid / dx).astype(int) + 1
-    df_out['j'] = np.round(y_grid / dy).astype(int) + 1
-    df_out['k'] = np.round(z_grid / dz).astype(int) + 1
-
-    logger.debug(f"Computed grid indices:")
-    logger.debug(f"  i range: [{df_out['i'].min()}, {df_out['i'].max()}]")
-    logger.debug(f"  j range: [{df_out['j'].min()}, {df_out['j'].max()}]")
-    logger.debug(f"  k range: [{df_out['k'].min()}, {df_out['k'].max()}]")
+    logger.debug(f"  x range: [{df_out['x'].min():.2f}, {df_out['x'].max():.2f}] km")
+    logger.debug(f"  y range: [{df_out['y'].min():.2f}, {df_out['y'].max():.2f}] km")
+    logger.debug(f"  z range: [{df_out['z'].min():.2f}, {df_out['z'].max():.2f}] km")
 
     return df_out
 
@@ -155,16 +109,12 @@ def compute_domain_bounds(events_df: pd.DataFrame, stations_df: pd.DataFrame,
     # Combine for bounds calculation
     combined = pd.concat([events_cart, stations_cart], ignore_index=True)
 
-    x_col = 'X_grid_km' if 'X_grid_km' in combined.columns else 'x'
-    y_col = 'Y_grid_km' if 'Y_grid_km' in combined.columns else 'y'
-    z_col = 'Z_grid_km' if 'Z_grid_km' in combined.columns else 'z'
-
-    min_x = combined[x_col].min()
-    max_x = combined[x_col].max()
-    min_y = combined[y_col].min()
-    max_y = combined[y_col].max()
-    min_z = combined[z_col].min()
-    max_z = combined[z_col].max()
+    min_x = combined['x'].min()
+    max_x = combined['x'].max()
+    min_y = combined['y'].min()
+    max_y = combined['y'].max()
+    min_z = combined['z'].min()
+    max_z = combined['z'].max()
 
     logger.info(f"Computed domain bounds (Cartesian):")
     logger.info(f"  x: [{min_x:.2f}, {max_x:.2f}] km")

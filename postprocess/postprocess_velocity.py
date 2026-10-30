@@ -9,12 +9,17 @@ from types import SimpleNamespace
 import numpy as np
 import pandas as pd
 from typing import Tuple, Optional, Dict
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
+from pathlib import Path
 from scipy.interpolate import RegularGridInterpolator
 from tqdm import tqdm
 
 from utils.io_utils import ensure_directory_exists
-from utils.velocity_io import read_velocity_file, write_velocity_file, subsample_to_coarse_grid
+from utils.velocity_io import (
+    read_velocity_file, write_velocity_file, subsample_to_coarse_grid,
+    resolve_grid_metadata, resolve_binary_grid, build_coarse_metadata,
+    normalize_metadata, GRID_KEYS, FINE_GRID_KEYS,
+)
 
 
 def make_grid(nx: int, ny: int, nz: int,
@@ -38,49 +43,36 @@ def format_grid(grid: SimpleNamespace) -> str:
             f"origin=({grid.origin_x:.3f}, {grid.origin_y:.3f}, {grid.origin_z:.3f}))")
 
 
-def detect_coarse_grid_from_csv(df: pd.DataFrame) -> Tuple[int, int, int]:
-    """Detect grid dimensions from CSV."""
-    nx = int(df['i'].max())
-    ny = int(df['j'].max())
-    nz = int(df['k'].max())
-    print(f"Detected coarse grid dimensions: {nx} x {ny} x {nz}")
-    return nx, ny, nz
+def grid_from_metadata(grid_meta: Dict) -> SimpleNamespace:
+    """Build grid parameters from grid metadata (nx..origin_z).
+
+    An axis with a single point has no spacing; it gets 0.0.
+
+    Raises:
+        ValueError: If the dimensions or origin are missing.
+    """
+    missing = [k for k in GRID_KEYS if k not in grid_meta and k not in ('dx', 'dy', 'dz')]
+    if missing:
+        raise ValueError(f"Grid metadata is incomplete, missing: {missing}")
+    return make_grid(
+        grid_meta['nx'], grid_meta['ny'], grid_meta['nz'],
+        grid_meta.get('dx', 0.0), grid_meta.get('dy', 0.0), grid_meta.get('dz', 0.0),
+        grid_meta['origin_x'], grid_meta['origin_y'], grid_meta['origin_z'],
+    )
 
 
-def infer_coarse_grid_parameters(df: pd.DataFrame, 
-                                  nx: Optional[int] = None,
-                                  ny: Optional[int] = None,
-                                  nz: Optional[int] = None) -> SimpleNamespace:
-    """
-    Infer coarse grid parameters from CSV data.
-    Uses provided dimensions if available, otherwise auto-detects.
-    """
-    # Get dimensions
-    if nx is None or ny is None or nz is None:
-        nx_detected, ny_detected, nz_detected = detect_coarse_grid_from_csv(df)
-        nx = nx if nx is not None else nx_detected
-        ny = ny if ny is not None else ny_detected
-        nz = nz if nz is not None else nz_detected
-    
-    # Get unique sorted coordinates
-    x_unique = np.sort(df['X_grid_km'].unique())
-    y_unique = np.sort(df['Y_grid_km'].unique())
-    z_unique = np.sort(df['Z_grid_km'].unique())
-    
-    # Compute spacing
-    dx = np.median(np.diff(x_unique)) if len(x_unique) > 1 else 0.0
-    dy = np.median(np.diff(y_unique)) if len(y_unique) > 1 else 0.0
-    dz = np.median(np.diff(z_unique)) if len(z_unique) > 1 else 0.0
-    
-    # Get origin
-    origin_x = x_unique[0]
-    origin_y = y_unique[0]
-    origin_z = z_unique[0]
-    
-    grid = make_grid(nx, ny, nz, dx, dy, dz, origin_x, origin_y, origin_z)
-    print(f"Coarse grid: {format_grid(grid)}")
-    
+def get_coarse_grid(df: pd.DataFrame, source: str) -> SimpleNamespace:
+    """Grid of the reference velocity model, from its metadata checked against its x/y/z columns."""
+    grid = grid_from_metadata(resolve_grid_metadata(df, source=source))
+    print(f"Reference grid: {format_grid(grid)}")
     return grid
+
+
+def coordinate_indices(values: np.ndarray, origin: float, spacing: float) -> np.ndarray:
+    """0-based grid indices of coordinates on a regular grid (all zero for a single-point axis)."""
+    if not spacing:
+        return np.zeros(len(values), dtype=int)
+    return np.round((values - origin) / spacing).astype(int)
 
 
 def load_binary_file(bin_file: str, nx: int, ny: int, nz: int, 
@@ -200,9 +192,9 @@ def sample_fine_grid_at_coarse_points(df_coarse: pd.DataFrame,
             df_output[f'srch_{param}'] = np.nan
     
     # Extract coarse coordinates
-    x_coarse = df_output['X_grid_km'].values
-    y_coarse = df_output['Y_grid_km'].values
-    z_coarse = df_output['Z_grid_km'].values
+    x_coarse = df_output['x'].values
+    y_coarse = df_output['y'].values
+    z_coarse = df_output['z'].values
     
     # Find grid indices for each dimension
     print("Finding grid point matches...")
@@ -381,48 +373,42 @@ def expand_to_fine_grid(df_coarse: pd.DataFrame,
     # Create meshgrid for fine grid
     X, Y, Z = np.meshgrid(fine_grid.x_coords, fine_grid.y_coords, fine_grid.z_coords, indexing='ij')
     
-    # Create base DataFrame
-    total_points = fine_grid.nx * fine_grid.ny * fine_grid.nz
-    
-    # Generate i, j, k indices (1-based)
-    i_indices = np.tile(np.arange(1, fine_grid.nx + 1), fine_grid.ny * fine_grid.nz)
-    j_indices = np.repeat(np.tile(np.arange(1, fine_grid.ny + 1), fine_grid.nz), fine_grid.nx)
-    k_indices = np.repeat(np.arange(1, fine_grid.nz + 1), fine_grid.nx * fine_grid.ny)
-    
+    # 0-based grid indices of each fine point, consistent with the x, y, z flattening order
+    i_fine, j_fine, k_fine = (
+        index.flatten(order='C') for index in
+        np.meshgrid(np.arange(fine_grid.nx), np.arange(fine_grid.ny), np.arange(fine_grid.nz), indexing='ij')
+    )
+
     df_fine = pd.DataFrame({
-        'i': i_indices,
-        'j': j_indices,
-        'k': k_indices,
-        'X_grid_km': X.flatten(order='C'),
-        'Y_grid_km': Y.flatten(order='C'),
-        'Z_grid_km': Z.flatten(order='C')
+        'x': X.flatten(order='C'),
+        'y': Y.flatten(order='C'),
+        'z': Z.flatten(order='C')
     })
-    
+
     # Interpolate other fields from coarse CSV
     print("Interpolating coarse CSV fields to fine grid...")
-    
+
     # Fields to interpolate
-    fields_to_interpolate = [col for col in df_coarse.columns 
-                            if col not in ['i', 'j', 'k', 'X_grid_km', 'Y_grid_km', 'Z_grid_km']]
-    
+    fields_to_interpolate = [col for col in df_coarse.columns if col not in ['x', 'y', 'z']]
+
+    # 0-based coarse grid indices from the coordinates
+    i_coarse = coordinate_indices(df_coarse['x'].values, coarse_grid.origin_x, coarse_grid.dx)
+    j_coarse = coordinate_indices(df_coarse['y'].values, coarse_grid.origin_y, coarse_grid.dy)
+    k_coarse = coordinate_indices(df_coarse['z'].values, coarse_grid.origin_z, coarse_grid.dz)
+
+    # Create mask for valid indices
+    valid_mask = (
+        (i_coarse >= 0) & (i_coarse < coarse_grid.nx) &
+        (j_coarse >= 0) & (j_coarse < coarse_grid.ny) &
+        (k_coarse >= 0) & (k_coarse < coarse_grid.nz)
+    )
+
     for field in fields_to_interpolate:
         print(f"  Interpolating {field}...")
 
         # Build 3D array from coarse data (VECTORIZED)
         field_3d = np.zeros((coarse_grid.nz, coarse_grid.ny, coarse_grid.nx))
-
-        # Extract indices and values as arrays
-        i_coarse = df_coarse['i'].values - 1
-        j_coarse = df_coarse['j'].values - 1
-        k_coarse = df_coarse['k'].values - 1
         field_vals = df_coarse[field].values
-
-        # Create mask for valid indices
-        valid_mask = (
-            (i_coarse >= 0) & (i_coarse < coarse_grid.nx) &
-            (j_coarse >= 0) & (j_coarse < coarse_grid.ny) &
-            (k_coarse >= 0) & (k_coarse < coarse_grid.nz)
-        )
 
         # Vectorized assignment
         field_3d[k_coarse[valid_mask], j_coarse[valid_mask], i_coarse[valid_mask]] = field_vals[valid_mask]
@@ -434,13 +420,13 @@ def expand_to_fine_grid(df_coarse: pd.DataFrame,
         )
 
         query_pts = np.column_stack([
-            df_fine['Z_grid_km'].values,
-            df_fine['Y_grid_km'].values,
-            df_fine['X_grid_km'].values
+            df_fine['z'].values,
+            df_fine['y'].values,
+            df_fine['x'].values
         ])
 
         df_fine[field] = interpolator(query_pts)
-    
+
     # Add columns for auxiliary fields
     for param in ['vp', 'vs']:
         if auxiliary_fields[param]['gradient'] is not None:
@@ -453,11 +439,6 @@ def expand_to_fine_grid(df_coarse: pd.DataFrame,
 
     vp_updated = 0
     vs_updated = 0
-
-    # Extract indices as arrays (convert to 0-based)
-    i_fine = df_fine['i'].values - 1
-    j_fine = df_fine['j'].values - 1
-    k_fine = df_fine['k'].values - 1
 
     # Get all velocity values at once (vectorized fancy indexing)
     vp_vals = vp_fine[k_fine, j_fine, i_fine]
@@ -546,28 +527,24 @@ def create_velocity_csv_from_binaries(config: DictConfig) -> None:
     print(f"  Loaded from: {input_path}")
     print(f"  Rows: {len(df_original):,}")
     
-    # Get coarse grid parameters
-    coarse_nx = config.get('coarse_grid', {}).get('nx', None) if hasattr(config, 'coarse_grid') else None
-    coarse_ny = config.get('coarse_grid', {}).get('ny', None) if hasattr(config, 'coarse_grid') else None
-    coarse_nz = config.get('coarse_grid', {}).get('nz', None) if hasattr(config, 'coarse_grid') else None
-    
-    coarse_grid = infer_coarse_grid_parameters(df_original, coarse_nx, coarse_ny, coarse_nz)
-    
-    # Get fine grid parameters from config
-    print(f"\nFine grid configuration:")
-    fine_grid = make_grid(
-        nx=config.fine_grid.nx,
-        ny=config.fine_grid.ny,
-        nz=config.fine_grid.nz,
-        dx=config.fine_grid.dx,
-        dy=config.fine_grid.dy,
-        dz=config.fine_grid.dz,
-        origin_x=config.fine_grid.origin_x,
-        origin_y=config.fine_grid.origin_y,
-        origin_z=config.fine_grid.origin_z
+    # Grid of the reference model: from its metadata, checked against its x/y/z columns
+    ref_metadata = normalize_metadata(df_original.attrs.get('metadata'))
+    ref_grid_meta = resolve_grid_metadata(df_original, ref_metadata, source=Path(input_path).name)
+    coarse_grid = grid_from_metadata(ref_grid_meta)
+    print(f"Reference grid: {format_grid(coarse_grid)}")
+
+    # Grid of the LATTE binaries (the fine model grid): from the metadata; the optional
+    # fine_grid configuration is only a last resort for reference files without metadata
+    config_fine_grid = config.get('fine_grid', None)
+    fine_grid_meta = resolve_binary_grid(
+        metadata=ref_metadata, df=df_original,
+        config_grid=OmegaConf.to_container(config_fine_grid) if config_fine_grid else None,
+        binary_files=[config.vp_binary, config.vs_binary],
+        source=Path(input_path).name
     )
+    fine_grid = grid_from_metadata(fine_grid_meta)
     print(f"Fine grid: {format_grid(fine_grid)}")
-    
+
     # Load binary files based on phase_type
     print(f"\nLoading binary files...")
     vp_fine = None
@@ -649,14 +626,20 @@ def create_velocity_csv_from_binaries(config: DictConfig) -> None:
     output_format = config.get('velocity_output_format', 'csv')
     print(f"\nWriting output in format: {output_format}")
 
-    # Prepare metadata for HDF5
-    metadata = {
-        'grid_dimensions': {'nx': fine_grid.nx, 'ny': fine_grid.ny, 'nz': fine_grid.nz},
-        'grid_spacing': {'dx': fine_grid.dx, 'dy': fine_grid.dy, 'dz': fine_grid.dz},
-        'grid_origin': {'x': fine_grid.origin_x, 'y': fine_grid.origin_y, 'z': fine_grid.origin_z},
+    # Metadata written to every output (HDF5 attributes / CSV header): geography and
+    # provenance carried over from the reference, plus the grid of the output
+    metadata = {k: v for k, v in ref_metadata.items()
+                if k not in GRID_KEYS and k not in FINE_GRID_KEYS and not k.startswith('stride_')}
+    if mode == 'expand_to_fine':
+        metadata.update(fine_grid_meta)
+    else:
+        metadata.update(ref_grid_meta)
+        metadata.update({f'fine_{k}': v for k, v in fine_grid_meta.items()})
+    metadata.update({
+        'data_type': 'velocity',
         'interpolation_mode': mode,
         'phase_type': phase_type,
-    }
+    })
 
     # Prepare coarse grid config if enabled
     coarse_config = None
@@ -676,7 +659,7 @@ def create_velocity_csv_from_binaries(config: DictConfig) -> None:
     if output_format in ['csv', 'both']:
         ensure_directory_exists(os.path.dirname(config.velocity_output_csv))
         write_velocity_file(df_output, config.velocity_output_csv, format='csv',
-                           show_progress=show_progress)
+                           metadata=metadata, show_progress=show_progress)
         print(f"CSV written: {config.velocity_output_csv}")
 
     # Write HDF5 if requested
@@ -718,6 +701,7 @@ def create_velocity_csv_from_binaries(config: DictConfig) -> None:
                 ensure_directory_exists(os.path.dirname(output_coarse_csv))
                 write_velocity_file(
                     df_output_coarse, output_coarse_csv, format='csv',
+                    metadata=build_coarse_metadata(df_output_coarse, metadata, coarse_config),
                     show_progress=show_progress
                 )
                 print(f"Coarse CSV written: {output_coarse_csv}")

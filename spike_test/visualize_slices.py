@@ -188,9 +188,9 @@ def visualize_spike_test(
                     vpvs = df_spike["vp"].values / df_spike["vs"].values
                     vpvs = np.where(np.isfinite(vpvs), vpvs, np.nan)
                 df_pattern = pd.DataFrame({
-                    'X_grid_km': df_spike['X_grid_km'].values,
-                    'Y_grid_km': df_spike['Y_grid_km'].values,
-                    'Z_grid_km': df_spike['Z_grid_km'].values,
+                    'x': df_spike['x'].values,
+                    'y': df_spike['y'].values,
+                    'z': df_spike['z'].values,
                     'vpvs_ratio': vpvs,
                 })
             else:
@@ -200,9 +200,9 @@ def visualize_spike_test(
                                        / df_input[vel_field].values) * 100.0
                     perturbation_pct = np.where(np.isfinite(perturbation_pct), perturbation_pct, 0.0)
                 df_pattern = pd.DataFrame({
-                    'X_grid_km': df_spike['X_grid_km'].values,
-                    'Y_grid_km': df_spike['Y_grid_km'].values,
-                    'Z_grid_km': df_spike['Z_grid_km'].values,
+                    'x': df_spike['x'].values,
+                    'y': df_spike['y'].values,
+                    'z': df_spike['z'].values,
                     vel_field: perturbation_pct,
                 })
 
@@ -249,9 +249,9 @@ def visualize_spike_test(
                     vpvs = df_inverted["vp"].values / df_inverted["vs"].values
                     vpvs = np.where(np.isfinite(vpvs), vpvs, np.nan)
                 df_pattern = pd.DataFrame({
-                    'X_grid_km': df_inverted['X_grid_km'].values,
-                    'Y_grid_km': df_inverted['Y_grid_km'].values,
-                    'Z_grid_km': df_inverted['Z_grid_km'].values,
+                    'x': df_inverted['x'].values,
+                    'y': df_inverted['y'].values,
+                    'z': df_inverted['z'].values,
                     'vpvs_ratio': vpvs,
                 })
                 # No recovery analysis for vpvs_ratio
@@ -269,9 +269,9 @@ def visualize_spike_test(
                     perturbation_pct = np.where(np.isfinite(perturbation_pct), perturbation_pct, 0.0)
 
                 df_pattern = pd.DataFrame({
-                    'X_grid_km': df_inverted['X_grid_km'].values,
-                    'Y_grid_km': df_inverted['Y_grid_km'].values,
-                    'Z_grid_km': df_inverted['Z_grid_km'].values,
+                    'x': df_inverted['x'].values,
+                    'y': df_inverted['y'].values,
+                    'z': df_inverted['z'].values,
                     vel_field: perturbation_pct,
                 })
 
@@ -287,9 +287,9 @@ def visualize_spike_test(
                     x_coords, y_coords, z_coords, _ = prepare_3d_grid(df_pattern, vel_field)
                     spike_pattern_3d = np.full((len(z_coords), len(y_coords), len(x_coords)), np.nan)
 
-                    x_indices = np.searchsorted(x_coords, df_spike["X_grid_km"].values)
-                    y_indices = np.searchsorted(y_coords, df_spike["Y_grid_km"].values)
-                    z_indices = np.searchsorted(z_coords, df_spike["Z_grid_km"].values)
+                    x_indices = np.searchsorted(x_coords, df_spike["x"].values)
+                    y_indices = np.searchsorted(y_coords, df_spike["y"].values)
+                    z_indices = np.searchsorted(z_coords, df_spike["z"].values)
                     spike_pattern_3d[z_indices, y_indices, x_indices] = spike_perturbation_pct
 
                 visualize_pattern(

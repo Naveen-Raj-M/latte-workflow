@@ -491,9 +491,9 @@ def parse_picks_with_cartesian(events_df: pd.DataFrame,
     event_lookup = {}
     for _, row in events_df.iterrows():
         event_lookup[row['event_id']] = {
-            'x': row['X_grid_km'] * 1000,  # Convert to meters
-            'y': row['Y_grid_km'] * 1000,
-            'z': row['Z_grid_km'] * 1000,
+            'x': row['x'] * 1000,  # Convert to meters
+            'y': row['y'] * 1000,
+            'z': row['z'] * 1000,
             'origin_time': row['origin_time'],
             'lon': row.get('longitude', row.get('lon', 0.0)),
             'lat': row.get('latitude', row.get('lat', 0.0)),
@@ -505,9 +505,9 @@ def parse_picks_with_cartesian(events_df: pd.DataFrame,
     station_lookup = {}
     for _, row in stations_df.iterrows():
         station_lookup[row['station_id']] = {
-            'x': row['X_grid_km'] * 1000,  # Convert to meters
-            'y': row['Y_grid_km'] * 1000,
-            'z': row['Z_grid_km'] * 1000,
+            'x': row['x'] * 1000,  # Convert to meters
+            'y': row['y'] * 1000,
+            'z': row['z'] * 1000,
             'lon': row.get('longitude', row.get('lon', 0.0)),
             'lat': row.get('latitude', row.get('lat', 0.0)),
             'depth': row.get('depth', 0.0)

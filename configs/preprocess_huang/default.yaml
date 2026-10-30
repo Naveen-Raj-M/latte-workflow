@@ -29,7 +29,6 @@ coordinate_transform:
   final_velocity_file: "${data.base_dir}/vmodel-PB3D.txt"
   output_dir: "/path/to/output"
   transformation_method: "flattening"  # Options: exact, flattening
-  use_chapman_flattening: false
   use_corrected_phase_pickings: false
   origin_lon: -108.0
   origin_lat: 34.5
@@ -98,7 +97,6 @@ velocity_binary:
   final_input_csv: "${coordinate_transform.output_dir}/velocity_final_cartesian.csv"
   vp_final_output: "${data.output_base_dir}/model/vp_final.bin"
   vs_final_output: "${data.output_base_dir}/model/vs_final.bin"
-  use_chapman_velocities: false
   interpolate: true
   neighbor_threshold: 5
   phase_type: "both"  # Options: both, p, s

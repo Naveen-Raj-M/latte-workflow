@@ -27,7 +27,6 @@ Converts geographic (lon/lat/depth) to local Cartesian coordinates.
 - **transformation_method**: `exact | flattening`
   - `exact`: Geodetic transformation via pyproj
   - `flattening`: Earth-flattening approximation
-- **use_chapman_flattening**: Enable Chapman (1973) flattening
 - **max_depth_km**: Depth filtering threshold (null to disable)
 - **exact_transform.rotate_to_enu**: Rotate to East-North-Up frame
 - **exact_transform.align_to_geocentric_normal**: Geocentric alignment
@@ -64,7 +63,6 @@ Generates LATTE input files for geometry and observed travel times.
 Creates binary velocity files for LATTE input.
 
 - **phase_type**: `both | p | s`
-- **use_chapman_velocities**: Apply Chapman transformation
 - **interpolate**: Fill internal grid gaps
 - **create_final_binaries**: Generate binaries from inverted model
 

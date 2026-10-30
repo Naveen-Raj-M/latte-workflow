@@ -23,7 +23,7 @@ from joblib import Parallel, delayed
 import warnings
 
 from utils.io_utils import ensure_directory_exists, resolve_csv_path
-from utils.velocity_io import write_velocity_file, VELOCITY_COLUMNS
+from utils.velocity_io import write_velocity_file
 from .postprocess_raypath import (
     read_gradient_metadata,
     read_gradient_binaries,
@@ -394,47 +394,20 @@ def save_dws_to_hdf5(
     z_flat = Z.ravel()
     dws_flat = dws_grid.transpose(2, 1, 0).ravel()  # Transpose to (nx, ny, nz) then flatten
 
-    # Create indices
-    i_vals = np.arange(nx).reshape(-1, 1, 1) * np.ones((nx, ny, nz), dtype=int)
-    j_vals = np.arange(ny).reshape(1, -1, 1) * np.ones((nx, ny, nz), dtype=int)
-    k_vals = np.arange(nz).reshape(1, 1, -1) * np.ones((nx, ny, nz), dtype=int)
-
-    i_flat = i_vals.ravel()
-    j_flat = j_vals.ravel()
-    k_flat = k_vals.ravel()
-
-    # Create DataFrame in velocity format
-    # We'll set vp and vs to NaN since this is a DWS file, not velocity
-    # Store DWS value in a custom column
-    data = {
-        'X_grid_km': x_flat,
-        'Y_grid_km': y_flat,
-        'Z_grid_km': z_flat,
+    # Create DataFrame in the standard velocity-file layout; lat/lon/depth are not available
+    # here and are written as NaN
+    df = pd.DataFrame({
         'x': x_flat,
         'y': y_flat,
         'z': z_flat,
-        'i_raw': i_flat.astype(float),
-        'j_raw': j_flat.astype(float),
-        'k_raw': k_flat.astype(float),
-        'i': i_flat,
-        'j': j_flat,
-        'k': k_flat,
-        'vp': dws_flat,  # Store DWS in vp column
-        'vs': np.zeros_like(dws_flat),  # Placeholder
-        'lon': np.zeros_like(dws_flat),  # Placeholder
-        'lat': np.zeros_like(dws_flat),  # Placeholder
-        'depth': z_flat
-    }
+        'dws': dws_flat,
+    })
 
-    df = pd.DataFrame(data)
-
-    # Metadata
+    # Metadata (same schema as every other velocity-format file)
     metadata = {
-        'nx': nx,
-        'ny': ny,
-        'nz': nz,
-        'grid_spacing': {'dx': dx, 'dy': dy, 'dz': dz},
-        'grid_origin': {'x': ox, 'y': oy, 'z': oz},
+        'nx': nx, 'ny': ny, 'nz': nz,
+        'dx': dx, 'dy': dy, 'dz': dz,
+        'origin_x': ox, 'origin_y': oy, 'origin_z': oz,
         'data_type': 'dws',
         'description': 'Derivative Weight Sum computed from ray paths',
         'units': 'km^2 (weighted squared path length)'

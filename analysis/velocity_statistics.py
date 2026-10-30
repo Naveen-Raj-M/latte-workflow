@@ -244,16 +244,16 @@ def compute_depth_statistics(df: pd.DataFrame, differences: Dict[str, np.ndarray
     df_temp['vs_diff'] = differences['vs_diff']
     df_temp['total_diff'] = differences['total_diff']
     
-    depth_stats = df_temp.groupby('Z_grid_km').agg({
+    depth_stats = df_temp.groupby('z').agg({
         'vp_diff': ['mean', 'std', 'min', 'max', lambda x: np.sqrt(np.mean(x**2))],
         'vs_diff': ['mean', 'std', 'min', 'max', lambda x: np.sqrt(np.mean(x**2))],
         'total_diff': ['mean', 'max', 'std'],
-        'X_grid_km': 'count'
+        'x': 'count'
     }).round(4)
     
     # Flatten column names
     depth_stats.columns = ['_'.join(col).strip() for col in depth_stats.columns]
-    depth_stats = depth_stats.rename(columns={'X_grid_km_count': 'point_count'})
+    depth_stats = depth_stats.rename(columns={'x_count': 'point_count'})
     
     return depth_stats
 

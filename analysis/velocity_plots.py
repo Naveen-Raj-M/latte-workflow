@@ -170,9 +170,9 @@ def create_spatial_projection_plots(df: pd.DataFrame, differences: Dict[str, np.
     grid_resolution = config['velocity_analysis'].get('grid_resolution', 100)
     interpolation_method = config['velocity_analysis'].get('interpolation_method', 'cubic')
     
-    x_coords = df['X_grid_km'].values
-    y_coords = df['Y_grid_km'].values
-    z_coords = df['Z_grid_km'].values
+    x_coords = df['x'].values
+    y_coords = df['y'].values
+    z_coords = df['z'].values
     
     # Create RMS spatial projections
     df_temp = df.copy()
@@ -219,24 +219,24 @@ def _create_velocity_spatial_projection(df_temp: pd.DataFrame, diff_col: str,
         difference_label: Label for difference
     """
     # XY plane: RMS along Z (depth)
-    xy_rms = df_temp.groupby(['X_grid_km', 'Y_grid_km']).agg({
+    xy_rms = df_temp.groupby(['x', 'y']).agg({
         diff_col: lambda x: np.sqrt(np.mean(x**2))
     }).reset_index()
     
     # XZ plane: RMS along Y  
-    xz_rms = df_temp.groupby(['X_grid_km', 'Z_grid_km']).agg({
+    xz_rms = df_temp.groupby(['x', 'z']).agg({
         diff_col: lambda x: np.sqrt(np.mean(x**2))
     }).reset_index()
     
     # YZ plane: RMS along X
-    yz_rms = df_temp.groupby(['Y_grid_km', 'Z_grid_km']).agg({
+    yz_rms = df_temp.groupby(['y', 'z']).agg({
         diff_col: lambda x: np.sqrt(np.mean(x**2))
     }).reset_index()
     
     # Create grids and interpolate
-    x_coords = df_temp['X_grid_km'].values
-    y_coords = df_temp['Y_grid_km'].values
-    z_coords = df_temp['Z_grid_km'].values
+    x_coords = df_temp['x'].values
+    y_coords = df_temp['y'].values
+    z_coords = df_temp['z'].values
     
     xi = np.linspace(x_coords.min(), x_coords.max(), grid_resolution)
     yi = np.linspace(y_coords.min(), y_coords.max(), grid_resolution)
@@ -244,7 +244,7 @@ def _create_velocity_spatial_projection(df_temp: pd.DataFrame, diff_col: str,
     
     # XY projection
     Xi, Yi = np.meshgrid(xi, yi)
-    xy_interp = griddata((xy_rms['X_grid_km'], xy_rms['Y_grid_km']), 
+    xy_interp = griddata((xy_rms['x'], xy_rms['y']), 
                         xy_rms[diff_col], (Xi, Yi), method=interpolation_method)
     
     vmax = max(xy_rms[diff_col].max(), xz_rms[diff_col].max(), yz_rms[diff_col].max())
@@ -260,7 +260,7 @@ def _create_velocity_spatial_projection(df_temp: pd.DataFrame, diff_col: str,
     
     # XZ projection
     Xi_xz, Zi = np.meshgrid(xi, zi)
-    xz_interp = griddata((xz_rms['X_grid_km'], xz_rms['Z_grid_km']), 
+    xz_interp = griddata((xz_rms['x'], xz_rms['z']), 
                         xz_rms[diff_col], (Xi_xz, Zi), method=interpolation_method)
     
     im2 = axes[1].imshow(xz_interp, extent=[xi.min(), xi.max(), zi.max(), zi.min()], 
@@ -272,7 +272,7 @@ def _create_velocity_spatial_projection(df_temp: pd.DataFrame, diff_col: str,
     
     # YZ projection
     Yi_yz, Zi_yz = np.meshgrid(yi, zi)
-    yz_interp = griddata((yz_rms['Y_grid_km'], yz_rms['Z_grid_km']), 
+    yz_interp = griddata((yz_rms['y'], yz_rms['z']), 
                         yz_rms[diff_col], (Yi_yz, Zi_yz), method=interpolation_method)
     
     im3 = axes[2].imshow(yz_interp, extent=[yi.min(), yi.max(), zi.max(), zi.min()], 
@@ -338,26 +338,26 @@ def create_profile_comparison_plots(df1: pd.DataFrame, df2: pd.DataFrame,
     axes = axes.flatten()
 
     # Get profile data for max ratio change location
-    max_profile_data1 = df1[extremes['max_positive_mask']].sort_values('Z_grid_km')
-    max_profile_data2 = df2[extremes['max_positive_mask']].sort_values('Z_grid_km')
+    max_profile_data1 = df1[extremes['max_positive_mask']].sort_values('z')
+    max_profile_data2 = df2[extremes['max_positive_mask']].sort_values('z')
 
     # Get profile data for min ratio change location
-    min_profile_data1 = df1[extremes['min_ratio_mask']].sort_values('Z_grid_km')
-    min_profile_data2 = df2[extremes['min_ratio_mask']].sort_values('Z_grid_km')
+    min_profile_data1 = df1[extremes['min_ratio_mask']].sort_values('z')
+    min_profile_data2 = df2[extremes['min_ratio_mask']].sort_values('z')
 
     # max ratio change location - Vp profile
-    axes[0].plot(max_profile_data1['vp'], max_profile_data1['Z_grid_km'], 'b-',
+    axes[0].plot(max_profile_data1['vp'], max_profile_data1['z'], 'b-',
                 label=model1_name, linewidth=3, alpha=0.7)
-    axes[0].plot(max_profile_data2['vp'], max_profile_data2['Z_grid_km'], 'r-',
+    axes[0].plot(max_profile_data2['vp'], max_profile_data2['z'], 'r-',
                 label=model2_name, linewidth=3, alpha=0.7)
 
     # Add initial model if available
     if df_initial is not None:
-        max_initial_mask = ((df_initial['X_grid_km'] == extremes['max_positive_coords'][0]) &
-                           (df_initial['Y_grid_km'] == extremes['max_positive_coords'][1]))
-        max_initial_data = df_initial[max_initial_mask].sort_values('Z_grid_km')
+        max_initial_mask = ((df_initial['x'] == extremes['max_positive_coords'][0]) &
+                           (df_initial['y'] == extremes['max_positive_coords'][1]))
+        max_initial_data = df_initial[max_initial_mask].sort_values('z')
         if len(max_initial_data) > 0:
-            axes[0].plot(max_initial_data['vp'], max_initial_data['Z_grid_km'], 'gray',
+            axes[0].plot(max_initial_data['vp'], max_initial_data['z'], 'gray',
                         label='Initial Model', linewidth=2, alpha=1, linestyle='--')
 
     axes[0].set_xlabel('Vp (km/s)')
@@ -368,15 +368,15 @@ def create_profile_comparison_plots(df1: pd.DataFrame, df2: pd.DataFrame,
     axes[0].invert_yaxis()
 
     # max ratio change location - Vs profile
-    axes[1].plot(max_profile_data1['vs'], max_profile_data1['Z_grid_km'], 'b-',
+    axes[1].plot(max_profile_data1['vs'], max_profile_data1['z'], 'b-',
                 label=model1_name, linewidth=3, alpha=0.7)
-    axes[1].plot(max_profile_data2['vs'], max_profile_data2['Z_grid_km'], 'r-',
+    axes[1].plot(max_profile_data2['vs'], max_profile_data2['z'], 'r-',
                 label=model2_name, linewidth=3, alpha=0.7)
 
     # Add initial model if available
     if df_initial is not None:
         if len(max_initial_data) > 0:
-            axes[1].plot(max_initial_data['vs'], max_initial_data['Z_grid_km'], 'gray',
+            axes[1].plot(max_initial_data['vs'], max_initial_data['z'], 'gray',
                         label='Initial Model', linewidth=2, alpha=1, linestyle='--')
 
     axes[1].set_xlabel('Vs (km/s)')
@@ -387,18 +387,18 @@ def create_profile_comparison_plots(df1: pd.DataFrame, df2: pd.DataFrame,
     axes[1].invert_yaxis()
 
     # Min ratio change location - Vp profile
-    axes[2].plot(min_profile_data1['vp'], min_profile_data1['Z_grid_km'], 'b-',
+    axes[2].plot(min_profile_data1['vp'], min_profile_data1['z'], 'b-',
                 label=model1_name, linewidth=3, alpha=0.7)
-    axes[2].plot(min_profile_data2['vp'], min_profile_data2['Z_grid_km'], 'r-',
+    axes[2].plot(min_profile_data2['vp'], min_profile_data2['z'], 'r-',
                 label=model2_name, linewidth=3, alpha=0.7)
 
     # Add initial model if available
     if df_initial is not None:
-        min_initial_mask = ((df_initial['X_grid_km'] == extremes['min_ratio_coords'][0]) &
-                           (df_initial['Y_grid_km'] == extremes['min_ratio_coords'][1]))
-        min_initial_data = df_initial[min_initial_mask].sort_values('Z_grid_km')
+        min_initial_mask = ((df_initial['x'] == extremes['min_ratio_coords'][0]) &
+                           (df_initial['y'] == extremes['min_ratio_coords'][1]))
+        min_initial_data = df_initial[min_initial_mask].sort_values('z')
         if len(min_initial_data) > 0:
-            axes[2].plot(min_initial_data['vp'], min_initial_data['Z_grid_km'], 'gray',
+            axes[2].plot(min_initial_data['vp'], min_initial_data['z'], 'gray',
                         label='Initial Model', linewidth=2, alpha=1, linestyle='--')
 
     axes[2].set_xlabel('Vp (km/s)')
@@ -409,15 +409,15 @@ def create_profile_comparison_plots(df1: pd.DataFrame, df2: pd.DataFrame,
     axes[2].invert_yaxis()
 
     # Min ratio change location - Vs profile
-    axes[3].plot(min_profile_data1['vs'], min_profile_data1['Z_grid_km'], 'b-',
+    axes[3].plot(min_profile_data1['vs'], min_profile_data1['z'], 'b-',
                 label=model1_name, linewidth=3, alpha=0.7)
-    axes[3].plot(min_profile_data2['vs'], min_profile_data2['Z_grid_km'], 'r-',
+    axes[3].plot(min_profile_data2['vs'], min_profile_data2['z'], 'r-',
                 label=model2_name, linewidth=3, alpha=0.7)
 
     # Add initial model if available
     if df_initial is not None:
         if len(min_initial_data) > 0:
-            axes[3].plot(min_initial_data['vs'], min_initial_data['Z_grid_km'], 'gray',
+            axes[3].plot(min_initial_data['vs'], min_initial_data['z'], 'gray',
                         label='Initial Model', linewidth=2, alpha=1, linestyle='--')
 
     axes[3].set_xlabel('Vs (km/s)')
@@ -453,14 +453,14 @@ def create_slice_heatmap_plots(df1: pd.DataFrame, df2: pd.DataFrame,
     model1_name, model2_name, difference_label = get_model_names(config)
     
     # Get data for max and min difference depth slices
-    max_depth_data1 = df1[df1['Z_grid_km'] == extremes['max_diff_depth']]
-    max_depth_data2 = df2[df2['Z_grid_km'] == extremes['max_diff_depth']]
-    min_depth_data1 = df1[df1['Z_grid_km'] == extremes['min_diff_depth']]
-    min_depth_data2 = df2[df2['Z_grid_km'] == extremes['min_diff_depth']]
+    max_depth_data1 = df1[df1['z'] == extremes['max_diff_depth']]
+    max_depth_data2 = df2[df2['z'] == extremes['max_diff_depth']]
+    min_depth_data1 = df1[df1['z'] == extremes['min_diff_depth']]
+    min_depth_data2 = df2[df2['z'] == extremes['min_diff_depth']]
     
     # Create grids for interpolation
-    x_unique = np.sort(df1['X_grid_km'].unique())
-    y_unique = np.sort(df1['Y_grid_km'].unique())
+    x_unique = np.sort(df1['x'].unique())
+    y_unique = np.sort(df1['y'].unique())
     X, Y = np.meshgrid(x_unique, y_unique)
     
     basin_data = config.get('_basin_data_cache', {})
@@ -508,15 +508,15 @@ def _plot_depth_slice_row(axes: np.ndarray, depth_data1: pd.DataFrame,
         return
     
     # Interpolate Vp
-    Z1_vp = griddata((depth_data1['X_grid_km'], depth_data1['Y_grid_km']), 
+    Z1_vp = griddata((depth_data1['x'], depth_data1['y']), 
                     depth_data1['vp'], (X, Y), method='linear')
-    Z2_vp = griddata((depth_data2['X_grid_km'], depth_data2['Y_grid_km']), 
+    Z2_vp = griddata((depth_data2['x'], depth_data2['y']), 
                     depth_data2['vp'], (X, Y), method='linear')
     
     # Interpolate Vs
-    Z1_vs = griddata((depth_data1['X_grid_km'], depth_data1['Y_grid_km']), 
+    Z1_vs = griddata((depth_data1['x'], depth_data1['y']), 
                     depth_data1['vs'], (X, Y), method='linear')
-    Z2_vs = griddata((depth_data2['X_grid_km'], depth_data2['Y_grid_km']), 
+    Z2_vs = griddata((depth_data2['x'], depth_data2['y']), 
                     depth_data2['vs'], (X, Y), method='linear')
     
     # Find common velocity ranges
@@ -582,9 +582,9 @@ def create_domain_overview_plot(df: pd.DataFrame, extremes: Dict[str, Any],
     """
     fig, axes = plt.subplots(1, 2, figsize=(16, 7))
     
-    x_coords = df['X_grid_km'].values
-    y_coords = df['Y_grid_km'].values
-    z_coords = df['Z_grid_km'].values
+    x_coords = df['x'].values
+    y_coords = df['y'].values
+    z_coords = df['z'].values
     
     # Map view
     axes[0].scatter(x_coords, y_coords, c='lightgray', s=2, alpha=0.5, label='All points')
@@ -613,10 +613,10 @@ def create_domain_overview_plot(df: pd.DataFrame, extremes: Dict[str, Any],
     max_profile_data = extremes['max_profile_data']
     min_profile_data = extremes['min_profile_data']
     
-    axes[1].scatter(max_profile_data['X_grid_km'], max_profile_data['Z_grid_km'],
+    axes[1].scatter(max_profile_data['x'], max_profile_data['z'],
                    c='red', s=30, marker='|', 
                    label=f'Max diff profile ({extremes["max_profile_coords"][0]:.1f}, {extremes["max_profile_coords"][1]:.1f})')
-    axes[1].scatter(min_profile_data['X_grid_km'], min_profile_data['Z_grid_km'],
+    axes[1].scatter(min_profile_data['x'], min_profile_data['z'],
                    c='blue', s=30, marker='|', 
                    label=f'Min diff profile ({extremes["min_profile_coords"][0]:.1f}, {extremes["min_profile_coords"][1]:.1f})')
     
@@ -689,9 +689,9 @@ def _create_geometric_ratio_projections(df1: pd.DataFrame, df2: pd.DataFrame,
     grid_resolution = config['velocity_analysis'].get('grid_resolution', 100)
     interpolation_method = config['velocity_analysis'].get('interpolation_method', 'cubic')
     
-    x_coords = df1['X_grid_km'].values
-    y_coords = df1['Y_grid_km'].values
-    z_coords = df1['Z_grid_km'].values
+    x_coords = df1['x'].values
+    y_coords = df1['y'].values
+    z_coords = df1['z'].values
     
     # Calculate ratios
     vp_ratios = df2['vp'].values / df1['vp'].values
@@ -742,17 +742,17 @@ def _create_ratio_spatial_projection(df_temp: pd.DataFrame, ratio_col: str,
         interpolation_method: Interpolation method
     """
     # XY plane: Geometric mean along Z (depth)
-    xy_geomean = df_temp.groupby(['X_grid_km', 'Y_grid_km']).agg({
+    xy_geomean = df_temp.groupby(['x', 'y']).agg({
         ratio_col: lambda x: np.exp(np.mean(np.log(x)))
     }).reset_index()
     
     # XZ plane: Geometric mean along Y
-    xz_geomean = df_temp.groupby(['X_grid_km', 'Z_grid_km']).agg({
+    xz_geomean = df_temp.groupby(['x', 'z']).agg({
         ratio_col: lambda x: np.exp(np.mean(np.log(x)))
     }).reset_index()
     
     # YZ plane: Geometric mean along X
-    yz_geomean = df_temp.groupby(['Y_grid_km', 'Z_grid_km']).agg({
+    yz_geomean = df_temp.groupby(['y', 'z']).agg({
         ratio_col: lambda x: np.exp(np.mean(np.log(x)))
     }).reset_index()
     
@@ -771,7 +771,7 @@ def _create_ratio_spatial_projection(df_temp: pd.DataFrame, ratio_col: str,
     
     # XY projection
     Xi, Yi = np.meshgrid(xi, yi)
-    geomean_xy_interp = griddata((xy_geomean['X_grid_km'], xy_geomean['Y_grid_km']), 
+    geomean_xy_interp = griddata((xy_geomean['x'], xy_geomean['y']), 
                                  xy_geomean[ratio_col], (Xi, Yi), method=interpolation_method)
     
     im1 = axes[0].imshow(geomean_xy_interp, extent=[xi.min(), xi.max(), yi.min(), yi.max()],
@@ -786,7 +786,7 @@ def _create_ratio_spatial_projection(df_temp: pd.DataFrame, ratio_col: str,
     
     # XZ projection
     Xi_xz, Zi = np.meshgrid(xi, zi)
-    geomean_xz_interp = griddata((xz_geomean['X_grid_km'], xz_geomean['Z_grid_km']), 
+    geomean_xz_interp = griddata((xz_geomean['x'], xz_geomean['z']), 
                                  xz_geomean[ratio_col], (Xi_xz, Zi), method=interpolation_method)
     
     im2 = axes[1].imshow(geomean_xz_interp, extent=[xi.min(), xi.max(), zi.max(), zi.min()], 
@@ -799,7 +799,7 @@ def _create_ratio_spatial_projection(df_temp: pd.DataFrame, ratio_col: str,
     
     # YZ projection
     Yi_yz, Zi_yz = np.meshgrid(yi, zi)
-    geomean_yz_interp = griddata((yz_geomean['Y_grid_km'], yz_geomean['Z_grid_km']), 
+    geomean_yz_interp = griddata((yz_geomean['y'], yz_geomean['z']), 
                                  yz_geomean[ratio_col], (Yi_yz, Zi_yz), method=interpolation_method)
     
     im3 = axes[2].imshow(geomean_yz_interp, extent=[yi.min(), yi.max(), zi.max(), zi.min()], 
@@ -842,14 +842,14 @@ def _create_ratio_heatmaps(df1: pd.DataFrame, df2: pd.DataFrame,
     ratio_info = find_max_min_ratio_change_depths(df1, df2)
     
     # Get data for maximum and minimum average ratio change depths
-    max_ratio_depth_data1 = df1[df1['Z_grid_km'] == ratio_info['max_change_depth']]
-    max_ratio_depth_data2 = df2[df2['Z_grid_km'] == ratio_info['max_change_depth']]
-    min_ratio_depth_data1 = df1[df1['Z_grid_km'] == ratio_info['min_change_depth']]
-    min_ratio_depth_data2 = df2[df2['Z_grid_km'] == ratio_info['min_change_depth']]
+    max_ratio_depth_data1 = df1[df1['z'] == ratio_info['max_change_depth']]
+    max_ratio_depth_data2 = df2[df2['z'] == ratio_info['max_change_depth']]
+    min_ratio_depth_data1 = df1[df1['z'] == ratio_info['min_change_depth']]
+    min_ratio_depth_data2 = df2[df2['z'] == ratio_info['min_change_depth']]
     
     # Create grids
-    x_unique = np.sort(df1['X_grid_km'].unique())
-    y_unique = np.sort(df1['Y_grid_km'].unique())
+    x_unique = np.sort(df1['x'].unique())
+    y_unique = np.sort(df1['y'].unique())
     X, Y = np.meshgrid(x_unique, y_unique)
     
     # Create Vp ratio analysis figure
@@ -939,9 +939,9 @@ def _plot_ratio_row(axes: np.ndarray, depth_data1: pd.DataFrame, depth_data2: pd
         return
 
     # Interpolate velocities
-    Z1 = griddata((depth_data1['X_grid_km'], depth_data1['Y_grid_km']),
+    Z1 = griddata((depth_data1['x'], depth_data1['y']),
                  depth_data1[vel_col], (X, Y), method='linear')
-    Z2 = griddata((depth_data2['X_grid_km'], depth_data2['Y_grid_km']),
+    Z2 = griddata((depth_data2['x'], depth_data2['y']),
                  depth_data2[vel_col], (X, Y), method='linear')
 
     # Find common velocity ranges
@@ -1021,9 +1021,9 @@ def create_plane_specific_ratio_plots(df1: pd.DataFrame, df2: pd.DataFrame,
     basin_config = config.get('_basin_config_cache', config.get('basin_boundaries', {}))
 
     # Get unique coordinates for validation
-    x_unique = np.sort(df1['X_grid_km'].unique())
-    y_unique = np.sort(df1['Y_grid_km'].unique())
-    z_unique = np.sort(df1['Z_grid_km'].unique())
+    x_unique = np.sort(df1['x'].unique())
+    y_unique = np.sort(df1['y'].unique())
+    z_unique = np.sort(df1['z'].unique())
 
     for plane_spec in planes:
         plane_type = plane_spec.get('plane_type')
@@ -1081,16 +1081,16 @@ def _create_xy_plane_ratio_plot(df1: pd.DataFrame, df2: pd.DataFrame,
         logger.warning(f"Requested Z={z_coord} km, using nearest available Z={nearest_z} km")
 
     # Get data at this depth
-    data1 = df1[df1['Z_grid_km'] == nearest_z]
-    data2 = df2[df2['Z_grid_km'] == nearest_z]
+    data1 = df1[df1['z'] == nearest_z]
+    data2 = df2[df2['z'] == nearest_z]
 
     if len(data1) == 0 or len(data2) == 0:
         logger.warning(f"No data found at Z={nearest_z} km")
         return
 
     # Create meshgrid
-    x_unique = np.sort(data1['X_grid_km'].unique())
-    y_unique = np.sort(data1['Y_grid_km'].unique())
+    x_unique = np.sort(data1['x'].unique())
+    y_unique = np.sort(data1['y'].unique())
     X, Y = np.meshgrid(x_unique, y_unique)
 
     # Create 2x4 figure
@@ -1127,16 +1127,16 @@ def _create_xz_plane_ratio_plot(df1: pd.DataFrame, df2: pd.DataFrame,
         logger.warning(f"Requested Y={y_coord} km, using nearest available Y={nearest_y} km")
 
     # Get data at this Y
-    data1 = df1[df1['Y_grid_km'] == nearest_y]
-    data2 = df2[df2['Y_grid_km'] == nearest_y]
+    data1 = df1[df1['y'] == nearest_y]
+    data2 = df2[df2['y'] == nearest_y]
 
     if len(data1) == 0 or len(data2) == 0:
         logger.warning(f"No data found at Y={nearest_y} km")
         return
 
     # Create meshgrid
-    x_unique = np.sort(data1['X_grid_km'].unique())
-    z_unique = np.sort(data1['Z_grid_km'].unique())
+    x_unique = np.sort(data1['x'].unique())
+    z_unique = np.sort(data1['z'].unique())
     X, Z = np.meshgrid(x_unique, z_unique)
 
     # Create 2x4 figure
@@ -1145,14 +1145,14 @@ def _create_xz_plane_ratio_plot(df1: pd.DataFrame, df2: pd.DataFrame,
     # TOP ROW: Vp
     _plot_plane_full_comparison_row(axes[0, :], data1, data2, X, Z, 'vp', 'Vp', 'viridis',
                                     model1_name, model2_name, nearest_y, label,
-                                    'X (km)', 'Z (km)', coord1='X_grid_km',
-                                    coord2='Z_grid_km', invert_y=True)
+                                    'X (km)', 'Z (km)', coord1='x',
+                                    coord2='z', invert_y=True)
 
     # BOTTOM ROW: Vs
     _plot_plane_full_comparison_row(axes[1, :], data1, data2, X, Z, 'vs', 'Vs', 'plasma',
                                     model1_name, model2_name, nearest_y, label,
-                                    'X (km)', 'Z (km)', coord1='X_grid_km',
-                                    coord2='Z_grid_km', invert_y=True)
+                                    'X (km)', 'Z (km)', coord1='x',
+                                    coord2='z', invert_y=True)
 
     plt.suptitle(f'XZ Plane Analysis at Y={int(nearest_y)} km: {label}', fontsize=20)
     plt.subplots_adjust(left=0.05, right=0.92, top=0.85, bottom=0.08, wspace=0.3, hspace=0.35)
@@ -1171,16 +1171,16 @@ def _create_yz_plane_ratio_plot(df1: pd.DataFrame, df2: pd.DataFrame,
         logger.warning(f"Requested X={x_coord} km, using nearest available X={nearest_x} km")
 
     # Get data at this X
-    data1 = df1[df1['X_grid_km'] == nearest_x]
-    data2 = df2[df2['X_grid_km'] == nearest_x]
+    data1 = df1[df1['x'] == nearest_x]
+    data2 = df2[df2['x'] == nearest_x]
 
     if len(data1) == 0 or len(data2) == 0:
         logger.warning(f"No data found at X={nearest_x} km")
         return
 
     # Create meshgrid
-    y_unique = np.sort(data1['Y_grid_km'].unique())
-    z_unique = np.sort(data1['Z_grid_km'].unique())
+    y_unique = np.sort(data1['y'].unique())
+    z_unique = np.sort(data1['z'].unique())
     Y, Z = np.meshgrid(y_unique, z_unique)
 
     # Create 2x4 figure
@@ -1189,14 +1189,14 @@ def _create_yz_plane_ratio_plot(df1: pd.DataFrame, df2: pd.DataFrame,
     # TOP ROW: Vp
     _plot_plane_full_comparison_row(axes[0, :], data1, data2, Y, Z, 'vp', 'Vp', 'viridis',
                                     model1_name, model2_name, nearest_x, label,
-                                    'Y (km)', 'Z (km)', coord1='Y_grid_km',
-                                    coord2='Z_grid_km', invert_y=True)
+                                    'Y (km)', 'Z (km)', coord1='y',
+                                    coord2='z', invert_y=True)
 
     # BOTTOM ROW: Vs
     _plot_plane_full_comparison_row(axes[1, :], data1, data2, Y, Z, 'vs', 'Vs', 'plasma',
                                     model1_name, model2_name, nearest_x, label,
-                                    'Y (km)', 'Z (km)', coord1='Y_grid_km',
-                                    coord2='Z_grid_km', invert_y=True)
+                                    'Y (km)', 'Z (km)', coord1='y',
+                                    coord2='z', invert_y=True)
 
     plt.suptitle(f'YZ Plane Analysis at X={int(nearest_x)} km: {label}', fontsize=20)
     plt.subplots_adjust(left=0.05, right=0.92, top=0.85, bottom=0.08, wspace=0.3, hspace=0.35)
@@ -1207,7 +1207,7 @@ def _plot_plane_full_comparison_row(axes: np.ndarray, data1: pd.DataFrame, data2
                                    X: np.ndarray, Y: np.ndarray, vel_col: str, vel_label: str,
                                    vel_cmap: str, model1_name: str, model2_name: str,
                                    coord_value: float, label: str, xlabel: str, ylabel: str,
-                                   coord1: str = 'X_grid_km', coord2: str = 'Y_grid_km',
+                                   coord1: str = 'x', coord2: str = 'y',
                                    invert_y: bool = False) -> None:
     """
     Plot a full comparison row (Model 1, Model 2, Difference, Ratio) for a single velocity type.

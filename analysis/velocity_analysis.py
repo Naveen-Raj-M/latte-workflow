@@ -84,7 +84,7 @@ def analyze_velocity_models(config: Dict[str, Any]) -> Dict[str, Any]:
     if len(df1) != len(df2):
         raise ValueError(f"Row count mismatch: Model 1 has {len(df1)}, Model 2 has {len(df2)}")
 
-    required_cols = ['vp', 'vs', 'X_grid_km', 'Y_grid_km', 'Z_grid_km', 'i', 'j', 'k']
+    required_cols = ['vp', 'vs', 'x', 'y', 'z']
     for col in required_cols:
         if col not in df1.columns:
             raise ValueError(f"Required column '{col}' missing from Model 1")
@@ -93,7 +93,7 @@ def analyze_velocity_models(config: Dict[str, Any]) -> Dict[str, Any]:
 
     # Check coordinate consistency if enabled
     if config.get('quality_control', {}).get('check_coordinate_consistency', True):
-        coord_cols = ['X_grid_km', 'Y_grid_km', 'Z_grid_km', 'i', 'j', 'k']
+        coord_cols = ['x', 'y', 'z']
         for col in coord_cols:
             if not np.allclose(df1[col].values, df2[col].values, rtol=1e-6):
                 logger.warning(f"Coordinate column '{col}' differs between models")
@@ -170,7 +170,7 @@ def load_and_validate_velocity_models(model1_csv: str, model2_csv: str,
     if len(df1) != len(df2):
         raise ValueError(f"Row count mismatch: Model 1 has {len(df1)}, Model 2 has {len(df2)}")
     
-    required_cols = ['vp', 'vs', 'X_grid_km', 'Y_grid_km', 'Z_grid_km', 'i', 'j', 'k']
+    required_cols = ['vp', 'vs', 'x', 'y', 'z']
     for col in required_cols:
         if col not in df1.columns:
             raise ValueError(f"Required column '{col}' missing from Model 1")
@@ -179,7 +179,7 @@ def load_and_validate_velocity_models(model1_csv: str, model2_csv: str,
     
     # Check coordinate consistency
     if config['quality_control'].get('check_coordinate_consistency', True):
-        coord_cols = ['X_grid_km', 'Y_grid_km', 'Z_grid_km', 'i', 'j', 'k']
+        coord_cols = ['x', 'y', 'z']
         for col in coord_cols:
             if not np.allclose(df1[col].values, df2[col].values, rtol=1e-6):
                 logger.warning(f"Coordinate column '{col}' differs between models")

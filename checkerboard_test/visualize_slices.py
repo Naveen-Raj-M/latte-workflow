@@ -182,9 +182,9 @@ def visualize_checkerboard_test(
                     vpvs = df_checkerboard["vp"].values / df_checkerboard["vs"].values
                     vpvs = np.where(np.isfinite(vpvs), vpvs, np.nan)
                 df_pattern = pd.DataFrame({
-                    'X_grid_km': df_checkerboard['X_grid_km'].values,
-                    'Y_grid_km': df_checkerboard['Y_grid_km'].values,
-                    'Z_grid_km': df_checkerboard['Z_grid_km'].values,
+                    'x': df_checkerboard['x'].values,
+                    'y': df_checkerboard['y'].values,
+                    'z': df_checkerboard['z'].values,
                     'vpvs_ratio': vpvs,
                 })
             else:
@@ -194,9 +194,9 @@ def visualize_checkerboard_test(
                                        / df_input[vel_field].values) * 100.0
                     perturbation_pct = np.where(np.isfinite(perturbation_pct), perturbation_pct, 0.0)
                 df_pattern = pd.DataFrame({
-                    'X_grid_km': df_checkerboard['X_grid_km'].values,
-                    'Y_grid_km': df_checkerboard['Y_grid_km'].values,
-                    'Z_grid_km': df_checkerboard['Z_grid_km'].values,
+                    'x': df_checkerboard['x'].values,
+                    'y': df_checkerboard['y'].values,
+                    'z': df_checkerboard['z'].values,
                     vel_field: perturbation_pct,
                 })
 
@@ -237,9 +237,9 @@ def visualize_checkerboard_test(
                     vpvs = df_inverted["vp"].values / df_inverted["vs"].values
                     vpvs = np.where(np.isfinite(vpvs), vpvs, np.nan)
                 df_pattern = pd.DataFrame({
-                    'X_grid_km': df_inverted['X_grid_km'].values,
-                    'Y_grid_km': df_inverted['Y_grid_km'].values,
-                    'Z_grid_km': df_inverted['Z_grid_km'].values,
+                    'x': df_inverted['x'].values,
+                    'y': df_inverted['y'].values,
+                    'z': df_inverted['z'].values,
                     'vpvs_ratio': vpvs,
                 })
                 # No recovery analysis for vpvs_ratio
@@ -257,9 +257,9 @@ def visualize_checkerboard_test(
                     perturbation_pct = np.where(np.isfinite(perturbation_pct), perturbation_pct, 0.0)
 
                 df_pattern = pd.DataFrame({
-                    'X_grid_km': df_inverted['X_grid_km'].values,
-                    'Y_grid_km': df_inverted['Y_grid_km'].values,
-                    'Z_grid_km': df_inverted['Z_grid_km'].values,
+                    'x': df_inverted['x'].values,
+                    'y': df_inverted['y'].values,
+                    'z': df_inverted['z'].values,
                     vel_field: perturbation_pct,
                 })
 
@@ -275,9 +275,9 @@ def visualize_checkerboard_test(
                     x_coords, y_coords, z_coords, _ = prepare_3d_grid(df_pattern, vel_field)
                     checkerboard_pattern_3d = np.full((len(z_coords), len(y_coords), len(x_coords)), np.nan)
 
-                    x_indices = np.searchsorted(x_coords, df_checkerboard["X_grid_km"].values)
-                    y_indices = np.searchsorted(y_coords, df_checkerboard["Y_grid_km"].values)
-                    z_indices = np.searchsorted(z_coords, df_checkerboard["Z_grid_km"].values)
+                    x_indices = np.searchsorted(x_coords, df_checkerboard["x"].values)
+                    y_indices = np.searchsorted(y_coords, df_checkerboard["y"].values)
+                    z_indices = np.searchsorted(z_coords, df_checkerboard["z"].values)
                     checkerboard_pattern_3d[z_indices, y_indices, x_indices] = check_perturbation_pct
 
                 visualize_pattern(

@@ -34,10 +34,7 @@ def compute_grid_dimensions(events_df: pd.DataFrame,
     """
     logger = logging.getLogger(__name__)
 
-    # Get coordinate columns (try lowercase first, then uppercase)
-    x_col = 'x' if 'x' in events_df.columns else 'X_grid_km'
-    y_col = 'y' if 'y' in events_df.columns else 'Y_grid_km'
-    z_col = 'z' if 'z' in events_df.columns else 'Z_grid_km'
+    x_col, y_col, z_col = 'x', 'y', 'z'
 
     # Collect all coordinates
     all_x = np.concatenate([events_df[x_col].values, stations_df[x_col].values])
@@ -151,9 +148,7 @@ def compute_ray_density_3d(events_df: pd.DataFrame,
     density = np.zeros((grid_dims['nx'], grid_dims['ny'], grid_dims['nz']), dtype=np.int32)
 
     # Get coordinate columns
-    x_col = 'x' if 'x' in events_df.columns else 'X_grid_km'
-    y_col = 'y' if 'y' in events_df.columns else 'Y_grid_km'
-    z_col = 'z' if 'z' in events_df.columns else 'Z_grid_km'
+    x_col, y_col, z_col = 'x', 'y', 'z'
 
     # Create lookup dictionaries for event and station coordinates
     event_coords = {

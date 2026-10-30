@@ -307,9 +307,9 @@ def visualize_difference(
 
     # Compute difference
     df_diff = pd.DataFrame({
-        'X_grid_km': df_inverted['X_grid_km'].values,
-        'Y_grid_km': df_inverted['Y_grid_km'].values,
-        'Z_grid_km': df_inverted['Z_grid_km'].values,
+        'x': df_inverted['x'].values,
+        'y': df_inverted['y'].values,
+        'z': df_inverted['z'].values,
         velocity_field: df_inverted[velocity_field].values - df_checkerboard[velocity_field].values
     })
 

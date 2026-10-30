@@ -18,7 +18,7 @@ from joblib import Parallel, delayed
 from tqdm import tqdm
 
 from utils.io_utils import ensure_directory_exists
-from utils.velocity_io import write_velocity_file
+from utils.velocity_io import write_velocity_file, build_coarse_metadata
 
 
 def load_initial_model(filepath: str,
@@ -175,54 +175,34 @@ def create_cartesian_grid(min_coords: Tuple[float, float, float],
     # Create meshgrid
     x_grid, y_grid, z_grid = np.meshgrid(xs, ys, zs, indexing='ij')
 
-    # Flatten and create DataFrame with capital case columns
+    # Flatten and create DataFrame
     grid_df = pd.DataFrame({
-        'X_grid_km': x_grid.ravel(),
-        'Y_grid_km': y_grid.ravel(),
-        'Z_grid_km': z_grid.ravel()
+        'x': x_grid.ravel(),
+        'y': y_grid.ravel(),
+        'z': z_grid.ravel()
     })
-
-    # Also add lowercase for compatibility
-    grid_df['x'] = grid_df['X_grid_km']
-    grid_df['y'] = grid_df['Y_grid_km']
-    grid_df['z'] = grid_df['Z_grid_km']
 
     logger.info(f"Created grid with {len(grid_df)} points")
 
     return grid_df
 
 
-def compute_grid_indices(grid_df: pd.DataFrame, min_coords: Tuple[float, float, float],
-                         grid_spacing: Tuple[float, float, float]) -> pd.DataFrame:
-    """Compute 1-based grid indices for Fortran compatibility.
+def _grid_indices(grid_df: pd.DataFrame, min_coords: Tuple[float, float, float],
+                  grid_spacing: Tuple[float, float, float]) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Compute 0-based (i, j, k) array indices of the grid points from their x, y, z.
 
     Args:
-        grid_df: DataFrame with [X_grid_km, Y_grid_km, Z_grid_km] or [x, y, z] columns.
-        min_coords: (x_min, y_min, z_min) for grid origin.
+        grid_df: DataFrame with [x, y, z] columns.
+        min_coords: (x_min, y_min, z_min) grid origin.
         grid_spacing: (dx, dy, dz) spacing in km.
 
     Returns:
-        DataFrame with added [i_raw, j_raw, k_raw, i, j, k] columns.
+        Integer arrays (i, j, k) along x, y, z.
     """
-    x_min, y_min, z_min = min_coords
-    dx, dy, dz = grid_spacing
-
-    # Use capital case if available, otherwise lowercase
-    x_col = 'X_grid_km' if 'X_grid_km' in grid_df.columns else 'x'
-    y_col = 'Y_grid_km' if 'Y_grid_km' in grid_df.columns else 'y'
-    z_col = 'Z_grid_km' if 'Z_grid_km' in grid_df.columns else 'z'
-
-    # Calculate raw (floating-point) indices
-    grid_df['i_raw'] = (grid_df[x_col] - x_min) / dx
-    grid_df['j_raw'] = (grid_df[y_col] - y_min) / dy
-    grid_df['k_raw'] = (grid_df[z_col] - z_min) / dz
-
-    # Calculate final integer indices (1-based for Fortran compatibility)
-    grid_df['i'] = np.round(grid_df['i_raw']).astype(int) + 1
-    grid_df['j'] = np.round(grid_df['j_raw']).astype(int) + 1
-    grid_df['k'] = np.round(grid_df['k_raw']).astype(int) + 1
-
-    return grid_df
+    return tuple(
+        np.round((grid_df[axis].values - origin) / step).astype(int)
+        for axis, origin, step in zip(('x', 'y', 'z'), min_coords, grid_spacing)
+    )
 
 
 def _get_velocities_vectorized(depths_array, initial_model):
@@ -296,13 +276,9 @@ def _assign_velocities_vectorized(grid_df, initial_model, origin_lon, origin_lat
     logger.info("Using full vectorization (grid fits in memory)")
 
     # Extract columns as numpy arrays
-    x_col = 'X_grid_km' if 'X_grid_km' in grid_df.columns else 'x'
-    y_col = 'Y_grid_km' if 'Y_grid_km' in grid_df.columns else 'y'
-    z_col = 'Z_grid_km' if 'Z_grid_km' in grid_df.columns else 'z'
-
-    x_vals = grid_df[x_col].values
-    y_vals = grid_df[y_col].values
-    z_vals = grid_df[z_col].values
+    x_vals = grid_df['x'].values
+    y_vals = grid_df['y'].values
+    z_vals = grid_df['z'].values
 
     # Vectorized operations on entire grid
     logger.info("Computing absolute depths...")
@@ -348,13 +324,9 @@ def _assign_velocities_chunked_vectorized(grid_df, initial_model, origin_lon, or
     logger.info(f"Chunk size: {chunk_size:,}, Workers: {n_jobs if n_jobs != -1 else 'all cores'}")
 
     # Extract columns as numpy arrays
-    x_col = 'X_grid_km' if 'X_grid_km' in grid_df.columns else 'x'
-    y_col = 'Y_grid_km' if 'Y_grid_km' in grid_df.columns else 'y'
-    z_col = 'Z_grid_km' if 'Z_grid_km' in grid_df.columns else 'z'
-
-    x_vals = grid_df[x_col].values
-    y_vals = grid_df[y_col].values
-    z_vals = grid_df[z_col].values
+    x_vals = grid_df['x'].values
+    y_vals = grid_df['y'].values
+    z_vals = grid_df['z'].values
 
     # Calculate chunks
     num_chunks = (len(grid_df) + chunk_size - 1) // chunk_size
@@ -511,10 +483,7 @@ def create_velocity_model(config: DictConfig,
     invert_y_axis = config.coordinate_transform.get('invert_y_axis', True)
     logger.info(f"Using y-axis mode: {'inverted (positive south)' if invert_y_axis else 'standard (positive north)'}")
 
-    # Use capital case columns if available, otherwise lowercase
-    x_col = 'X_grid_km' if 'X_grid_km' in events_cart_df.columns else 'x'
-    y_col = 'Y_grid_km' if 'Y_grid_km' in events_cart_df.columns else 'y'
-    z_col = 'Z_grid_km' if 'Z_grid_km' in events_cart_df.columns else 'z'
+    x_col, y_col, z_col = 'x', 'y', 'z'
 
     # Determine grid bounds
     if vel_config.use_auto_bounds:
@@ -585,11 +554,11 @@ def create_velocity_model(config: DictConfig,
         # For Z max: use max_depth_km if specified, otherwise use data maximum
         if vel_config.max_depth_km is not None:
             # max_depth_km is absolute depth; convert to Cartesian Z:
-            # Z_grid_km = absolute_depth - origin_depth
+            # z = absolute_depth - origin_depth
             max_z_from_config = vel_config.max_depth_km - origin_depth
             logger.info(
                 f"Using max_depth_km={vel_config.max_depth_km} km "
-                f"(Cartesian Z_grid_km={max_z_from_config:.2f} km)"
+                f"(Cartesian z={max_z_from_config:.2f} km)"
             )
             max_z = np.ceil(max_z_from_config / dz) * dz
         else:
@@ -615,8 +584,14 @@ def create_velocity_model(config: DictConfig,
     grid_spacing = tuple(vel_config.grid_spacing_km)
     grid_df = create_cartesian_grid(min_coords, max_coords, grid_spacing)
 
-    # Add grid indices
-    grid_df = compute_grid_indices(grid_df, min_coords, grid_spacing)
+    # Grid definition stored in the metadata of every output file; downstream modules
+    # read it from there instead of from their configuration.
+    grid_meta = {
+        f'n{axis}': int(len(np.arange(lo, hi + step / 2, step)))
+        for axis, lo, hi, step in zip('xyz', min_coords, max_coords, grid_spacing)
+    }
+    grid_meta.update({f'd{axis}': float(step) for axis, step in zip('xyz', grid_spacing)})
+    grid_meta.update({f'origin_{axis}': float(lo) for axis, lo in zip('xyz', min_coords)})
 
     # Get parallel processing configuration
     parallel_config = config.get('parallel', {})
@@ -655,20 +630,15 @@ def create_velocity_model(config: DictConfig,
     output_format = vel_config.get('output_format', 'csv')
     logger.info(f"Saving velocity model in format: {output_format}")
 
-    # Prepare metadata for HDF5
+    # Metadata written to every output (HDF5 attributes / CSV header)
     metadata = {
-        'grid_dimensions': {'nx': int(grid_df['i'].max()), 'ny': int(grid_df['j'].max()), 'nz': int(grid_df['k'].max())},
-        'grid_spacing': {'dx': grid_spacing[0], 'dy': grid_spacing[1], 'dz': grid_spacing[2]},
-        'grid_origin': {
-            'x': float(grid_df['X_grid_km'].min()),
-            'y': float(grid_df['Y_grid_km'].min()),
-            'z': float(grid_df['Z_grid_km'].min())
-        },
+        **grid_meta,
         'origin_lon': origin_lon,
         'origin_lat': origin_lat,
         'origin_depth_km': origin_depth,
         'transformation_method': 'initial_model_cartesian',
         'invert_y_axis': invert_y_axis,
+        'data_type': 'velocity',
     }
 
     # Prepare coarse grid config if enabled
@@ -690,6 +660,7 @@ def create_velocity_model(config: DictConfig,
             grid_df,
             output_csv,
             format='csv',
+            metadata=metadata,
             show_progress=hdf5_opts.get('show_progress', True)
         )
 
@@ -730,10 +701,8 @@ def create_velocity_model(config: DictConfig,
 
         logger.info(f"Creating coarse-sampled CSV: {output_coarse_csv}")
 
-        # Extract fine grid spacing from metadata
-        fine_dx = metadata['grid_spacing']['dx']
-        fine_dy = metadata['grid_spacing']['dy']
-        fine_dz = metadata['grid_spacing']['dz']
+        # Fine grid spacing from the grid definition
+        fine_dx, fine_dy, fine_dz = metadata['dx'], metadata['dy'], metadata['dz']
 
         # Generate coarse grid
         grid_df_coarse = subsample_to_coarse_grid(
@@ -748,21 +717,20 @@ def create_velocity_model(config: DictConfig,
             show_progress=hdf5_opts.get('show_progress', True)
         )
 
-        # Write coarse CSV
+        # Write coarse CSV (its own grid plus the fine grid and strides in the metadata)
         write_velocity_file(
             grid_df_coarse,
             output_coarse_csv,
             format='csv',
+            metadata=build_coarse_metadata(grid_df_coarse, metadata, coarse_config),
             show_progress=hdf5_opts.get('show_progress', True)
         )
 
         coarse_size = output_coarse_csv.stat().st_size / (1024**2)
         logger.info(f"Coarse CSV written: {len(grid_df_coarse):,} points ({coarse_size:.1f}MB)")
 
-    # Calculate grid dimensions
-    nx = grid_df['i'].max()
-    ny = grid_df['j'].max()
-    nz = grid_df['k'].max()
+    # Grid dimensions
+    nx, ny, nz = grid_meta['nx'], grid_meta['ny'], grid_meta['nz']
     dx, dy, dz = grid_spacing
 
     # Count number of sources (events)
@@ -781,7 +749,7 @@ def create_velocity_model(config: DictConfig,
                f"{grid_df['depth'].max():.2f} km")
 
     # Generate binary files
-    _generate_binary_files(config, grid_df, min_coords, grid_spacing)
+    _generate_binary_files(config, grid_df, grid_meta, min_coords, grid_spacing)
 
     # Print final summary
     logger.info("")
@@ -795,13 +763,14 @@ def create_velocity_model(config: DictConfig,
     logger.info("=" * 60)
 
 
-def _fill_grid_vectorized(grid_df, vel_col, nx, ny, nz, logger):
+def _fill_grid_vectorized(grid_df, vel_col, nx, ny, nz, indices, logger):
     """Fill 3D grid array using vectorization (no chunking).
 
     Args:
         grid_df: DataFrame with velocity data
         vel_col: Column name ('vp' or 'vs')
         nx, ny, nz: Grid dimensions
+        indices: 0-based (i, j, k) array indices of the grid points
         logger: Logger instance
 
     Returns:
@@ -813,9 +782,7 @@ def _fill_grid_vectorized(grid_df, vel_col, nx, ny, nz, logger):
     grid_3d = np.zeros((nz, ny, nx), dtype=np.float32, order='F')
 
     # Extract indices and velocities as numpy arrays
-    i_vals = grid_df['i'].values - 1  # Convert to 0-based
-    j_vals = grid_df['j'].values - 1
-    k_vals = grid_df['k'].values - 1
+    i_vals, j_vals, k_vals = indices
     vel_vals = grid_df[vel_col].values * 1000  # Convert to m/s
 
     # Create mask for valid indices
@@ -838,13 +805,14 @@ def _fill_grid_vectorized(grid_df, vel_col, nx, ny, nz, logger):
     return grid_3d
 
 
-def _fill_grid_chunked_vectorized(grid_df, vel_col, nx, ny, nz, chunk_size, n_jobs, logger):
+def _fill_grid_chunked_vectorized(grid_df, vel_col, nx, ny, nz, indices, chunk_size, n_jobs, logger):
     """Fill 3D grid array using chunked vectorization.
 
     Args:
         grid_df: DataFrame with velocity data
         vel_col: Column name ('vp' or 'vs')
         nx, ny, nz: Grid dimensions
+        indices: 0-based (i, j, k) array indices of the grid points
         chunk_size: Points per chunk
         n_jobs: Number of workers
         logger: Logger instance
@@ -859,9 +827,7 @@ def _fill_grid_chunked_vectorized(grid_df, vel_col, nx, ny, nz, chunk_size, n_jo
     grid_3d = np.zeros((nz, ny, nx), dtype=np.float32, order='F')
 
     # Extract arrays once
-    i_vals = grid_df['i'].values - 1
-    j_vals = grid_df['j'].values - 1
-    k_vals = grid_df['k'].values - 1
+    i_vals, j_vals, k_vals = indices
     vel_vals = grid_df[vel_col].values * 1000
 
     # Calculate chunks
@@ -908,26 +874,8 @@ def _fill_grid_chunked_vectorized(grid_df, vel_col, nx, ny, nz, chunk_size, n_jo
     return grid_3d
 
 
-def _fill_grid_chunk(chunk_rows, vel_col, nx, ny, nz):
-    """Fill a chunk of grid points into the velocity array.
-
-    DEPRECATED: Use vectorized versions instead.
-
-    Returns:
-        List of tuples: (k, j, i, velocity_value)
-    """
-    results = []
-    for _, row in chunk_rows:
-        i = int(row['i']) - 1  # Convert to 0-based
-        j = int(row['j']) - 1
-        k = int(row['k']) - 1
-        if 0 <= i < nx and 0 <= j < ny and 0 <= k < nz:
-            velocity_ms = row[vel_col] * 1000  # Convert to m/s
-            results.append((k, j, i, velocity_ms))
-    return results
-
-
 def _generate_binary_files(config: DictConfig, grid_df: pd.DataFrame,
+                           grid_meta: dict,
                            min_coords: Tuple[float, float, float],
                            grid_spacing: Tuple[float, float, float]) -> None:
     """Generate binary velocity files from grid DataFrame.
@@ -935,6 +883,7 @@ def _generate_binary_files(config: DictConfig, grid_df: pd.DataFrame,
     Args:
         config: Configuration.
         grid_df: DataFrame with velocity grid data.
+        grid_meta: Grid definition (nx, ny, nz, ...).
         min_coords: Grid origin coordinates.
         grid_spacing: Grid spacing.
     """
@@ -944,9 +893,8 @@ def _generate_binary_files(config: DictConfig, grid_df: pd.DataFrame,
     logger.info("Creating velocity binary files...")
 
     # Get grid dimensions
-    nx = grid_df['i'].max()
-    ny = grid_df['j'].max()
-    nz = grid_df['k'].max()
+    nx, ny, nz = grid_meta['nx'], grid_meta['ny'], grid_meta['nz']
+    indices = _grid_indices(grid_df, min_coords, grid_spacing)
 
     logger.info(f"Grid dimensions: {nx} x {ny} x {nz}")
 
@@ -976,7 +924,7 @@ def _generate_binary_files(config: DictConfig, grid_df: pd.DataFrame,
 
         # Always use full vectorization - numpy fancy indexing is fast and memory-efficient
         # The chunked parallel version causes memory issues due to process forking
-        grid_3d = _fill_grid_vectorized(grid_df, vel_col, nx, ny, nz, logger)
+        grid_3d = _fill_grid_vectorized(grid_df, vel_col, nx, ny, nz, indices, logger)
 
         # Interpolate if requested
         if vel_config.get('interpolate', False):

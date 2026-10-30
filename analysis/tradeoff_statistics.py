@@ -209,7 +209,7 @@ def validate_spatial_bounds(
     raises a WARNING; no overlap at all raises a ValueError.
 
     Args:
-        df_initial: Initial velocity model DataFrame with X/Y/Z_grid_km columns.
+        df_initial: Initial velocity model DataFrame with X/Y/z columns.
         x_bounds: (x_min, x_max) – either element may be None (no bound).
         y_bounds: (y_min, y_max) – same convention.
         z_bounds: (z_min, z_max) or None (no Z filter).
@@ -218,11 +218,11 @@ def validate_spatial_bounds(
         ValueError: If any bound has zero overlap with the model domain.
     """
     axes = [
-        ('X', 'X_grid_km', x_bounds),
-        ('Y', 'Y_grid_km', y_bounds),
+        ('X', 'x', x_bounds),
+        ('Y', 'y', y_bounds),
     ]
     if z_bounds is not None:
-        axes.append(('Z', 'Z_grid_km', z_bounds))
+        axes.append(('Z', 'z', z_bounds))
 
     for axis_name, col, bounds in axes:
         lo, hi = bounds
@@ -273,7 +273,7 @@ def build_spatial_mask(
     A None bound value means "no restriction" on that side.
 
     Args:
-        df: Velocity model DataFrame with X_grid_km, Y_grid_km, Z_grid_km.
+        df: Velocity model DataFrame with x, y, z.
         x_bounds: (x_min, x_max).
         y_bounds: (y_min, y_max).
         z_bounds: (z_min, z_max) or None.
@@ -290,10 +290,10 @@ def build_spatial_mask(
         if hi is not None:
             mask &= (df[col].values <= hi)
 
-    _apply_bound('X_grid_km', *x_bounds)
-    _apply_bound('Y_grid_km', *y_bounds)
+    _apply_bound('x', *x_bounds)
+    _apply_bound('y', *y_bounds)
     if z_bounds is not None:
-        _apply_bound('Z_grid_km', *z_bounds)
+        _apply_bound('z', *z_bounds)
 
     n_selected = int(mask.sum())
     logger.debug(f"Spatial mask selects {n_selected} / {len(df)} grid points")
@@ -320,26 +320,26 @@ def build_depth_layer_mask(
     Returns:
         Boolean numpy array of length len(df).
     """
-    depth_mask = np.abs(df['Z_grid_km'].values - depth_km) <= depth_tolerance_km
+    depth_mask = np.abs(df['z'].values - depth_km) <= depth_tolerance_km
 
     # Apply horizontal bounds
     xy_mask = np.ones(len(df), dtype=bool)
     x_lo, x_hi = x_bounds
     y_lo, y_hi = y_bounds
     if x_lo is not None:
-        xy_mask &= (df['X_grid_km'].values >= x_lo)
+        xy_mask &= (df['x'].values >= x_lo)
     if x_hi is not None:
-        xy_mask &= (df['X_grid_km'].values <= x_hi)
+        xy_mask &= (df['x'].values <= x_hi)
     if y_lo is not None:
-        xy_mask &= (df['Y_grid_km'].values >= y_lo)
+        xy_mask &= (df['y'].values >= y_lo)
     if y_hi is not None:
-        xy_mask &= (df['Y_grid_km'].values <= y_hi)
+        xy_mask &= (df['y'].values <= y_hi)
 
     combined = depth_mask & xy_mask
     n_selected = int(combined.sum())
 
     if n_selected == 0:
-        available_z = np.sort(df['Z_grid_km'].unique())
+        available_z = np.sort(df['z'].unique())
         nearest = available_z[np.argmin(np.abs(available_z - depth_km))]
         logger.warning(
             f"Depth layer mask at Z={depth_km:.2f} km (±{depth_tolerance_km:.2f} km) "

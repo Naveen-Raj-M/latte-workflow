@@ -22,7 +22,7 @@ general:
 # Input files
 input:
   # Input velocity model CSV from preprocess module
-  # Should contain: X_grid_km, Y_grid_km, Z_grid_km, vp, vs
+  # Should contain: x, y, z, vp, vs (legacy X_grid_km/Y_grid_km/Z_grid_km are still read)
   velocity_model_csv: "/path/to/preprocess/output/velocity_model_init.csv"
 
   # Optional HDF5 input (if specified, takes precedence over CSV)
@@ -162,27 +162,26 @@ model_conversion:
   # Enable conversion of inverted model to CSV
   enabled: true
 
-  # Grid dimensions (must match LATTE configuration)
-  grid:
-    nx: 401
-    ny: 361
-    nz: 43
-    dx: 0.5  # km
-    dy: 0.5  # km
-    dz: 0.5  # km
-    origin_x: 0.0  # km
-    origin_y: 0.0  # km
-    origin_z: 0.0  # km
+  # The grid of the LATTE binaries (nx, ny, nz, dx, dy, dz, origin_x/y/z) is read from the
+  # metadata of the input velocity model written by preprocess, and checked against its
+  # x/y/z columns. Define it here only if that model has no grid metadata and it cannot be
+  # inferred from its columns (legacy files):
+  # grid:
+  #   nx: 401
+  #   ny: 361
+  #   nz: 43
+  #   dx: 0.5  # km
+  #   dy: 0.5  # km
+  #   dz: 0.5  # km
+  #   origin_x: 0.0  # km
+  #   origin_y: 0.0  # km
+  #   origin_z: 0.0  # km
 
   # Input binary precision
   binary_precision: "single"  # "single" (float32) or "double" (float64)
 
   # Convert velocity units from m/s to km/s
   convert_to_kms: true
-
-  # Apply Chapman inverse transform (if spherical coordinates were used)
-  apply_chapman_inverse: false
-  earth_radius_km: 6371.0
 
   # Processing mode: "sample" or "expand"
   # "sample": Sample at coarse CSV grid points

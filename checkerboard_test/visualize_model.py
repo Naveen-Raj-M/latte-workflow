@@ -310,7 +310,7 @@ def visualize_velocity_model(
     Main function to visualize a velocity model.
 
     Args:
-        df: DataFrame with X_grid_km, Y_grid_km, Z_grid_km, vp/vs
+        df: DataFrame with x, y, z, vp/vs
         output_dir: Output directory
         config: Visualization config (from visualize_input/checkerboard/inverted section)
         model_name: Name for output subdirectory
@@ -341,9 +341,9 @@ def visualize_velocity_model(
                 ratio = df["vp"].values / df["vs"].values
                 ratio = np.where(np.isfinite(ratio), ratio, np.nan)
             df_grid = pd.DataFrame({
-                'X_grid_km': df['X_grid_km'].values,
-                'Y_grid_km': df['Y_grid_km'].values,
-                'Z_grid_km': df['Z_grid_km'].values,
+                'x': df['x'].values,
+                'y': df['y'].values,
+                'z': df['z'].values,
                 'vpvs_ratio': ratio,
             })
             x_coords, y_coords, z_coords, velocity_3d = prepare_3d_grid(df_grid, 'vpvs_ratio')

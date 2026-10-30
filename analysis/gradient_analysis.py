@@ -296,7 +296,7 @@ def compute_velocity_gradient_statistics(df: pd.DataFrame,
         stats['alignment'] = _compute_gradient_search_alignment(df, available_fields)
     
     # Depth-dependent statistics for velocity
-    if 'Z_grid_km' in df.columns:
+    if 'z' in df.columns:
         stats['depth_dependent'] = _compute_depth_dependent_gradient_stats(
             df, available_fields, config
         )
@@ -445,7 +445,7 @@ def _compute_depth_dependent_gradient_stats(df: pd.DataFrame,
     
     # Create depth bins
     df_copy = df.copy()
-    df_copy['depth_bin'] = pd.cut(df_copy['Z_grid_km'], bins=n_bins)
+    df_copy['depth_bin'] = pd.cut(df_copy['z'], bins=n_bins)
     
     # Compute statistics for each gradient field
     for grad_field in available_fields['gradients']:

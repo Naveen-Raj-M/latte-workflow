@@ -7,7 +7,6 @@ for statistical analysis and visualization.
 
 import pandas as pd
 import numpy as np
-import h5py
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple
 import logging
@@ -25,7 +24,8 @@ def load_dws_data(
     """
     Load DWS data from HDF5 file.
 
-    The DWS values are stored in the 'vp' column of the velocity format.
+    The DWS values are stored in the 'dws' column. Legacy DWS files stored them in the
+    'vp' column; those are still read.
 
     Args:
         filepath: Path to DWS HDF5 file
@@ -34,9 +34,8 @@ def load_dws_data(
 
     Returns:
         DataFrame with DWS data including columns:
-        - X_grid_km, Y_grid_km, Z_grid_km: Grid coordinates
-        - i, j, k: Grid indices
-        - dws: DWS values (extracted from vp column)
+        - x, y, z: Grid coordinates
+        - dws: DWS values
     """
     logger.info(f"Loading DWS data from {filepath}")
 
@@ -48,8 +47,10 @@ def load_dws_data(
         show_progress=show_progress
     )
 
-    # Extract DWS from vp column and rename
-    df['dws'] = df['vp']
+    # Legacy DWS files stored the values in the 'vp' column
+    if 'dws' not in df.columns:
+        logger.warning("Legacy DWS file: taking DWS values from the 'vp' column")
+        df['dws'] = df['vp']
 
     # Log statistics
     logger.info(f"Loaded {len(df):,} DWS grid points")
@@ -71,20 +72,8 @@ def get_dws_metadata(filepath: str) -> Dict[str, Any]:
     """
     logger.info(f"Extracting metadata from {filepath}")
 
-    metadata = get_velocity_file_metadata(filepath)
-
-    # Check if this is a DWS file
-    with h5py.File(filepath, 'r', locking=False) as f:
-        if 'velocity' in f:
-            dset = f['velocity']
-            if 'data_type' in dset.attrs:
-                metadata['data_type'] = dset.attrs['data_type']
-            if 'description' in dset.attrs:
-                metadata['description'] = dset.attrs['description']
-            if 'units' in dset.attrs:
-                metadata['units'] = dset.attrs['units']
-
-    return metadata
+    # Flat metadata (grid, data_type, description, units, ...) verified against the columns
+    return get_velocity_file_metadata(filepath)
 
 
 def extract_horizontal_slice(
@@ -104,14 +93,14 @@ def extract_horizontal_slice(
         DataFrame containing points at the specified depth
     """
     # Filter by depth
-    mask = np.abs(df['Z_grid_km'] - depth_km) < tolerance_km
+    mask = np.abs(df['z'] - depth_km) < tolerance_km
 
     df_slice = df[mask].copy()
 
     if len(df_slice) == 0:
         logger.warning(f"No data found at depth {depth_km} km (tolerance: {tolerance_km} km)")
         # Try to find nearest depth
-        depths = df['Z_grid_km'].unique()
+        depths = df['z'].unique()
         nearest_depth = depths[np.argmin(np.abs(depths - depth_km))]
         logger.info(f"  Nearest available depth: {nearest_depth} km")
 
@@ -138,10 +127,10 @@ def extract_vertical_slice(
     """
     if slice_type == 'xz':
         # Slice at constant Y
-        mask = np.abs(df['Y_grid_km'] - position) < tolerance_km
+        mask = np.abs(df['y'] - position) < tolerance_km
     elif slice_type == 'yz':
         # Slice at constant X
-        mask = np.abs(df['X_grid_km'] - position) < tolerance_km
+        mask = np.abs(df['x'] - position) < tolerance_km
     else:
         raise ValueError(f"Invalid slice_type: {slice_type}. Use 'xz' or 'yz'")
 
@@ -155,30 +144,31 @@ def extract_vertical_slice(
 
 def compute_dws_grid_3d(
     df: pd.DataFrame,
-    nx: int,
-    ny: int,
-    nz: int
+    grid: Dict[str, Any]
 ) -> np.ndarray:
     """
     Convert DWS DataFrame to 3D grid array.
 
     Args:
         df: DWS DataFrame
-        nx, ny, nz: Grid dimensions
+        grid: Grid metadata (nx, ny, nz, dx, dy, dz, origin_x, origin_y, origin_z), e.g.
+            from ``resolve_grid_metadata(df)``
 
     Returns:
         3D numpy array of DWS values (nz, ny, nx)
     """
+    nx, ny, nz = grid['nx'], grid['ny'], grid['nz']
+
     # Initialize grid
     dws_grid = np.zeros((nz, ny, nx))
 
-    # Fill grid
-    for _, row in df.iterrows():
-        i = int(row['i'])
-        j = int(row['j'])
-        k = int(row['k'])
-        if 0 <= i < nx and 0 <= j < ny and 0 <= k < nz:
-            dws_grid[k, j, i] = row['dws']
+    # Grid indices from the coordinates (a single-point axis has no spacing)
+    i, j, k = (
+        np.round((df[axis].values - grid[f'origin_{axis}']) / grid.get(f'd{axis}', 1.0)).astype(int)
+        for axis in ('x', 'y', 'z')
+    )
+    valid = (i >= 0) & (i < nx) & (j >= 0) & (j < ny) & (k >= 0) & (k < nz)
+    dws_grid[k[valid], j[valid], i[valid]] = df['dws'].values[valid]
 
     return dws_grid
 

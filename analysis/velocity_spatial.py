@@ -35,9 +35,9 @@ def find_extreme_velocity_profiles(df: pd.DataFrame, differences: Dict[str, np.n
     df_with_diff['total_diff'] = total_diff
     
     # Group by X,Y coordinates to get vertical profiles
-    profile_stats = df_with_diff.groupby(['X_grid_km', 'Y_grid_km']).agg({
+    profile_stats = df_with_diff.groupby(['x', 'y']).agg({
         'total_diff': ['mean', 'max', 'sum', 'std'],
-        'Z_grid_km': ['min', 'max', 'count']
+        'z': ['min', 'max', 'count']
     }).round(3)
     
     # Flatten column names
@@ -48,17 +48,17 @@ def find_extreme_velocity_profiles(df: pd.DataFrame, differences: Dict[str, np.n
     min_profile_coords = profile_stats[profile_stats['total_diff_mean'] > 1e-6]['total_diff_mean'].idxmin()
     
     # Get profile masks
-    max_profile_mask = ((df['X_grid_km'] == max_profile_coords[0]) & 
-                       (df['Y_grid_km'] == max_profile_coords[1]))
-    min_profile_mask = ((df['X_grid_km'] == min_profile_coords[0]) & 
-                       (df['Y_grid_km'] == min_profile_coords[1]))
+    max_profile_mask = ((df['x'] == max_profile_coords[0]) & 
+                       (df['y'] == max_profile_coords[1]))
+    min_profile_mask = ((df['x'] == min_profile_coords[0]) & 
+                       (df['y'] == min_profile_coords[1]))
     
     # Get profile data
-    max_profile_data = df[max_profile_mask].copy().sort_values('Z_grid_km')
-    min_profile_data = df[min_profile_mask].copy().sort_values('Z_grid_km')
+    max_profile_data = df[max_profile_mask].copy().sort_values('z')
+    min_profile_data = df[min_profile_mask].copy().sort_values('z')
     
     # Find depth slices with extreme differences
-    depth_diff_stats = df_with_diff.groupby('Z_grid_km')['total_diff'].mean()
+    depth_diff_stats = df_with_diff.groupby('z')['total_diff'].mean()
     max_diff_depth = depth_diff_stats.idxmax()
     min_diff_depth = depth_diff_stats[depth_diff_stats > 1e-6].idxmin()
     
@@ -95,13 +95,13 @@ def find_max_min_ratio_change_depths(df1: pd.DataFrame, df2: pd.DataFrame) -> Di
     logger.debug("Finding depths with maximum and minimum average ratio changes")
     
     # Get all unique depths
-    depths = sorted(df1['Z_grid_km'].unique())
+    depths = sorted(df1['z'].unique())
     
     depth_avg_changes = []
     
     for depth in depths:
-        depth_data1 = df1[df1['Z_grid_km'] == depth]
-        depth_data2 = df2[df2['Z_grid_km'] == depth]
+        depth_data1 = df1[df1['z'] == depth]
+        depth_data2 = df2[df2['z'] == depth]
         
         if len(depth_data1) > 0 and len(depth_data2) > 0:
             # Calculate ratios
@@ -173,11 +173,11 @@ def find_extreme_ratio_change_profiles(df1: pd.DataFrame, df2: pd.DataFrame,
                                                 df_with_ratios['vs_ratio_change']) / 2.0
 
     # Group by X,Y coordinates to get vertical profiles
-    profile_stats = df_with_ratios.groupby(['X_grid_km', 'Y_grid_km']).agg({
+    profile_stats = df_with_ratios.groupby(['x', 'y']).agg({
         'combined_ratio_change': ['mean', 'max', 'min', 'std'],
         'vp_ratio_change': ['mean'],
         'vs_ratio_change': ['mean'],
-        'Z_grid_km': ['min', 'max', 'count']
+        'z': ['min', 'max', 'count']
     }).round(6)
 
     # Flatten column names
@@ -190,14 +190,14 @@ def find_extreme_ratio_change_profiles(df1: pd.DataFrame, df2: pd.DataFrame,
     min_ratio_profile_coords = profile_stats['combined_ratio_change_mean'].idxmin()
 
     # Get profile masks
-    max_positive_mask = ((df1['X_grid_km'] == max_positive_profile_coords[0]) &
-                         (df1['Y_grid_km'] == max_positive_profile_coords[1]))
-    min_ratio_mask = ((df1['X_grid_km'] == min_ratio_profile_coords[0]) &
-                      (df1['Y_grid_km'] == min_ratio_profile_coords[1]))
+    max_positive_mask = ((df1['x'] == max_positive_profile_coords[0]) &
+                         (df1['y'] == max_positive_profile_coords[1]))
+    min_ratio_mask = ((df1['x'] == min_ratio_profile_coords[0]) &
+                      (df1['y'] == min_ratio_profile_coords[1]))
 
     # Get profile data
-    max_positive_profile_data = df1[max_positive_mask].copy().sort_values('Z_grid_km')
-    min_ratio_profile_data = df1[min_ratio_mask].copy().sort_values('Z_grid_km')
+    max_positive_profile_data = df1[max_positive_mask].copy().sort_values('z')
+    min_ratio_profile_data = df1[min_ratio_mask].copy().sort_values('z')
 
     max_positive_avg_change = profile_stats.loc[max_positive_profile_coords, 'combined_ratio_change_mean']
     min_ratio_avg_change = profile_stats.loc[min_ratio_profile_coords, 'combined_ratio_change_mean']
@@ -233,8 +233,8 @@ def get_depth_slice_data(df1: pd.DataFrame, df2: pd.DataFrame,
     Returns:
         Tuple of (slice_data1, slice_data2)
     """
-    slice_data1 = df1[df1['Z_grid_km'] == depth].copy()
-    slice_data2 = df2[df2['Z_grid_km'] == depth].copy()
+    slice_data1 = df1[df1['z'] == depth].copy()
+    slice_data2 = df2[df2['z'] == depth].copy()
 
     return slice_data1, slice_data2
 
@@ -250,9 +250,9 @@ def compute_spatial_extent(df: pd.DataFrame) -> Dict[str, Tuple[float, float]]:
         Dictionary with min/max for each dimension
     """
     return {
-        'x': (df['X_grid_km'].min(), df['X_grid_km'].max()),
-        'y': (df['Y_grid_km'].min(), df['Y_grid_km'].max()),
-        'z': (df['Z_grid_km'].min(), df['Z_grid_km'].max())
+        'x': (df['x'].min(), df['x'].max()),
+        'y': (df['y'].min(), df['y'].max()),
+        'z': (df['z'].min(), df['z'].max())
     }
 
 
@@ -267,7 +267,7 @@ def get_unique_coordinates(df: pd.DataFrame) -> Dict[str, np.ndarray]:
         Dictionary with unique values for each coordinate
     """
     return {
-        'x': np.sort(df['X_grid_km'].unique()),
-        'y': np.sort(df['Y_grid_km'].unique()),
-        'z': np.sort(df['Z_grid_km'].unique())
+        'x': np.sort(df['x'].unique()),
+        'y': np.sort(df['y'].unique()),
+        'z': np.sort(df['z'].unique())
     }

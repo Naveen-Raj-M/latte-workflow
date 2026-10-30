@@ -23,16 +23,16 @@ def prepare_3d_grid(
     Prepare 3D grid from DataFrame.
 
     Args:
-        df: DataFrame with X_grid_km, Y_grid_km, Z_grid_km and velocity field
+        df: DataFrame with x, y, z and velocity field
         velocity_field: "vp" or "vs"
 
     Returns:
         (x_coords, y_coords, z_coords, velocity_3d)
     """
     # Get unique coordinates (sorted)
-    x_coords = np.sort(df["X_grid_km"].unique())
-    y_coords = np.sort(df["Y_grid_km"].unique())
-    z_coords = np.sort(df["Z_grid_km"].unique())
+    x_coords = np.sort(df["x"].unique())
+    y_coords = np.sort(df["y"].unique())
+    z_coords = np.sort(df["z"].unique())
 
     nx, ny, nz = len(x_coords), len(y_coords), len(z_coords)
 
@@ -43,9 +43,9 @@ def prepare_3d_grid(
 
     # Fill the array using vectorized operations (much faster than iterrows)
     # Compute all indices at once using numpy searchsorted
-    x_indices = np.searchsorted(x_coords, df["X_grid_km"].values)
-    y_indices = np.searchsorted(y_coords, df["Y_grid_km"].values)
-    z_indices = np.searchsorted(z_coords, df["Z_grid_km"].values)
+    x_indices = np.searchsorted(x_coords, df["x"].values)
+    y_indices = np.searchsorted(y_coords, df["y"].values)
+    z_indices = np.searchsorted(z_coords, df["z"].values)
 
     # Get velocity values
     velocity_values = df[velocity_field].values

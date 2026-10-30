@@ -85,20 +85,17 @@ def generate_dws_report(
         # Grid Information
         f.write("GRID INFORMATION\n")
         f.write("-"*80 + "\n")
-        if 'grid_dimensions' in metadata:
-            dims = metadata['grid_dimensions']
-            f.write(f"Grid dimensions: {dims.get('nx', 'N/A')} x {dims.get('ny', 'N/A')} x {dims.get('nz', 'N/A')}\n")
-        if 'grid_spacing' in metadata:
-            spacing = metadata['grid_spacing']
-            dx_str = safe_format_float(spacing.get('dx'), '.3f')
-            dy_str = safe_format_float(spacing.get('dy'), '.3f')
-            dz_str = safe_format_float(spacing.get('dz'), '.3f')
+        if 'nx' in metadata:
+            f.write(f"Grid dimensions: {metadata.get('nx', 'N/A')} x {metadata.get('ny', 'N/A')} x {metadata.get('nz', 'N/A')}\n")
+        if 'dx' in metadata:
+            dx_str = safe_format_float(metadata.get('dx'), '.3f')
+            dy_str = safe_format_float(metadata.get('dy'), '.3f')
+            dz_str = safe_format_float(metadata.get('dz'), '.3f')
             f.write(f"Grid spacing: dx={dx_str} km, dy={dy_str} km, dz={dz_str} km\n")
-        if 'grid_origin' in metadata:
-            origin = metadata['grid_origin']
-            x_str = safe_format_float(origin.get('x'), '.3f')
-            y_str = safe_format_float(origin.get('y'), '.3f')
-            z_str = safe_format_float(origin.get('z'), '.3f')
+        if 'origin_x' in metadata:
+            x_str = safe_format_float(metadata.get('origin_x'), '.3f')
+            y_str = safe_format_float(metadata.get('origin_y'), '.3f')
+            z_str = safe_format_float(metadata.get('origin_z'), '.3f')
             f.write(f"Grid origin: x={x_str} km, y={y_str} km, z={z_str} km\n")
         if 'bounds' in metadata:
             bounds = metadata['bounds']

@@ -81,10 +81,10 @@ def create_overview_map(df: pd.DataFrame, colors: Dict[str, str],
     
     # Determine coordinate columns
     if coordinate_type == 'transformed':
-        x_event = 'X_grid_km_y' if 'X_grid_km_y' in df.columns else 'X_grid_km'
-        y_event = 'Y_grid_km_y' if 'Y_grid_km_y' in df.columns else 'Y_grid_km'
-        x_station = 'X_grid_km_x' if 'X_grid_km_x' in df.columns else 'X_grid_km'
-        y_station = 'Y_grid_km_x' if 'Y_grid_km_x' in df.columns else 'Y_grid_km'
+        x_event = 'x_y' if 'x_y' in df.columns else 'x'
+        y_event = 'y_y' if 'y_y' in df.columns else 'y'
+        x_station = 'x_x' if 'x_x' in df.columns else 'x'
+        y_station = 'y_x' if 'y_x' in df.columns else 'y'
     else:
         x_event = 'x_km_y' if 'x_km_y' in df.columns else 'x_km'
         y_event = 'y_km_y' if 'y_km_y' in df.columns else 'y_km'
@@ -278,10 +278,10 @@ def create_cluster_zoom_plots(df: pd.DataFrame, stats: Dict[str, Any],
     
     # Determine coordinate columns
     if coordinate_type == 'transformed':
-        x_event = 'X_grid_km_y' if 'X_grid_km_y' in df.columns else 'X_grid_km'
-        y_event = 'Y_grid_km_y' if 'Y_grid_km_y' in df.columns else 'Y_grid_km'
-        x_station = 'X_grid_km_x' if 'X_grid_km_x' in df.columns else 'X_grid_km'
-        y_station = 'Y_grid_km_x' if 'Y_grid_km_x' in df.columns else 'Y_grid_km'
+        x_event = 'x_y' if 'x_y' in df.columns else 'x'
+        y_event = 'y_y' if 'y_y' in df.columns else 'y'
+        x_station = 'x_x' if 'x_x' in df.columns else 'x'
+        y_station = 'y_x' if 'y_x' in df.columns else 'y'
     else:
         x_event = 'x_km_y' if 'x_km_y' in df.columns else 'x_km'
         y_event = 'y_km_y' if 'y_km_y' in df.columns else 'y_km'

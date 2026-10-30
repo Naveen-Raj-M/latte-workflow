@@ -213,10 +213,10 @@ def prepare_method_comparison_data(df1: pd.DataFrame, df2: pd.DataFrame,
         elif f'event_{coord}_transformed_method1' in df_merged.columns:
             rename_map[f'event_{coord}_transformed_method1'] = f'event_{coord}_transformed'
             rename_map[f'event_{coord}_transformed_method2'] = f'corrected_event_{coord}_transformed'
-        # Pattern 3: X_grid_km, Y_grid_km, Z_grid_km
-        elif f'{coord.upper()}_grid_km_method1' in df_merged.columns:
-            rename_map[f'{coord.upper()}_grid_km_method1'] = f'event_{coord}_transformed'
-            rename_map[f'{coord.upper()}_grid_km_method2'] = f'corrected_event_{coord}_transformed'
+        # Pattern 3: x, y, z (velocity-format coordinate columns)
+        elif f'{coord}_method1' in df_merged.columns:
+            rename_map[f'{coord}_method1'] = f'event_{coord}_transformed'
+            rename_map[f'{coord}_method2'] = f'corrected_event_{coord}_transformed'
 
     # Handle origin time: prefer corrected times (post-inversion) for method comparison
     if 'corrected_origin_time_s_method1' in df_merged.columns:

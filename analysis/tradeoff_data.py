@@ -26,7 +26,7 @@ _MC_REQUIRED_COLS = {'synthetic_tt', 'phase', 'event_id', 'station'}
 _MC_MERGE_KEYS = ['event_id', 'station', 'phase']
 
 # Required columns for velocity CSV
-_VEL_REQUIRED_COLS = {'X_grid_km', 'Y_grid_km', 'Z_grid_km', 'vp', 'vs'}
+_VEL_REQUIRED_COLS = {'x', 'y', 'z', 'vp', 'vs'}
 
 # Regex to extract iteration index from directory names
 _ITER_DIR_PATTERN = re.compile(r'^iteration_(\d+)$')
@@ -507,7 +507,7 @@ def load_velocity_model_for_iteration(
             non-model CSVs co-exist in the same iteration directory.
 
     Returns:
-        DataFrame with columns [X_grid_km, Y_grid_km, Z_grid_km, vp, vs],
+        DataFrame with columns [x, y, z, vp, vs],
         or None on failure.
     """
     hdf5_candidates = sorted(
@@ -607,7 +607,7 @@ def load_initial_velocity_model(
         velocity_dataset: Dataset name for HDF5.
 
     Returns:
-        DataFrame with columns [X_grid_km, Y_grid_km, Z_grid_km, vp, vs, ...].
+        DataFrame with columns [x, y, z, vp, vs, ...].
 
     Raises:
         ValueError: If both paths are None.
@@ -641,9 +641,9 @@ def load_initial_velocity_model(
 
     logger.info(
         f"Initial model loaded: {len(df)} grid points, "
-        f"X=[{df['X_grid_km'].min():.2f}, {df['X_grid_km'].max():.2f}] km, "
-        f"Y=[{df['Y_grid_km'].min():.2f}, {df['Y_grid_km'].max():.2f}] km, "
-        f"Z=[{df['Z_grid_km'].min():.2f}, {df['Z_grid_km'].max():.2f}] km"
+        f"X=[{df['x'].min():.2f}, {df['x'].max():.2f}] km, "
+        f"Y=[{df['y'].min():.2f}, {df['y'].max():.2f}] km, "
+        f"Z=[{df['z'].min():.2f}, {df['z'].max():.2f}] km"
     )
 
     return df

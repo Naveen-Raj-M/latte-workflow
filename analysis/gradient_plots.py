@@ -62,7 +62,7 @@ def create_velocity_gradient_plots(df: pd.DataFrame,
                                           plots_dir, output_format, config)
     
     # Depth profile plots
-    if 'Z_grid_km' in df.columns:
+    if 'z' in df.columns:
         logger.info("Creating depth profile plots")
         create_velocity_depth_profile_plots(df, available_fields, stats, colors,
                                            plots_dir, output_format, config)
@@ -345,7 +345,7 @@ def create_velocity_spatial_gradient_plots(df: pd.DataFrame,
                                           colors: Dict[str, str], plots_dir: Path,
                                           output_format: str, config: Dict[str, Any]) -> None:
     """Create spatial distribution plots for velocity gradients."""
-    if 'X_grid_km' not in df.columns or 'Y_grid_km' not in df.columns:
+    if 'x' not in df.columns or 'y' not in df.columns:
         return
 
     basin_config = config.get('basin_boundaries', {})
@@ -363,7 +363,7 @@ def create_velocity_spatial_gradient_plots(df: pd.DataFrame,
         
         fig, ax = plt.subplots(figsize=(10, 8))
         
-        scatter = ax.scatter(plot_data['X_grid_km'], plot_data['Y_grid_km'],
+        scatter = ax.scatter(plot_data['x'], plot_data['y'],
                            c=plot_data[grad_field], cmap='RdBu_r',
                            s=5, alpha=0.6, edgecolors='none')
         

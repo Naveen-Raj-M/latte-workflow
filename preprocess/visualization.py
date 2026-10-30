@@ -695,12 +695,9 @@ def _plot_depth_slices(vel_df: pd.DataFrame, depth_slices: list,
     """
     logger = logging.getLogger(__name__)
 
-    # Column names present in the velocity DataFrame
-    z_col = 'Z_grid_km' if 'Z_grid_km' in vel_df.columns else 'depth'
-    x_col = 'X_grid_km' if 'X_grid_km' in vel_df.columns else 'lon'
-    y_col = 'Y_grid_km' if 'Y_grid_km' in vel_df.columns else 'lat'
-    x_label = 'X (km)' if x_col == 'X_grid_km' else 'Longitude (°)'
-    y_label = 'Y (km)' if y_col == 'Y_grid_km' else 'Latitude (°)'
+    z_col, x_col, y_col = 'z', 'x', 'y'
+    x_label = 'X (km)'
+    y_label = 'Y (km)'
 
     for depth in depth_slices:
         # Find closest depth in data

@@ -29,7 +29,7 @@ The per-pick CSV tables and velocity models use the same names as the published 
 | Ground truth travel times (preprocess) | `geometry_ground_truth_traveltimes.csv` | `ground_truth_traveltimes.csv`, `ground_truth_travel_times_corrected.csv`, `ground_truth_travel_times.csv` |
 | Synthetic travel times (postprocess) | `synthetic_traveltimes.csv` | `synthetic_travel_times_latte_output.csv`, `travel_time_residuals*.csv` (iteration scans) |
 | Source relocation (postprocess) | `source_relocation.csv` | `source_parameters_latte_output.csv`, `synthetic_travel_times_latte_output.csv`, `source_corrections*.csv` (iteration scans) |
-| Initial velocity model (preprocess) | `velocity_model_init.{csv,h5}` (also `_coarse`, `_exact`, `_chapman` variants) | `velocity_model_cartesian`, `velocity_initial_cartesian`, `velocity_cartesian_initial`, `velocity_cartesian` |
+| Initial velocity model (preprocess) | `velocity_model_init.{csv,h5}` (also `_coarse`, `_exact` variants) | `velocity_model_cartesian`, `velocity_initial_cartesian`, `velocity_cartesian_initial`, `velocity_cartesian` |
 | Final velocity model (postprocess, spike/checkerboard inverted model) | `velocity_model_final.{csv,h5}` (also `_coarse`) | `velocity_cartesian_latte_output`, `velocity_cartesian_updated`, `velocity_model_inverted` |
 
 New files are always written with the standard names. When a configured input is missing, the same directory is searched for the standard name and then the legacy names; a warning is logged whenever a legacy file is used.
@@ -293,27 +293,38 @@ One file per basin. Used as overlays on visualization plots.
 | **Config key** | `initial_velocity_model.output_csv` |
 | **Condition** | Written when `output_format` is `csv` or `both` |
 
-One row per grid point (nx × ny × nz total rows).
+One row per grid point (nx × ny × nz total rows). The same columns and metadata are used by every velocity-format file in the workflow (initial model, final model, checkerboard/spike models, coarse files).
 
 | Column | Description | Units |
 |---|---|---|
-| `X_grid_km` | Grid x-coordinate (origin-relative) | km |
-| `Y_grid_km` | Grid y-coordinate (origin-relative) | km |
-| `Z_grid_km` | Grid z-coordinate (origin-relative) | km |
-| `x` | Absolute Cartesian x | km |
-| `y` | Absolute Cartesian y | km |
-| `z` | Absolute Cartesian z | km |
-| `i_raw` | Raw grid index along x | — |
-| `j_raw` | Raw grid index along y | — |
-| `k_raw` | Raw grid index along z | — |
-| `i` | Grid index along x | — |
-| `j` | Grid index along y | — |
-| `k` | Grid index along z | — |
+| `lat` | Geographic latitude (NaN where not available) | degrees |
+| `lon` | Geographic longitude (NaN where not available) | degrees |
+| `depth` | Absolute depth, positive down (NaN where not available) | km |
+| `x` | Cartesian x (relative to the grid origin lon/lat) | km |
+| `y` | Cartesian y | km |
+| `z` | Cartesian z (relative to `origin_depth_km`) | km |
 | `vp` | P-wave velocity | km/s |
 | `vs` | S-wave velocity | km/s |
-| `lon` | Geographic longitude | degrees |
-| `lat` | Geographic latitude | degrees |
-| `depth` | Depth (positive down) | km |
+| `grad_vp`, `grad_vs`, `srch_vp`, `srch_vs` | Gradient / search direction fields *(optional, written by postprocess when requested)* | — |
+
+DWS files (`ray_path_diagnosis.dws_output_file`) use the same layout with a `dws` column in place of `vp`, `vs`.
+
+**Legacy files.** Older files with `X_grid_km`, `Y_grid_km`, `Z_grid_km` (and duplicate lowercase `x`, `y`, `z`) are read transparently: the columns are renamed to `x`, `y`, `z` and the grid index columns `i_raw`, `j_raw`, `k_raw`, `i`, `j`, `k` are dropped, each with a warning. Legacy DWS files that stored DWS in `vp` are also read.
+
+**Metadata.** Every file carries the same flat metadata: in HDF5 as attributes of the dataset, in CSV as `# key: value` comment lines at the top of the file (values are JSON). Readers skip the comment lines.
+
+| Key | Description |
+|---|---|
+| `nx`, `ny`, `nz` | Number of grid points along x, y, z |
+| `dx`, `dy`, `dz` | Grid spacing (km) |
+| `origin_x`, `origin_y`, `origin_z` | Cartesian coordinates of the first grid point (km) |
+| `origin_lon`, `origin_lat`, `origin_depth_km` | Geographic origin of the Cartesian frame |
+| `transformation_method`, `invert_y_axis` | Coordinate transformation used by preprocess |
+| `data_type` | `velocity` or `dws` |
+| `fine_nx` … `fine_origin_z`, `stride_x/y/z` | *Coarse files only:* grid of the original fine model (the grid of the LATTE binaries) and the subsampling strides |
+| `interpolation_mode`, `phase_type`, `processing_mode`, `checkerboard_config.*`, `spike_config.*`, `description`, `units` | Module-specific provenance (optional) |
+
+The grid (spacing and origin) is defined once, in preprocess. All other modules read it from this metadata and cross-check it against the `x`, `y`, `z` columns, logging a warning on any disagreement (the metadata value is used). For legacy files without grid metadata it is inferred from the columns, with a warning; grid keys are only needed in a module's configuration when there is no velocity file to read it from (`ray_path_diagnosis.grid`, `ray_density.grid`) or, as a last resort, for legacy files that cannot be inferred (`fine_grid`, `model_conversion.grid`). Legacy nested metadata names (`grid_dimensions.nx`, `grid_spacing.dx`, `grid_origin.x`) are also read.
 
 ---
 
@@ -326,10 +337,10 @@ One row per grid point (nx × ny × nz total rows).
 
 | Dataset | Shape | Description | Units |
 |---|---|---|---|
-| `velocity` | `(n_points, 17)` | All grid point data (same columns as velocity CSV) | km / km/s |
-| `velocity_coarse` *(optional)* | `(n_coarse, 17)` | Subsampled grid for fast analysis | km / km/s |
+| `velocity` | `(n_points, n_columns)` | All grid point data (same columns as velocity CSV) | km / km/s |
+| `velocity_coarse` *(optional)* | `(n_coarse, n_columns)` | Subsampled grid for fast analysis | km / km/s |
 
-File-level attributes include: `columns`, `nx`, `ny`, `nz`, `dx`, `dy`, `dz`, `origin_x`, `origin_y`, `origin_z`. Datasets are stored with gzip compression (level configurable).
+File-level attributes are the metadata described above, plus `columns` (the column names). The `velocity_coarse` dataset has its own grid keys and the `fine_*` keys. Datasets are stored with gzip compression (level configurable).
 
 ---
 

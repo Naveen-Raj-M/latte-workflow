@@ -212,7 +212,7 @@ def _validate_grid_alignment(
         )
 
     # Soft coordinate drift check
-    for col in ('X_grid_km', 'Y_grid_km', 'Z_grid_km'):
+    for col in ('x', 'y', 'z'):
         if col not in df_inverted.columns:
             continue
         if not np.allclose(df_initial[col].values, df_inverted[col].values, atol=1e-4):

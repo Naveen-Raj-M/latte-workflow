@@ -13,6 +13,8 @@ import pickle
 import numpy as np
 import pandas as pd
 
+from utils.column_utils import normalize_coordinate_columns
+
 
 # --------------------------------------------------------------------------- #
 # Standard CSV file names
@@ -50,7 +52,7 @@ _LEGACY_CSV_GLOBS = {
 }
 
 # Velocity models: standard stem and legacy stems. The extension (.csv, .h5, .hdf5) is kept, and a
-# trailing grid/method suffix (_coarse, _exact, _chapman) carries over to the standard name.
+# trailing grid/method suffix (_coarse, _exact) carries over to the standard name.
 VELOCITY_INIT_STEM = "velocity_model_init"
 VELOCITY_FINAL_STEM = "velocity_model_final"
 
@@ -66,7 +68,7 @@ _VELOCITY_STEMS = {
     ),
 }
 _VELOCITY_EXTENSIONS = ('.csv', '.h5', '.hdf5')
-_VELOCITY_SUFFIX_RE = re.compile(r'^(?P<stem>.+?)(?P<suffix>(?:_exact|_chapman)?(?:_coarse)?)$')
+_VELOCITY_SUFFIX_RE = re.compile(r'^(?P<stem>.+?)(?P<suffix>(?:_exact)?(?:_coarse)?)$')
 
 _logger = logging.getLogger(__name__)
 
@@ -282,7 +284,9 @@ def read_csv_file(filepath: Union[str, Path], **kwargs) -> pd.DataFrame:
     }
     default_kwargs.update(kwargs)
     
-    return pd.read_csv(filepath, **default_kwargs)
+    df = pd.read_csv(filepath, **default_kwargs)
+    # Legacy X_grid_km/Y_grid_km/Z_grid_km columns are renamed to x/y/z
+    return normalize_coordinate_columns(df, drop_index_columns=False, context=Path(filepath).name)
 
 
 def write_csv_file(df: pd.DataFrame, 

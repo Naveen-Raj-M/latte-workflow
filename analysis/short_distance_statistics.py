@@ -147,10 +147,10 @@ def _compute_cluster_statistics(df: pd.DataFrame, config: Dict[str, Any],
     
     # Determine coordinate column names
     if coordinate_type == 'transformed':
-        x_col_event = 'X_grid_km'
-        y_col_event = 'Y_grid_km'
-        x_col_station = 'X_grid_km'
-        y_col_station = 'Y_grid_km'
+        x_col_event = 'x'
+        y_col_event = 'y'
+        x_col_station = 'x'
+        y_col_station = 'y'
     else:
         x_col_event = 'x_km'
         y_col_event = 'y_km'

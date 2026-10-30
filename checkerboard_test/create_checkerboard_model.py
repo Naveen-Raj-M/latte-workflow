@@ -13,7 +13,7 @@ import pandas as pd
 from pathlib import Path
 from typing import Dict, Tuple, Optional
 
-from utils.velocity_io import read_velocity_file, write_velocity_file
+from utils.velocity_io import read_velocity_file, write_velocity_file, resolve_grid_metadata, normalize_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -198,7 +198,7 @@ def apply_checkerboard_perturbation(
     Apply checkerboard perturbations to velocity model.
 
     Args:
-        df: Velocity model DataFrame with X_grid_km, Y_grid_km, Z_grid_km, vp, vs
+        df: Velocity model DataFrame with x, y, z, vp, vs
             NOTE: This function modifies the input DataFrame in place for memory efficiency
         config: Checkerboard configuration dictionary
 
@@ -208,9 +208,9 @@ def apply_checkerboard_perturbation(
     # Note: We modify df in place to avoid memory issues with large datasets
 
     # Extract coordinates
-    x = df["X_grid_km"].values
-    y = df["Y_grid_km"].values
-    z = df["Z_grid_km"].values
+    x = df["x"].values
+    y = df["y"].values
+    z = df["z"].values
 
     # Extract parameters
     pattern_type = config.get("pattern_type", "sinusoidal")
@@ -313,24 +313,31 @@ def apply_checkerboard_perturbation(
     return df
 
 
+def get_grid(df: pd.DataFrame) -> Dict:
+    """
+    Get the grid (nx..origin_z) of a velocity model DataFrame read with ``read_velocity_file``.
+
+    The grid comes from the file metadata, checked against the x, y, z columns (and
+    inferred from them, with a warning, for legacy files without metadata).
+    """
+    return resolve_grid_metadata(df, source="Input velocity model")
+
+
 def get_grid_dimensions(df: pd.DataFrame) -> Tuple[int, int, int]:
     """
-    Extract grid dimensions from velocity model DataFrame.
+    Get grid dimensions of a velocity model DataFrame read with ``read_velocity_file``.
+
+    The dimensions come from the file metadata, checked against the x, y, z columns
+    (and inferred from them, with a warning, for legacy files without metadata).
 
     Args:
-        df: DataFrame with X_grid_km, Y_grid_km, Z_grid_km columns
+        df: DataFrame with x, y, z columns
 
     Returns:
         (nx, ny, nz) grid dimensions
     """
-    # Get unique values for each dimension
-    x_unique = df["X_grid_km"].unique()
-    y_unique = df["Y_grid_km"].unique()
-    z_unique = df["Z_grid_km"].unique()
-
-    nx = len(x_unique)
-    ny = len(y_unique)
-    nz = len(z_unique)
+    grid = get_grid(df)
+    nx, ny, nz = grid["nx"], grid["ny"], grid["nz"]
 
     logger.info(f"Grid dimensions: nx={nx}, ny={ny}, nz={nz}")
 
@@ -341,9 +348,7 @@ def write_velocity_binary(
     df: pd.DataFrame,
     output_path: Path,
     velocity_field: str,
-    nx: int,
-    ny: int,
-    nz: int,
+    grid: Dict,
 ) -> None:
     """
     Write velocity binary file in LATTE-compatible Fortran format.
@@ -354,35 +359,26 @@ def write_velocity_binary(
     - Dimension order: (nz, ny, nx)
 
     Args:
-        df: DataFrame with velocity data and X_grid_km, Y_grid_km, Z_grid_km columns
+        df: DataFrame with velocity data and x, y, z columns
         output_path: Output binary file path
         velocity_field: "vp" or "vs"
-        nx, ny, nz: Grid dimensions
+        grid: Grid definition (nx, ny, nz, dx, dy, dz, origin_x, origin_y, origin_z)
     """
+    nx, ny, nz = grid["nx"], grid["ny"], grid["nz"]
     logger.info(f"Writing {velocity_field} binary: {output_path}")
 
     # Create 3D grid array with natural LATTE shape (nz, ny, nx) in Fortran-order
     velocity_3d = np.zeros((nz, ny, nx), dtype=np.float32, order='F')
 
-    # Compute grid parameters from data
-    x_min = df["X_grid_km"].min()
-    y_min = df["Y_grid_km"].min()
-    z_min = df["Z_grid_km"].min()
-
-    # Infer grid spacing from sorted unique values
-    x_unique = np.sort(df["X_grid_km"].unique())
-    y_unique = np.sort(df["Y_grid_km"].unique())
-    z_unique = np.sort(df["Z_grid_km"].unique())
-
-    dx = x_unique[1] - x_unique[0] if len(x_unique) > 1 else 1.0
-    dy = y_unique[1] - y_unique[0] if len(y_unique) > 1 else 1.0
-    dz = z_unique[1] - z_unique[0] if len(z_unique) > 1 else 1.0
+    # Grid origin and spacing from the metadata (a single-point axis has no spacing)
+    x_min, y_min, z_min = grid["origin_x"], grid["origin_y"], grid["origin_z"]
+    dx, dy, dz = grid.get("dx", 1.0), grid.get("dy", 1.0), grid.get("dz", 1.0)
 
     # Fill grid using vectorized operations (much faster than iterrows)
     # Compute all indices at once using vectorized numpy operations
-    i_indices = np.round((df["X_grid_km"].values - x_min) / dx).astype(np.int32)
-    j_indices = np.round((df["Y_grid_km"].values - y_min) / dy).astype(np.int32)
-    k_indices = np.round((df["Z_grid_km"].values - z_min) / dz).astype(np.int32)
+    i_indices = np.round((df["x"].values - x_min) / dx).astype(np.int32)
+    j_indices = np.round((df["y"].values - y_min) / dy).astype(np.int32)
+    k_indices = np.round((df["z"].values - z_min) / dz).astype(np.int32)
 
     # Filter valid indices
     valid_mask = (
@@ -443,7 +439,7 @@ def create_checkerboard_model(
     logger.info(f"  Loaded {len(df)} grid points")
 
     # Verify required columns
-    required_cols = ["X_grid_km", "Y_grid_km", "Z_grid_km", "vp", "vs"]
+    required_cols = ["x", "y", "z", "vp", "vs"]
     missing_cols = [col for col in required_cols if col not in df.columns]
     if missing_cols:
         raise ValueError(f"Missing required columns: {missing_cols}")
@@ -452,7 +448,7 @@ def create_checkerboard_model(
     df_perturbed = apply_checkerboard_perturbation(df, config)
 
     # Get grid dimensions
-    nx, ny, nz = get_grid_dimensions(df_perturbed)
+    grid = get_grid(df)
 
     # Write perturbed velocity model (CSV and/or H5 based on config)
     output_format = config.get('output_format', 'csv')
@@ -466,30 +462,27 @@ def create_checkerboard_model(
     if isinstance(output_hdf5, str):
         output_hdf5 = Path(output_hdf5)
 
+    # Metadata for every output: grid and geography carried over from the input model
+    metadata = {
+        **normalize_metadata(df.attrs.get('metadata')),
+        'data_type': 'velocity',
+        'checkerboard_config': {
+            'pattern_type': config.get('pattern_type'),
+            'amplitude': config.get('amplitude'),
+            'wavelength_x_km': config.get('wavelength_x_km'),
+            'wavelength_y_km': config.get('wavelength_y_km'),
+            'wavelength_z_km': config.get('wavelength_z_km'),
+        },
+    }
+
     # Write CSV if requested
     if output_format in ['csv', 'both']:
         logger.info(f"Writing perturbed velocity model CSV: {output_csv}")
-        write_velocity_file(df_perturbed, output_csv, format='csv', show_progress=True)
+        write_velocity_file(df_perturbed, output_csv, format='csv', metadata=metadata, show_progress=True)
 
     # Write HDF5 if requested
     if output_format in ['hdf5', 'both']:
         logger.info(f"Writing perturbed velocity model H5: {output_hdf5}")
-
-        # Prepare metadata
-        metadata = {
-            'checkerboard_config': {
-                'pattern_type': config.get('pattern_type'),
-                'amplitude': config.get('amplitude'),
-                'wavelength_x_km': config.get('wavelength_x_km'),
-                'wavelength_y_km': config.get('wavelength_y_km'),
-                'wavelength_z_km': config.get('wavelength_z_km'),
-            },
-            'grid_dimensions': {
-                'nx': nx,
-                'ny': ny,
-                'nz': nz
-            }
-        }
 
         # Extract H5 options
         compression = hdf5_options.get('compression', 'gzip')
@@ -519,8 +512,8 @@ def create_checkerboard_model(
     logger.info(f"Writing binary velocity files for LATTE:")
     logger.info(f"  - {vp_bin_path}")
     logger.info(f"  - {vs_bin_path}")
-    write_velocity_binary(df_perturbed, vp_bin_path, "vp", nx, ny, nz)
-    write_velocity_binary(df_perturbed, vs_bin_path, "vs", nx, ny, nz)
+    write_velocity_binary(df_perturbed, vp_bin_path, "vp", grid)
+    write_velocity_binary(df_perturbed, vs_bin_path, "vs", grid)
 
     logger.info("Checkerboard model creation completed successfully!")
 
