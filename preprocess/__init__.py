@@ -8,7 +8,7 @@ Workflow:
 2. Transform coordinates (geodetic → local Cartesian via flattening)
 3. Create geometry and travel time files
 4. Create initial 3D velocity model and Fortran-compatible binaries
-5. Generate visualizations and ray density diagnostics
+5. Generate visualizations
 
 Main components:
     - data_loader: Load events/stations/picks from QuakeML or HDF5; apply filters
@@ -16,7 +16,6 @@ Main components:
     - geometry_traveltime: Source-receiver geometry and travel time table generation
     - initial_velocity_model: 3D velocity model creation and binary output
     - visualization: Station/event maps and velocity model plots
-    - ray_density_visualization: Ray coverage density plots
     - main: Pipeline orchestration
 
 Usage:

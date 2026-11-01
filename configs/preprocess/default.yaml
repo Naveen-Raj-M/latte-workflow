@@ -222,25 +222,3 @@ visualization:
     depth_slices: [5, 10, 20, 30, 40, 50]
     plot_profiles: true
     profile_type: "both"                  # lat | lon | both
-
-  # Ray path density visualization (coverage analysis)
-  ray_density:
-    enabled: false
-    output_dir: "${data.output_base_dir}/visualizations"
-    threshold: 1                          # cells with ray count below this shown as white; 0 = show all
-    generate_report: true                 # writes ray_path_density_report.txt with statistics
-    # Master switch for the xy/xz/yz summed projection plots
-    plot_overall_ray_density: true
-    # Individual projection planes; used only when plot_overall_ray_density is true
-    plot_xy: true                         # map view, summed over depth
-    plot_xz: true                         # vertical cross-section, summed over Y
-    plot_yz: true                         # vertical cross-section, summed over X
-    plot_xy_threshold_count: false        # map view: count of depth layers >= threshold
-    plot_depth_slices: false
-    depth_slices: [5, 10, 20, 30]         # km
-    density_colormap: "hot"               # hot | viridis | plasma | inferno | jet
-    use_parallel: true                    # reserved for future use
-    show_progress: true
-    figure_size: null                     # null = inherit from station_event_vis; or [width, height]
-    figure_dpi: null                      # null = inherit from station_event_vis
-    fontsize: null                        # null = inherit from station_event_vis

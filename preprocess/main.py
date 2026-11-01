@@ -28,7 +28,6 @@ from preprocess.visualization import (
     create_station_event_visualization,
     create_velocity_model_visualization
 )
-from preprocess.ray_density_visualization import create_ray_density_visualization
 
 # Import utilities
 from utils.logging_utils import setup_logging, ProcessTimer
@@ -301,29 +300,6 @@ def run_visualization(cfg: DictConfig, events_df=None, stations_df=None,
             create_velocity_model_visualization(cfg, velocity_file)
             print(f"  Velocity model visualizations saved to: "
                   f"{cfg.visualization.velocity_model_vis.output_dir}")
-
-    # Ray density visualization
-    if ('ray_density' in cfg.visualization and
-        cfg.visualization.ray_density.enabled):
-        # Check if we have Cartesian coordinates (requires coordinate_transform to be enabled)
-        has_cartesian = (events_cart is not None and stations_cart is not None and
-                        picks_df is not None and
-                        'x' in events_cart.columns and 'y' in events_cart.columns and 'z' in events_cart.columns)
-
-        if has_cartesian:
-            print("\nCreating ray density visualization...")
-            with ProcessTimer("Ray Density Visualization"):
-                create_ray_density_visualization(
-                    cfg, events_cart, stations_cart, picks_df
-                )
-                print(f"  Ray density visualizations saved to: "
-                      f"{cfg.visualization.ray_density.output_dir}")
-        else:
-            if not cfg.coordinate_transform.enabled:
-                logger.warning("Ray density visualization requires coordinate_transform to be enabled")
-                print("  WARNING: Ray density visualization skipped - requires coordinate_transform.enabled: true")
-            else:
-                logger.warning("Ray density visualization enabled but Cartesian coordinate data or picks not available")
 
 
 def setup_output_directories(config: DictConfig) -> None:

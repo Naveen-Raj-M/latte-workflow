@@ -146,8 +146,7 @@ latte-workflow/
 │   ├── coordinate_transformation.py
 │   ├── initial_velocity_model.py
 │   ├── geometry_traveltime.py
-│   ├── visualization.py
-│   └── ray_density_visualization.py
+│   └── visualization.py
 │
 ├── postprocess/                     # Post-processing pipeline
 │   ├── main.py

@@ -250,17 +250,6 @@ Builds a 3D velocity model by extruding a 1D depth profile (CSV) onto the Cartes
 | `plot_profiles` | `true` | Plot 1D velocity profiles. |
 | `profile_type` | `both` | Profile orientation: `lat`, `lon`, or `both`. |
 
-**`ray_density`** — Ray path density (coverage) visualization (disabled by default).
-
-| Key | Default | Description |
-|-----|---------|-------------|
-| `enabled` | `false` | Enable ray density visualization. Requires `coordinate_transform.enabled: true`. |
-| `threshold` | `1` | Cells with ray count below this are shown as white. `0` = show all. |
-| `generate_report` | `true` | Write `ray_path_density_report.txt` with coverage statistics. |
-| `plot_overall_ray_density` | `true` | Plot summed projections (xy/xz/yz). |
-| `plot_xy` / `plot_xz` / `plot_yz` | `true` | Enable individual projection planes. |
-| `density_colormap` | `hot` | Colormap: `hot`, `viridis`, `plasma`, `inferno`, `jet`. |
-
 ---
 
 ## Output Structure
@@ -283,8 +272,7 @@ output_base_dir/
 ├── geometry_csv/                    # Human-readable travel time CSVs
 └── visualizations/
     ├── <station_event plots>
-    ├── <velocity_model plots>
-    └── ray_path_density_report.txt
+    └── <velocity_model plots>
 ```
 
 Hydra also writes a timestamped run log to:
@@ -298,7 +286,6 @@ outputs/<YYYY-MM-DD>/<HH-MM-SS>_preprocess_<config_name>/
 
 - **`apply_default_weights` and `apply_azimuthal_weighting` are mutually exclusive.** Enabling both will raise a `ValueError` at startup.
 - **Filtered data is authoritative.** The CSV files saved under `coordinate_transform/` contain only events, stations, and picks that passed all geometry and velocity-range filters. Visualizations use this filtered data.
-- **`ray_density` visualization requires `coordinate_transform.enabled: true`** and Cartesian coordinate data to be present. It is silently skipped otherwise.
 - **`coarse_grid` spacing must be integer multiples of the fine grid spacing** (`coordinate_transform.grid_spacing_km`). Non-integer multiples will produce incorrect coarse grids.
 - **`azimuthal_bin_size_deg` should evenly divide 360.** Non-even divisors are allowed but will produce uneven bin coverage (a warning is logged).
 - **`max_files`** is intended for development and testing only. Leave as `null` for production runs.
