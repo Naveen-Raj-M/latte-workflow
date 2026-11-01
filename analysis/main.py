@@ -410,12 +410,6 @@ def initialize_analysis_configuration(cfg: DictConfig) -> None:
         if cfg.performance.parallel_processing:
             logger.info(f"  Number of jobs: {cfg.performance.n_jobs}")
 
-    # Initialize quality control settings
-    if hasattr(cfg, 'quality_control'):
-        logger.info("Quality control configuration:")
-        logger.info(f"  Validate input data: {cfg.quality_control.validate_input_data}")
-        logger.info(f"  Check coordinate consistency: {cfg.quality_control.check_coordinate_consistency}")
-
     logger.info("Configuration initialization complete")
 
 
@@ -571,24 +565,23 @@ def _validate_travel_time_config(cfg: DictConfig) -> None:
             logger.error("Provide either CSV (method1_csv/method2_csv) or HDF5 (method1_hdf5/method2_hdf5) for each method")
             sys.exit(1)
 
-        if cfg.get('quality_control', {}).get('validate_input_data', True):
-            # Validate Method 1
-            if method1_hdf5 and Path(method1_hdf5).exists():
-                logger.info(f"  Method 1: Using HDF5 file: {method1_hdf5}")
-            elif method1_csv and Path(resolve_csv_path(method1_csv)).exists():
-                logger.info(f"  Method 1: Using CSV file: {method1_csv}")
-            else:
-                logger.error(f"Travel time Method 1 file not found (tried CSV: {method1_csv}, HDF5: {method1_hdf5})")
-                sys.exit(1)
+        # Validate Method 1
+        if method1_hdf5 and Path(method1_hdf5).exists():
+            logger.info(f"  Method 1: Using HDF5 file: {method1_hdf5}")
+        elif method1_csv and Path(resolve_csv_path(method1_csv)).exists():
+            logger.info(f"  Method 1: Using CSV file: {method1_csv}")
+        else:
+            logger.error(f"Travel time Method 1 file not found (tried CSV: {method1_csv}, HDF5: {method1_hdf5})")
+            sys.exit(1)
 
-            # Validate Method 2
-            if method2_hdf5 and Path(method2_hdf5).exists():
-                logger.info(f"  Method 2: Using HDF5 file: {method2_hdf5}")
-            elif method2_csv and Path(resolve_csv_path(method2_csv)).exists():
-                logger.info(f"  Method 2: Using CSV file: {method2_csv}")
-            else:
-                logger.error(f"Travel time Method 2 file not found (tried CSV: {method2_csv}, HDF5: {method2_hdf5})")
-                sys.exit(1)
+        # Validate Method 2
+        if method2_hdf5 and Path(method2_hdf5).exists():
+            logger.info(f"  Method 2: Using HDF5 file: {method2_hdf5}")
+        elif method2_csv and Path(resolve_csv_path(method2_csv)).exists():
+            logger.info(f"  Method 2: Using CSV file: {method2_csv}")
+        else:
+            logger.error(f"Travel time Method 2 file not found (tried CSV: {method2_csv}, HDF5: {method2_hdf5})")
+            sys.exit(1)
 
         logger.info(f"Travel time analysis: method_comparison mode")
         logger.info(f"  Method 1: {cfg.travel_time_analysis.get('method1_name', 'Method 1')}")
@@ -602,15 +595,14 @@ def _validate_travel_time_config(cfg: DictConfig) -> None:
             logger.error("Travel time analysis in ground_truth mode requires either input_csv or input_hdf5")
             sys.exit(1)
 
-        if cfg.get('quality_control', {}).get('validate_input_data', True):
-            # Prefer HDF5 if available, fallback to CSV
-            if input_hdf5 and Path(input_hdf5).exists():
-                logger.info(f"Travel time analysis: Using HDF5 file: {input_hdf5}")
-            elif input_csv and Path(resolve_csv_path(input_csv)).exists():
-                logger.info(f"Travel time analysis: Using CSV file: {input_csv}")
-            else:
-                logger.error(f"Travel time input file not found (tried CSV: {input_csv}, HDF5: {input_hdf5})")
-                sys.exit(1)
+        # Prefer HDF5 if available, fallback to CSV
+        if input_hdf5 and Path(input_hdf5).exists():
+            logger.info(f"Travel time analysis: Using HDF5 file: {input_hdf5}")
+        elif input_csv and Path(resolve_csv_path(input_csv)).exists():
+            logger.info(f"Travel time analysis: Using CSV file: {input_csv}")
+        else:
+            logger.error(f"Travel time input file not found (tried CSV: {input_csv}, HDF5: {input_hdf5})")
+            sys.exit(1)
 
         logger.info(f"Travel time analysis: ground_truth mode")
     else:
@@ -631,13 +623,12 @@ def _validate_source_config(cfg: DictConfig) -> None:
             logger.error("Source analysis in method_comparison mode requires both method1_csv and method2_csv")
             sys.exit(1)
         
-        if cfg.get('quality_control', {}).get('validate_input_data', True):
-            if not Path(resolve_csv_path(method1_csv)).exists():
-                logger.error(f"Source Method 1 CSV not found: {method1_csv}")
-                sys.exit(1)
-            if not Path(resolve_csv_path(method2_csv)).exists():
-                logger.error(f"Source Method 2 CSV not found: {method2_csv}")
-                sys.exit(1)
+        if not Path(resolve_csv_path(method1_csv)).exists():
+            logger.error(f"Source Method 1 CSV not found: {method1_csv}")
+            sys.exit(1)
+        if not Path(resolve_csv_path(method2_csv)).exists():
+            logger.error(f"Source Method 2 CSV not found: {method2_csv}")
+            sys.exit(1)
         
         logger.info(f"Source analysis: method_comparison mode")
         logger.info(f"  Method 1: {cfg.source_analysis.get('method1_name', 'Method 1')}")
@@ -650,10 +641,9 @@ def _validate_source_config(cfg: DictConfig) -> None:
             logger.error("Source analysis in ground_truth mode requires input_csv")
             sys.exit(1)
         
-        if cfg.get('quality_control', {}).get('validate_input_data', True):
-            if not Path(resolve_csv_path(input_csv)).exists():
-                logger.error(f"Source CSV not found: {input_csv}")
-                sys.exit(1)
+        if not Path(resolve_csv_path(input_csv)).exists():
+            logger.error(f"Source CSV not found: {input_csv}")
+            sys.exit(1)
         
         logger.info(f"Source analysis: ground_truth mode")
     else:
@@ -664,31 +654,30 @@ def _validate_source_config(cfg: DictConfig) -> None:
 
 def _validate_velocity_config(cfg: DictConfig) -> None:
     """Validate velocity analysis configuration (supports CSV and HDF5)."""
-    if cfg.get('quality_control', {}).get('validate_input_data', True):
-        model1_csv = cfg.velocity_analysis.get('model1_csv')
-        model2_csv = cfg.velocity_analysis.get('model2_csv')
-        model1_hdf5 = cfg.velocity_analysis.get('model1_hdf5')
-        model2_hdf5 = cfg.velocity_analysis.get('model2_hdf5')
+    model1_csv = cfg.velocity_analysis.get('model1_csv')
+    model2_csv = cfg.velocity_analysis.get('model2_csv')
+    model1_hdf5 = cfg.velocity_analysis.get('model1_hdf5')
+    model2_hdf5 = cfg.velocity_analysis.get('model2_hdf5')
 
-        # Validate Model 1
-        if model1_csv or model1_hdf5:
-            if model1_hdf5 and Path(resolve_velocity_path(model1_hdf5)).exists():
-                logger.info(f"Velocity model 1: Using HDF5 file: {model1_hdf5}")
-            elif model1_csv and Path(resolve_velocity_path(model1_csv)).exists():
-                logger.info(f"Velocity model 1: Using CSV file: {model1_csv}")
-            else:
-                logger.error(f"Velocity model 1 file not found (tried CSV: {model1_csv}, HDF5: {model1_hdf5})")
-                sys.exit(1)
+    # Validate Model 1
+    if model1_csv or model1_hdf5:
+        if model1_hdf5 and Path(resolve_velocity_path(model1_hdf5)).exists():
+            logger.info(f"Velocity model 1: Using HDF5 file: {model1_hdf5}")
+        elif model1_csv and Path(resolve_velocity_path(model1_csv)).exists():
+            logger.info(f"Velocity model 1: Using CSV file: {model1_csv}")
+        else:
+            logger.error(f"Velocity model 1 file not found (tried CSV: {model1_csv}, HDF5: {model1_hdf5})")
+            sys.exit(1)
 
-        # Validate Model 2
-        if model2_csv or model2_hdf5:
-            if model2_hdf5 and Path(resolve_velocity_path(model2_hdf5)).exists():
-                logger.info(f"Velocity model 2: Using HDF5 file: {model2_hdf5}")
-            elif model2_csv and Path(resolve_velocity_path(model2_csv)).exists():
-                logger.info(f"Velocity model 2: Using CSV file: {model2_csv}")
-            else:
-                logger.error(f"Velocity model 2 file not found (tried CSV: {model2_csv}, HDF5: {model2_hdf5})")
-                sys.exit(1)
+    # Validate Model 2
+    if model2_csv or model2_hdf5:
+        if model2_hdf5 and Path(resolve_velocity_path(model2_hdf5)).exists():
+            logger.info(f"Velocity model 2: Using HDF5 file: {model2_hdf5}")
+        elif model2_csv and Path(resolve_velocity_path(model2_csv)).exists():
+            logger.info(f"Velocity model 2: Using CSV file: {model2_csv}")
+        else:
+            logger.error(f"Velocity model 2 file not found (tried CSV: {model2_csv}, HDF5: {model2_hdf5})")
+            sys.exit(1)
 
 
 def _validate_distance_config(cfg: DictConfig) -> None:
@@ -724,36 +713,34 @@ def _validate_distance_config(cfg: DictConfig) -> None:
             logger.error("Distance analysis requires station_csv and events_csv for both modes")
             sys.exit(1)
         
-        if cfg.get('quality_control', {}).get('validate_input_data', True):
-            if not Path(resolve_csv_path(method1_csv)).exists():
-                logger.error(f"Distance Method 1 CSV not found: {method1_csv}")
-                sys.exit(1)
-            if not Path(resolve_csv_path(method2_csv)).exists():
-                logger.error(f"Distance Method 2 CSV not found: {method2_csv}")
-                sys.exit(1)
-            if not Path(station_csv).exists():
-                logger.error(f"Station CSV not found: {station_csv}")
-                sys.exit(1)
-            if not Path(events_csv).exists():
-                logger.error(f"Events CSV not found: {events_csv}")
-                sys.exit(1)
+        if not Path(resolve_csv_path(method1_csv)).exists():
+            logger.error(f"Distance Method 1 CSV not found: {method1_csv}")
+            sys.exit(1)
+        if not Path(resolve_csv_path(method2_csv)).exists():
+            logger.error(f"Distance Method 2 CSV not found: {method2_csv}")
+            sys.exit(1)
+        if not Path(station_csv).exists():
+            logger.error(f"Station CSV not found: {station_csv}")
+            sys.exit(1)
+        if not Path(events_csv).exists():
+            logger.error(f"Events CSV not found: {events_csv}")
+            sys.exit(1)
         
         logger.info(f"Distance analysis: method_comparison mode")
         logger.info(f"  Method 1: {cfg.distance_analysis.get('method1_name', 'Method 1')}")
         logger.info(f"  Method 2: {cfg.distance_analysis.get('method2_name', 'Method 2')}")
         
     elif comparison_mode == 'ground_truth':
-        if cfg.get('quality_control', {}).get('validate_input_data', True):
-            files_to_check = [
-                ('travel_time_csv', 'Distance analysis travel time CSV'),
-                ('station_csv', 'Distance analysis station CSV'),
-                ('events_csv', 'Distance analysis events CSV')
-            ]
-            for file_key, description in files_to_check:
-                file_path = cfg.distance_analysis.get(file_key)
-                if file_path and not Path(resolve_csv_path(file_path)).exists():
-                    logger.error(f"{description} not found: {file_path}")
-                    sys.exit(1)
+        files_to_check = [
+            ('travel_time_csv', 'Distance analysis travel time CSV'),
+            ('station_csv', 'Distance analysis station CSV'),
+            ('events_csv', 'Distance analysis events CSV')
+        ]
+        for file_key, description in files_to_check:
+            file_path = cfg.distance_analysis.get(file_key)
+            if file_path and not Path(resolve_csv_path(file_path)).exists():
+                logger.error(f"{description} not found: {file_path}")
+                sys.exit(1)
         
         logger.info(f"Distance analysis: ground_truth mode")
     else:
@@ -795,36 +782,34 @@ def _validate_short_distance_config(cfg: DictConfig) -> None:
             logger.error("Short distance analysis requires station_csv and events_csv for both modes")
             sys.exit(1)
         
-        if cfg.get('quality_control', {}).get('validate_input_data', True):
-            if not Path(resolve_csv_path(method1_csv)).exists():
-                logger.error(f"Short distance Method 1 CSV not found: {method1_csv}")
-                sys.exit(1)
-            if not Path(resolve_csv_path(method2_csv)).exists():
-                logger.error(f"Short distance Method 2 CSV not found: {method2_csv}")
-                sys.exit(1)
-            if not Path(station_csv).exists():
-                logger.error(f"Station CSV not found: {station_csv}")
-                sys.exit(1)
-            if not Path(events_csv).exists():
-                logger.error(f"Events CSV not found: {events_csv}")
-                sys.exit(1)
+        if not Path(resolve_csv_path(method1_csv)).exists():
+            logger.error(f"Short distance Method 1 CSV not found: {method1_csv}")
+            sys.exit(1)
+        if not Path(resolve_csv_path(method2_csv)).exists():
+            logger.error(f"Short distance Method 2 CSV not found: {method2_csv}")
+            sys.exit(1)
+        if not Path(station_csv).exists():
+            logger.error(f"Station CSV not found: {station_csv}")
+            sys.exit(1)
+        if not Path(events_csv).exists():
+            logger.error(f"Events CSV not found: {events_csv}")
+            sys.exit(1)
         
         logger.info(f"Short distance analysis: method_comparison mode")
         logger.info(f"  Method 1: {cfg.short_distance_analysis.get('method1_name', 'Method 1')}")
         logger.info(f"  Method 2: {cfg.short_distance_analysis.get('method2_name', 'Method 2')}")
         
     elif comparison_mode == 'ground_truth':
-        if cfg.get('quality_control', {}).get('validate_input_data', True):
-            files_to_check = [
-                ('travel_time_csv', 'Short distance analysis travel time CSV'),
-                ('station_csv', 'Short distance analysis station CSV'),
-                ('events_csv', 'Short distance analysis events CSV')
-            ]
-            for file_key, description in files_to_check:
-                file_path = cfg.short_distance_analysis.get(file_key)
-                if file_path and not Path(resolve_csv_path(file_path)).exists():
-                    logger.error(f"{description} not found: {file_path}")
-                    sys.exit(1)
+        files_to_check = [
+            ('travel_time_csv', 'Short distance analysis travel time CSV'),
+            ('station_csv', 'Short distance analysis station CSV'),
+            ('events_csv', 'Short distance analysis events CSV')
+        ]
+        for file_key, description in files_to_check:
+            file_path = cfg.short_distance_analysis.get(file_key)
+            if file_path and not Path(resolve_csv_path(file_path)).exists():
+                logger.error(f"{description} not found: {file_path}")
+                sys.exit(1)
         
         logger.info(f"Short distance analysis: ground_truth mode")
     else:
@@ -835,32 +820,31 @@ def _validate_short_distance_config(cfg: DictConfig) -> None:
 
 def _validate_gradient_config(cfg: DictConfig) -> None:
     """Validate gradient analysis configuration (supports CSV and HDF5)."""
-    if cfg.get('quality_control', {}).get('validate_input_data', True):
-        if "velocity" in cfg.gradient_analysis.get('analysis_type', []):
-            velocity_gradient_csv = cfg.gradient_analysis.get('velocity_input_csv')
-            velocity_gradient_hdf5 = cfg.gradient_analysis.get('velocity_input_hdf5')
+    if "velocity" in cfg.gradient_analysis.get('analysis_type', []):
+        velocity_gradient_csv = cfg.gradient_analysis.get('velocity_input_csv')
+        velocity_gradient_hdf5 = cfg.gradient_analysis.get('velocity_input_hdf5')
 
-            if velocity_gradient_csv or velocity_gradient_hdf5:
-                if velocity_gradient_hdf5 and Path(resolve_velocity_path(velocity_gradient_hdf5)).exists():
-                    logger.info(f"Velocity gradient analysis: Using HDF5 file: {velocity_gradient_hdf5}")
-                elif velocity_gradient_csv and Path(resolve_velocity_path(velocity_gradient_csv)).exists():
-                    logger.info(f"Velocity gradient analysis: Using CSV file: {velocity_gradient_csv}")
-                else:
-                    logger.error(f"Velocity gradient file not found (tried CSV: {velocity_gradient_csv}, HDF5: {velocity_gradient_hdf5})")
-                    sys.exit(1)
+        if velocity_gradient_csv or velocity_gradient_hdf5:
+            if velocity_gradient_hdf5 and Path(resolve_velocity_path(velocity_gradient_hdf5)).exists():
+                logger.info(f"Velocity gradient analysis: Using HDF5 file: {velocity_gradient_hdf5}")
+            elif velocity_gradient_csv and Path(resolve_velocity_path(velocity_gradient_csv)).exists():
+                logger.info(f"Velocity gradient analysis: Using CSV file: {velocity_gradient_csv}")
+            else:
+                logger.error(f"Velocity gradient file not found (tried CSV: {velocity_gradient_csv}, HDF5: {velocity_gradient_hdf5})")
+                sys.exit(1)
 
-        if "source" in cfg.gradient_analysis.get('analysis_type', []):
-            source_gradient_csv = cfg.gradient_analysis.get('source_input_csv')
-            source_gradient_hdf5 = cfg.gradient_analysis.get('source_input_hdf5')
+    if "source" in cfg.gradient_analysis.get('analysis_type', []):
+        source_gradient_csv = cfg.gradient_analysis.get('source_input_csv')
+        source_gradient_hdf5 = cfg.gradient_analysis.get('source_input_hdf5')
 
-            if source_gradient_csv or source_gradient_hdf5:
-                if source_gradient_hdf5 and Path(resolve_velocity_path(source_gradient_hdf5)).exists():
-                    logger.info(f"Source gradient analysis: Using HDF5 file: {source_gradient_hdf5}")
-                elif source_gradient_csv and Path(resolve_csv_path(source_gradient_csv)).exists():
-                    logger.info(f"Source gradient analysis: Using CSV file: {source_gradient_csv}")
-                else:
-                    logger.error(f"Source gradient file not found (tried CSV: {source_gradient_csv}, HDF5: {source_gradient_hdf5})")
-                    sys.exit(1)
+        if source_gradient_csv or source_gradient_hdf5:
+            if source_gradient_hdf5 and Path(resolve_velocity_path(source_gradient_hdf5)).exists():
+                logger.info(f"Source gradient analysis: Using HDF5 file: {source_gradient_hdf5}")
+            elif source_gradient_csv and Path(resolve_csv_path(source_gradient_csv)).exists():
+                logger.info(f"Source gradient analysis: Using CSV file: {source_gradient_csv}")
+            else:
+                logger.error(f"Source gradient file not found (tried CSV: {source_gradient_csv}, HDF5: {source_gradient_hdf5})")
+                sys.exit(1)
 
 
 def _validate_tradeoff_config(cfg: DictConfig) -> None:
@@ -884,11 +868,10 @@ def _validate_tradeoff_config(cfg: DictConfig) -> None:
                 "when y_axis_mode = 'data_misfit'"
             )
             sys.exit(1)
-        if cfg.get('quality_control', {}).get('validate_input_data', True):
-            fp = tcfg.get('data_misfit_file_path')
-            if fp and not Path(fp).exists():
-                logger.error(f"tradeoff_analysis: data_misfit_file_path not found: {fp}")
-                sys.exit(1)
+        fp = tcfg.get('data_misfit_file_path')
+        if fp and not Path(fp).exists():
+            logger.error(f"tradeoff_analysis: data_misfit_file_path not found: {fp}")
+            sys.exit(1)
 
     # rms mode requirements
     if y_mode == 'rms':
@@ -916,26 +899,25 @@ def _validate_tradeoff_config(cfg: DictConfig) -> None:
         logger.error("tradeoff_analysis: inversion_analysis_dir is required")
         sys.exit(1)
 
-    if cfg.get('quality_control', {}).get('validate_input_data', True):
-        hdf5 = tcfg.get('initial_model_hdf5')
-        csv = tcfg.get('initial_model_csv')
-        if hdf5 and not Path(resolve_velocity_path(hdf5)).exists():
-            logger.error(
-                f"tradeoff_analysis: initial_model_hdf5 not found: {hdf5}"
-            )
-            sys.exit(1)
-        elif not hdf5 and csv and not Path(resolve_velocity_path(csv)).exists():
-            logger.error(
-                f"tradeoff_analysis: initial_model_csv not found: {csv}"
-            )
-            sys.exit(1)
+    hdf5 = tcfg.get('initial_model_hdf5')
+    csv = tcfg.get('initial_model_csv')
+    if hdf5 and not Path(resolve_velocity_path(hdf5)).exists():
+        logger.error(
+            f"tradeoff_analysis: initial_model_hdf5 not found: {hdf5}"
+        )
+        sys.exit(1)
+    elif not hdf5 and csv and not Path(resolve_velocity_path(csv)).exists():
+        logger.error(
+            f"tradeoff_analysis: initial_model_csv not found: {csv}"
+        )
+        sys.exit(1)
 
-        inv_dir = tcfg.get('inversion_analysis_dir')
-        if inv_dir and not Path(inv_dir).exists():
-            logger.error(
-                f"tradeoff_analysis: inversion_analysis_dir not found: {inv_dir}"
-            )
-            sys.exit(1)
+    inv_dir = tcfg.get('inversion_analysis_dir')
+    if inv_dir and not Path(inv_dir).exists():
+        logger.error(
+            f"tradeoff_analysis: inversion_analysis_dir not found: {inv_dir}"
+        )
+        sys.exit(1)
 
     # Region mode
     mv_cfg = tcfg.get('model_variance', {})

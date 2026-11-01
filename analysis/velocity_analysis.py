@@ -91,12 +91,11 @@ def analyze_velocity_models(config: Dict[str, Any]) -> Dict[str, Any]:
         if col not in df2.columns:
             raise ValueError(f"Required column '{col}' missing from Model 2")
 
-    # Check coordinate consistency if enabled
-    if config.get('quality_control', {}).get('check_coordinate_consistency', True):
-        coord_cols = ['x', 'y', 'z']
-        for col in coord_cols:
-            if not np.allclose(df1[col].values, df2[col].values, rtol=1e-6):
-                logger.warning(f"Coordinate column '{col}' differs between models")
+    # Check coordinate consistency
+    coord_cols = ['x', 'y', 'z']
+    for col in coord_cols:
+        if not np.allclose(df1[col].values, df2[col].values, rtol=1e-6):
+            logger.warning(f"Coordinate column '{col}' differs between models")
 
     logger.info("Velocity model validation completed")
 
@@ -178,11 +177,10 @@ def load_and_validate_velocity_models(model1_csv: str, model2_csv: str,
             raise ValueError(f"Required column '{col}' missing from Model 2")
     
     # Check coordinate consistency
-    if config['quality_control'].get('check_coordinate_consistency', True):
-        coord_cols = ['x', 'y', 'z']
-        for col in coord_cols:
-            if not np.allclose(df1[col].values, df2[col].values, rtol=1e-6):
-                logger.warning(f"Coordinate column '{col}' differs between models")
+    coord_cols = ['x', 'y', 'z']
+    for col in coord_cols:
+        if not np.allclose(df1[col].values, df2[col].values, rtol=1e-6):
+            logger.warning(f"Coordinate column '{col}' differs between models")
 
     logger.info("Velocity model validation completed")
     return df1, df2

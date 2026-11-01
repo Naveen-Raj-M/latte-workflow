@@ -522,7 +522,10 @@ def get_ray_path_metadata(cache_path: str) -> Dict[str, Any]:
                 'nz': grid.attrs.get('nz', None),
                 'dx': grid.attrs.get('dx', None),
                 'dy': grid.attrs.get('dy', None),
-                'dz': grid.attrs.get('dz', None)
+                'dz': grid.attrs.get('dz', None),
+                'origin_x': grid.attrs.get('origin_x', None),
+                'origin_y': grid.attrs.get('origin_y', None),
+                'origin_z': grid.attrs.get('origin_z', None)
             }
 
     return metadata

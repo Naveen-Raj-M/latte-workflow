@@ -120,6 +120,9 @@ def initialize_cache(cache_path: str, config: DictConfig) -> None:
         grid_grp.attrs['dx'] = config.grid.dx
         grid_grp.attrs['dy'] = config.grid.dy
         grid_grp.attrs['dz'] = config.grid.dz
+        grid_grp.attrs['origin_x'] = config.grid.origin_x
+        grid_grp.attrs['origin_y'] = config.grid.origin_y
+        grid_grp.attrs['origin_z'] = config.grid.origin_z
 
         # Create phase groups
         f.create_group('p_wave')

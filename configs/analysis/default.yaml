@@ -8,26 +8,18 @@ hydra:
     root:
       handlers: []                        # disables Hydra's default console handler; setup_logging manages output
 
-# Basin boundary overlays for XY plane plots across all analysis modules
-# Provide the Cartesian-transformed boundary files produced by the preprocess module
-basin_boundaries:
-  data_dir: "/path/to/preprocessed/coordinate_transform/basin_boundaries"
-  basins:
-    - file: "CentralBasin_Verticies_WGS84.csv"
-      label: "Central Basin"
-    - file: "DelawareBasin_Verticies_WGS84.csv"
-      label: "Delaware Basin"
-    - file: "MidlandBasin_Verticies_WGS84.csv"
-      label: "Midland Basin"
-  line_color: "darkgreen"
-  line_width: 2
-  line_style: "-"                      # - | -- | : | -.
-  line_alpha: 0.8                      # transparency (0 = transparent, 1 = opaque)
-  show_labels: true
-  label_fontsize: 12
-  label_fontweight: "bold"             # normal | bold
-  label_offset_x: 0.0                 # km offset from basin centroid
-  label_offset_y: 0.0                 # km offset from basin centroid
+# File path patterns used across all analysis modules
+paths:
+  input_dir: "data/processed"
+  output_base_dir: "results/analysis"
+  travel_time_csv_pattern: "synthetic_traveltimes.csv"
+  velocity_csv_pattern: "velocity_model_final*.csv"
+  station_csv_name: "stations_cartesian.csv"
+  events_csv_name: "events_cartesian*.csv"
+  source_csv_pattern: "source_relocation.csv"
+  plots_subdir: "plots"
+  stats_subdir: "statistics"
+  reports_subdir: "reports"
 
 # Global settings shared across all analysis modules
 analysis:
@@ -66,29 +58,26 @@ analysis:
       negative_residual: "#4444ff"
       zero_line: "#000000"
 
-# Velocity gradient and search direction analysis
-gradient_analysis:
-  enabled: false
-  analysis_type: ["velocity", "source"]   # subset of: velocity, source
-
-  # Input files — HDF5 takes precedence over CSV when both are set
-  velocity_input_csv: /path/to/postprocessed/velocity/csv
-  velocity_input_hdf5: null               # null = use CSV
-  velocity_output_dir: "/path/to/velocity_gradient_analysis"
-  source_input_csv: /path/to/postprocessed/source/csv
-  source_input_hdf5: null                 # null = use CSV
-  source_output_dir: "/path/to/source_gradient_analysis"
-
-  histogram_bins: 50
-  depth_bins: 10
-  min_points_per_bin: 10
-
-  generate_report: true
-  create_histograms: true
-  create_alignment_plots: true
-  create_spatial_plots: true
-  create_depth_profiles: true
-  plot_basin_boundaries: false            # true = overlay basin boundaries on XY spatial plots
+# Basin boundary overlays for XY plane plots across all analysis modules
+# Provide the Cartesian-transformed boundary files produced by the preprocess module
+basin_boundaries:
+  data_dir: "/path/to/preprocessed/coordinate_transform/basin_boundaries"
+  basins:
+    - file: "CentralBasin_Verticies_WGS84.csv"
+      label: "Central Basin"
+    - file: "DelawareBasin_Verticies_WGS84.csv"
+      label: "Delaware Basin"
+    - file: "MidlandBasin_Verticies_WGS84.csv"
+      label: "Midland Basin"
+  line_color: "darkgreen"
+  line_width: 2
+  line_style: "-"                      # - | -- | : | -.
+  line_alpha: 0.8                      # transparency (0 = transparent, 1 = opaque)
+  show_labels: true
+  label_fontsize: 12
+  label_fontweight: "bold"             # normal | bold
+  label_offset_x: 0.0                 # km offset from basin centroid
+  label_offset_y: 0.0                 # km offset from basin centroid
 
 # Travel time residual analysis
 travel_time_analysis:
@@ -96,8 +85,8 @@ travel_time_analysis:
   comparison_mode: "ground_truth"         # ground_truth | method_comparison
 
   # ground_truth mode: single residual CSV compared against zero
-  input_csv: null
-  output_dir: null
+  input_csv: "${paths.input_dir}/synthetic_traveltimes.csv"
+  output_dir: "${paths.output_base_dir}/travel_time_analysis"
 
   # method_comparison mode: two residual CSVs compared against each other
   method1_csv: null
@@ -127,11 +116,11 @@ velocity_analysis:
   comparison_mode: "initial_vs_final"     # initial_vs_final | method_comparison | custom
 
   # Input files — HDF5 takes precedence over CSV when both are set
-  model1_csv: "data/processed/velocity_model_init.csv"
+  model1_csv: "${paths.input_dir}/velocity_model_init.csv"
   model1_hdf5: null                       # null = use CSV
-  model2_csv: "data/processed/velocity_model_final.csv"
+  model2_csv: "${paths.input_dir}/velocity_model_final.csv"
   model2_hdf5: null                       # null = use CSV
-  output_dir: "results/analysis/velocity_comparison"
+  output_dir: "${paths.output_base_dir}/velocity_comparison"
 
   initial_velocity_model_csv: null
   initial_velocity_model_hdf5: null       # null = use CSV
@@ -176,16 +165,40 @@ velocity_analysis:
         coordinates: []
         label: "Vertical Plane (yz)"
 
+# Velocity gradient and search direction analysis
+gradient_analysis:
+  enabled: false
+  analysis_type: ["velocity", "source"]   # subset of: velocity, source
+
+  # Input files — HDF5 takes precedence over CSV when both are set
+  velocity_input_csv: "${paths.input_dir}/velocity_model_final.csv"
+  velocity_input_hdf5: null               # null = use CSV
+  velocity_output_dir: "${paths.output_base_dir}/velocity_gradient_analysis"
+  source_input_csv: "${paths.input_dir}/source_relocation.csv"
+  source_input_hdf5: null                 # null = use CSV
+  source_output_dir: "${paths.output_base_dir}/source_gradient_analysis"
+
+  histogram_bins: 50
+  depth_bins: 10
+  min_points_per_bin: 10
+
+  generate_report: true
+  create_histograms: true
+  create_alignment_plots: true
+  create_spatial_plots: true
+  create_depth_profiles: true
+  plot_basin_boundaries: false            # true = overlay basin boundaries on XY spatial plots
+
 # Residual vs epicentral/hypocentral distance analysis
 distance_analysis:
   enabled: false
   comparison_mode: "ground_truth"         # ground_truth | method_comparison
 
   # ground_truth mode inputs
-  travel_time_csv: null
-  station_csv: null
-  events_csv: null
-  output_dir: null
+  travel_time_csv: "${paths.input_dir}/synthetic_traveltimes.csv"
+  station_csv: "${paths.input_dir}/stations_cartesian.csv"
+  events_csv: "${paths.input_dir}/events_cartesian.csv"
+  output_dir: "${paths.output_base_dir}/distance_analysis"
 
   # method_comparison mode inputs
   method1_csv: null
@@ -213,10 +226,10 @@ short_distance_analysis:
   comparison_mode: "ground_truth"         # ground_truth | method_comparison
 
   # ground_truth mode inputs
-  travel_time_csv: null
-  station_csv: null
-  events_csv: null
-  output_dir: null
+  travel_time_csv: "${paths.input_dir}/synthetic_traveltimes.csv"
+  station_csv: "${paths.input_dir}/stations_cartesian.csv"
+  events_csv: "${paths.input_dir}/events_cartesian.csv"
+  output_dir: "${paths.output_base_dir}/short_distance_analysis"
 
   # method_comparison mode inputs
   method1_csv: null
@@ -267,8 +280,8 @@ source_analysis:
   comparison_mode: "ground_truth"         # ground_truth | method_comparison
 
   # ground_truth mode input
-  input_csv: null
-  output_dir: "results/analysis/source_corrections"
+  input_csv: "${paths.input_dir}/source_relocation.csv"
+  output_dir: "${paths.output_base_dir}/source_corrections"
 
   # method_comparison mode inputs
   method1_csv: null
@@ -292,7 +305,7 @@ source_analysis:
 dws_analysis:
   enabled: false
 
-  input_hdf5: "/path/to/dws_values.h5"
+  input_hdf5: "${paths.input_dir}/dws_values.h5"
   output_dir: "${paths.output_base_dir}/dws_analysis"
 
   # Plot type toggles
@@ -386,7 +399,9 @@ ray_density_analysis:
   input_cache: "${paths.input_dir}/ray_paths/ray_paths.h5"
   output_dir: "${paths.output_base_dir}/ray_density/"
 
-  # Model grid — must match the inversion grid exactly
+  # Model grid. The grid stored in the ray path cache metadata (written by postprocess) is the
+  # truth and is used when present; on a mismatch with the values below a warning is logged and the
+  # metadata wins. These values are used only for keys the cache metadata lacks (older caches).
   grid:
     nx: 401
     ny: 361
@@ -532,25 +547,7 @@ tradeoff_analysis:
     vp_color: null                      # null = use analysis.plot_style.colors.p_wave_dark
     vs_color: null                      # null = use analysis.plot_style.colors.s_wave_dark
 
-# File path patterns used across all analysis modules
-paths:
-  input_dir: "data/processed"
-  output_base_dir: "results/analysis"
-  travel_time_csv_pattern: "synthetic_traveltimes.csv"
-  velocity_csv_pattern: "velocity_model_final*.csv"
-  station_csv_name: "stations_cartesian.csv"
-  events_csv_name: "events_cartesian*.csv"
-  source_csv_pattern: "source_relocation.csv"
-  plots_subdir: "plots"
-  stats_subdir: "statistics"
-  reports_subdir: "reports"
-
 # Parallel processing (currently used by dws_analysis only)
 performance:
   parallel_processing: false
   n_jobs: 1                             # number of parallel jobs; 1 = serial
-
-# Input data validation before each analysis module runs
-quality_control:
-  validate_input_data: true             # true = abort if any required input file is missing
-  check_coordinate_consistency: true    # true = warn when coordinate columns differ between models

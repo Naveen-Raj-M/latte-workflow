@@ -12,6 +12,7 @@ import logging
 from pathlib import Path
 from typing import Dict, Any
 
+import numpy as np
 from tqdm import tqdm
 
 from .ray_density_data import compute_ray_density_from_cache
@@ -26,13 +27,58 @@ from .ray_density_plots import (
 )
 from .raypath_data import (
     load_event_ids_from_file,
-    convert_event_ids_to_shot_ids
+    convert_event_ids_to_shot_ids,
+    get_ray_path_metadata,
 )
 from .basin_boundaries import load_basin_boundaries
 from utils.io_utils import ensure_directory_exists
 from utils.plot_utils import setup_plot_style
 
 logger = logging.getLogger(__name__)
+
+
+GRID_KEYS = ('nx', 'ny', 'nz', 'dx', 'dy', 'dz', 'origin_x', 'origin_y', 'origin_z')
+
+
+def resolve_grid_config(cache_path: str, config_grid: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Return the model grid, preferring the ray path cache metadata over the configuration.
+
+    Args:
+        cache_path: Ray path HDF5 cache
+        config_grid: ``ray_density_analysis.grid`` from the configuration (may be empty)
+
+    Returns:
+        Dict with all GRID_KEYS. Metadata values win; configured values fill missing keys.
+
+    Raises:
+        KeyError: if a key is in neither the metadata nor the configuration.
+    """
+    meta_grid = get_ray_path_metadata(cache_path).get('grid', {})
+    grid = {}
+    from_config = []
+    for key in GRID_KEYS:
+        meta_value, cfg_value = meta_grid.get(key), config_grid.get(key)
+        if key.startswith('origin_') and cfg_value is None:
+            legacy = config_grid.get(f"{key[-1]}_min")  # legacy x_min/y_min/z_min
+            if legacy is not None:
+                logger.warning(f"ray_density_analysis.grid.{key[-1]}_min is a legacy key; use {key}")
+                cfg_value = legacy
+        if meta_value is not None:
+            grid[key] = meta_value.item() if hasattr(meta_value, 'item') else meta_value
+            if cfg_value is not None and not np.isclose(float(cfg_value), float(grid[key])):
+                logger.warning(
+                    f"Grid mismatch for {key}: configuration has {cfg_value}, cache metadata "
+                    f"has {grid[key]}; using the metadata value"
+                )
+        elif cfg_value is not None:
+            grid[key] = cfg_value
+            from_config.append(key)
+        else:
+            raise KeyError(f"Grid key '{key}' is in neither the cache metadata nor ray_density_analysis.grid")
+    if from_config:
+        logger.warning(f"Cache metadata lacks grid keys {from_config}; using the configured values")
+    return grid
 
 
 def analyze_ray_density(config_dict: Dict[str, Any]) -> Dict[str, Any]:
@@ -68,19 +114,10 @@ def analyze_ray_density(config_dict: Dict[str, Any]) -> Dict[str, Any]:
 
     logger.info(f"Loading ray paths from: {cache_path}")
 
-    # Get grid dimensions. There is no velocity model among the inputs, so the grid is
-    # defined in the configuration; the origin keys are origin_x/y/z (legacy x_min/y_min/z_min
-    # are still accepted).
-    grid_config = config['grid']
-    origin = {}
-    for axis in ('x', 'y', 'z'):
-        if grid_config.get(f'origin_{axis}') is not None:
-            origin[axis] = grid_config[f'origin_{axis}']
-        elif grid_config.get(f'{axis}_min') is not None:
-            logger.warning(f"ray_density.grid.{axis}_min is a legacy key; use origin_{axis}")
-            origin[axis] = grid_config[f'{axis}_min']
-        else:
-            raise KeyError(f"ray_density.grid.origin_{axis} is required")
+    # The grid stored in the cache metadata is the truth; the configured grid only fills
+    # keys the metadata lacks, and a disagreement is reported with the metadata winning.
+    grid_config = resolve_grid_config(cache_path, config.get('grid') or {})
+    origin = {axis: grid_config[f'origin_{axis}'] for axis in ('x', 'y', 'z')}
     grid_dims = {
         'nx': grid_config['nx'],
         'ny': grid_config['ny'],

@@ -528,15 +528,6 @@ Controls how model variance (X-axis of the L-curve) is computed.
 
 ---
 
-### `quality_control`
-
-| Key | Default | Description |
-|-----|---------|-------------|
-| `validate_input_data` | `true` | Abort if any required input file is missing before a module runs. |
-| `check_coordinate_consistency` | `true` | Warn when coordinate columns differ between two input models. |
-
----
-
 ## Output Structure
 
 Each module writes to its own `output_dir`. Within each directory the layout follows:
