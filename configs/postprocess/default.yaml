@@ -105,7 +105,12 @@ source_processing:
   sy_file: "${data.base_dir}/model/updated_sy.bin"
   sz_file: "${data.base_dir}/model/updated_sz.bin"
   st0_file: "${data.base_dir}/model/updated_st0.bin"
-  n_sources: 4495
+  # Initial source locations (needs shot_id, event_x/y/z, origin_time_s). The shots in it, minus
+  # filtered_shot_ids, are the shots in the binaries: their count must equal the number of values
+  # in each source binary, otherwise an error is raised. Binary index k = k-th kept shot (ascending id).
+  initial_geometry_csv: ${travel_time_processing.ground_truth_csv}
+  # Shots LATTE removed during inversion (no binary entry; their corrected columns are left empty)
+  filtered_shot_ids: ${travel_time_processing.filtered_shot_ids}
   output_csv: "${data.analysis_output_dir}/source_relocation.csv"
 
   # Gradient and search direction outputs; requires process_gradient or process_search to be true

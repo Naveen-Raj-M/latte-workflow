@@ -41,7 +41,7 @@ travel_time_processing:
 
 source_processing:
   enabled: true
-  n_sources: 4495
+  # initial_geometry_csv and filtered_shot_ids default to the travel_time_processing values
 
 ray_path_diagnosis:
   enabled: true
@@ -208,7 +208,8 @@ Reads updated source location and origin time binaries from the LATTE inversion 
 | `enabled` | `false` | Enable this stage. |
 | `sx_file` / `sy_file` / `sz_file` | derived | Paths to updated source x/y/z location binaries. |
 | `st0_file` | derived | Path to the updated source origin time binary. |
-| `n_sources` | `4495` | Number of sources. Must match the binary file size. |
+| `initial_geometry_csv` | `${travel_time_processing.ground_truth_csv}` | Initial source locations; must contain `shot_id`, `event_x/y/z`, `origin_time_s`. Its shots minus `filtered_shot_ids` are the shots in the binaries; that count must equal the number of float32 values in every source binary, otherwise an error is raised. Binary index k is the k-th kept shot in ascending shot id. |
+| `filtered_shot_ids` | `${travel_time_processing.filtered_shot_ids}` | Shots LATTE removed during inversion. They have no binary entry and are skipped when indexing; their corrected columns stay empty. `null` or `[]` = none removed. |
 | `output_csv` | derived | Output path for the source parameter CSV. |
 
 #### Gradient and search direction outputs
@@ -307,7 +308,7 @@ outputs/<YYYY-MM-DD>/<HH-MM-SS>_postprocess_<config_name>/
 
 - **All processing stages are disabled by default.** Explicitly set `enabled: true` for each stage you want to run.
 - **The grid comes from the reference file's metadata.** Use a reference file written by preprocess (or by a previous postprocess run); `model_grid` is an optional check and is used only if the metadata grid does not match the binary files.
-- **`n_sources` must match the size of the source binary files.** A mismatch will raise a validation error at startup.
+- **The source binaries must hold one value per kept shot.** Kept shots = shots of `initial_geometry_csv` minus `filtered_shot_ids`; a different count raises an error. List shots LATTE removed in `filtered_shot_ids`.
 - **`coarse_grid` spacing must be integer multiples of the fine grid spacing.** Non-integer multiples will produce incorrect coarse grids.
 - **`strict_mode: true` is recommended for production runs.** In lenient mode (`false`), a failed stage is skipped silently and downstream stages that depend on its output may also fail or produce incomplete results.
 - **`ray_path_diagnosis` requires `raypath_binary_dir` to be set.** It defaults to `null` and will raise an error if left unset when the stage is enabled.

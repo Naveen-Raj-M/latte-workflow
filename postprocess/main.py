@@ -116,7 +116,8 @@ def postprocess_latte_outputs(config: DictConfig) -> None:
                 "sy_file": config.source_processing.sy_file,
                 "sz_file": config.source_processing.sz_file,
                 "st0_file": config.source_processing.st0_file,
-                "n_sources": config.source_processing.n_sources,
+                "initial_geometry_csv": config.source_processing.get("initial_geometry_csv", None),
+                "filtered_shot_ids": list(config.source_processing.get("filtered_shot_ids", None) or []),
                 "travel_time_csv": config.travel_time_processing.synthetic_tt_output_csv,
                 "output_csv": config.source_processing.output_csv,
                 "enabled": True

@@ -9,7 +9,7 @@ import logging
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, List, Optional, Tuple
 from omegaconf import DictConfig
 
 from utils.io_utils import resolve_csv_path
@@ -50,6 +50,64 @@ def read_binary_file(path: str, count: int, dtype=np.float32) -> np.ndarray:
     return data
 
 
+INITIAL_COLUMNS = ['shot_id', 'event_x', 'event_y', 'event_z', 'origin_time_s']
+
+
+def resolve_kept_shots(cfg: DictConfig, params, dtype=np.float32) -> Tuple[List[int], pd.DataFrame]:
+    """
+    Shot ids LATTE kept, in binary array order, and the initial source table.
+
+    The shots of ``initial_geometry_csv`` (ascending shot id) minus ``filtered_shot_ids``
+    (shots LATTE removed during inversion) are the shots stored in the binaries: array
+    index k holds shot ``kept[k]``. Their count must equal the number of values in every
+    source binary file.
+
+    Returns:
+        (kept shot ids, initial table with one row per shot of ``initial_geometry_csv``)
+
+    Raises:
+        ValueError: If required columns are missing or the binary sizes do not match.
+    """
+    if not cfg.get("initial_geometry_csv"):
+        raise ValueError("source_processing.initial_geometry_csv is required")
+    initial_path = Path(str(cfg["initial_geometry_csv"]))
+    if not initial_path.exists():
+        raise FileNotFoundError(f"initial_geometry_csv not found: {initial_path}")
+    df = read_traveltime_csv(initial_path)
+    missing = [c for c in INITIAL_COLUMNS if c not in df.columns]
+    if missing:
+        raise ValueError(f"{initial_path.name} lacks columns needed for source processing: {missing}")
+    initial = df[INITIAL_COLUMNS].drop_duplicates('shot_id').sort_values('shot_id').reset_index(drop=True)
+    initial['shot_id'] = initial['shot_id'].astype(int)
+
+    all_ids = initial['shot_id'].tolist()
+    filtered = sorted({int(s) for s in (cfg.get("filtered_shot_ids") or [])})
+    unknown = [s for s in filtered if s not in set(all_ids)]
+    if unknown:
+        logger.warning(f"filtered_shot_ids not found in {initial_path.name}: {unknown}")
+    kept = [s for s in all_ids if s not in set(filtered)]
+    logger.info(f"Shots in {initial_path.name}: {len(all_ids)}; filtered by LATTE: "
+                f"{len(all_ids) - len(kept)}; expected in binaries: {len(kept)}")
+
+    counts = {}
+    for param in params:
+        path = Path(str(cfg[_PARAM_FILE_KEY[param]]))
+        if not path.exists():
+            raise FileNotFoundError(f"Binary file not found: {path}")
+        counts[path.name] = path.stat().st_size // np.dtype(dtype).itemsize
+    wrong = {name: n for name, n in counts.items() if n != len(kept)}
+    if wrong:
+        raise ValueError(
+            f"Source binary files hold {wrong} values but {len(kept)} shots are expected "
+            f"({len(all_ids)} in {initial_path.name} minus {len(filtered)} filtered_shot_ids). "
+            f"{FILTER_HINT}"
+        )
+    return kept, initial
+
+
+FILTER_HINT = "If LATTE removed shots (sid_select/sid_exclude, no valid receivers), list them in filtered_shot_ids."
+
+
 def read_optional_binary_file(path: str, count: int, field_name: str, dtype=np.float32) -> Optional[np.ndarray]:
     """
     Read an optional binary file (gradient or search direction).
@@ -88,24 +146,20 @@ def read_optional_binary_file(path: str, count: int, field_name: str, dtype=np.f
         return None
 
 
-def validate_shot_ids(df: pd.DataFrame, ns: int) -> None:
-    """Validate that shot_ids are within expected range."""
-    unique_shots = df['shot_id'].unique()
-    min_shot = unique_shots.min()
-    max_shot = unique_shots.max()
-    
-    logger.info(f"Shot ID validation:")
-    logger.info(f"  Unique shots in CSV: {len(unique_shots)}")
-    logger.info(f"  Shot ID range: [{min_shot}, {max_shot}]")
-    logger.info(f"  Expected range: [1, {ns}]")
-    
-    if min_shot < 1:
-        raise ValueError(f"Shot IDs must be >= 1, found {min_shot}")
-    if max_shot > ns:
-        raise ValueError(f"Shot IDs must be <= {ns}, found {max_shot}")
-    
-    # Check for any shots without corrections
-    missing_shots = set(range(1, ns + 1)) - set(unique_shots)
+def validate_shot_ids(df: pd.DataFrame, kept_shots: List[int], all_shots: List[int]) -> None:
+    """Check the shot_ids of the travel time CSV against the shots of the initial geometry."""
+    unique_shots = set(df['shot_id'].astype(int).unique())
+    logger.info(f"Shot ID validation: {len(unique_shots)} unique shots in the travel time CSV")
+
+    unknown = sorted(unique_shots - set(all_shots))
+    if unknown:
+        raise ValueError(f"Shot IDs in the travel time CSV are not in initial_geometry_csv: {unknown[:10]}"
+                         f"{' ...' if len(unknown) > 10 else ''}")
+    filtered_present = sorted(unique_shots & (set(all_shots) - set(kept_shots)))
+    if filtered_present:
+        logger.warning(f"  Shots removed by LATTE are present in the travel time CSV and get no "
+                       f"corrections: {filtered_present[:10]}{' ...' if len(filtered_present) > 10 else ''}")
+    missing_shots = set(kept_shots) - unique_shots
     if missing_shots:
         logger.warning(f"  {len(missing_shots)} shots in binary have no corresponding travel time records")
 
@@ -117,7 +171,8 @@ def process_source_updates(cfg: DictConfig) -> pd.DataFrame:
     Reads binary files containing updated source coordinates (sx, sy, sz) and
     origin times (st0), then merges them with the travel time CSV output.
     Optionally includes gradient and search direction fields.
-    Uses 1-based indexing: shot_id N corresponds to binary array index N-1.
+    Binary array index k holds the k-th shot of ``initial_geometry_csv`` (ascending shot id)
+    that is not in ``filtered_shot_ids``.
 
     Args:
         cfg: Configuration dictionary with paths and parameters
@@ -131,11 +186,11 @@ def process_source_updates(cfg: DictConfig) -> pd.DataFrame:
 
     logger.info("=== PROCESSING SOURCE PARAMETER UPDATES ===")
 
-    ns = cfg["n_sources"]
-    logger.info(f"Number of sources: {ns}")
-
     # Determine which parameters to process (controls base reads, path validation, and optional fields)
     params_to_process = list(cfg.get('parameters_to_process', list(_PARAM_FILE_KEY.keys())))
+    kept_shots, initial = resolve_kept_shots(cfg, [p for p in params_to_process if p in _PARAM_FILE_KEY])
+    ns = len(kept_shots)
+    logger.info(f"Number of sources in binaries: {ns}")
     process_gradient = cfg.get('process_gradient', False)
     process_search = cfg.get('process_search', False)
     logger.info(f"Parameters to process: {params_to_process}")
@@ -173,10 +228,9 @@ def process_source_updates(cfg: DictConfig) -> pd.DataFrame:
                         str(getattr(cfg, srch_key)), ns, f"{param.upper()} search direction"
                     )
 
-    # Create source corrections lookup (1-based shot_id -> corrections)
+    # Create source corrections lookup (array index k -> kept shot id; filtered shots have none)
     source_corrections = {}
-    for shot_id in range(1, ns + 1):
-        idx = shot_id - 1
+    for idx, shot_id in enumerate(kept_shots):
         correction_dict = {_PARAM_COLUMN[p]: base_data[p][idx] for p in base_data}
         for param in base_data:
             if auxiliary_fields[param]['gradient'] is not None:
@@ -197,14 +251,21 @@ def process_source_updates(cfg: DictConfig) -> pd.DataFrame:
     logger.info(f"  Loaded {len(df)} travel time records")
     logger.info(f"  Columns: {', '.join(df.columns.tolist())}")
 
-    # Validate shot IDs
-    validate_shot_ids(df, ns)
-
     # Verify required columns exist
     required_cols = ['shot_id', 'event_id', 'station', 'phase']
     missing_cols = [col for col in required_cols if col not in df.columns]
     if missing_cols:
         raise ValueError(f"Missing required columns in travel time CSV: {missing_cols}")
+
+    # Validate shot IDs
+    validate_shot_ids(df, kept_shots, initial['shot_id'].tolist())
+
+    # The output must carry the initial locations; fill any that the travel time CSV lacks
+    by_shot = initial.set_index('shot_id')
+    for col in INITIAL_COLUMNS[1:]:
+        if col not in df.columns:
+            logger.info(f"  Adding initial '{col}' from initial_geometry_csv")
+            df[col] = df['shot_id'].astype(int).map(by_shot[col])
 
     # Determine all output column names (base params first, then gradient/search)
     all_output_cols = [_PARAM_COLUMN[p] for p in base_data]

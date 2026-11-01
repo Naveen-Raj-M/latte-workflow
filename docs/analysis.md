@@ -440,7 +440,7 @@ The HDF5 cache may be empty or corrupted. Verify the cache file size and run pos
 In `rms` mode, the pipeline expects one per-iteration residual CSV under `inversion_base_path/iter_N/`. Confirm the directory naming convention matches the pattern expected by the module, or switch to `data_misfit` mode and provide the three-column file directly.
 
 **Source correction vectors appear unrealistically large**
-Check that `source_processing.n_sources` in the postprocess config matched the actual LATTE `ns` parameter. A size mismatch causes incorrect binary indexing, producing spurious correction values.
+The number of kept shots (`initial_geometry_csv` minus `source_processing.filtered_shot_ids`) must match the binary size, otherwise postprocess raises an error; check `filtered_shot_ids` against the shots LATTE removed. A size mismatch causes incorrect binary indexing, producing spurious correction values.
 
 **Basin boundary overlays do not appear**
 Boundary files must be in Cartesian coordinates (x, y in km), not geographic. Use the Cartesian basin boundary CSVs produced by the preprocess coordinate transformation stage. Confirm `basin_boundaries.data_dir` points to the correct directory.

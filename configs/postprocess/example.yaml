@@ -22,7 +22,9 @@ travel_time_processing:
 
 source_processing:
   enabled: true
-  n_sources: 4495
+  # Initial locations (shot_id, event_x/y/z, origin_time_s); shots minus filtered_shot_ids must match the binary size
+  initial_geometry_csv: ${travel_time_processing.ground_truth_csv}
+  filtered_shot_ids: ${travel_time_processing.filtered_shot_ids}   # shots LATTE removed during inversion
 
 ray_path_diagnosis:
   enabled: true

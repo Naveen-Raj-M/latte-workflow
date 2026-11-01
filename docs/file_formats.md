@@ -513,7 +513,7 @@ One file per shot. Contains computed synthetic travel times from the inversion k
 | **Extension** | `.bin` |
 | **Config keys** | `source_processing.sx_file`, `sy_file`, `sz_file`, `st0_file` |
 
-One value per source (shot). Arrays of length `n_sources`.
+One value per source (shot). Arrays hold one value per shot kept by LATTE (shots of `initial_geometry_csv` minus `filtered_shot_ids`).
 
 | File | Description | Units |
 |---|---|---|
