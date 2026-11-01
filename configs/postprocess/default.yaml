@@ -26,7 +26,7 @@ velocity_processing:
   enabled: false
   phase_type: "both"                     # both | p | s
   # Input velocity file; format auto-detected from extension (.csv, .h5, .hdf5)
-  reference_velocity_file: "/full/path/to/velocity_cartesian_final.csv"
+  reference_velocity_file: "/full/path/to/velocity_cartesian_init.csv"
   vp_binary: "${data.base_dir}/model/updated_vp.bin"
   vs_binary: "${data.base_dir}/model/updated_vs.bin"
 
@@ -45,6 +45,7 @@ velocity_processing:
   #   origin_y: 0.0                      # km
   #   origin_z: 0.0                      # km
 
+  # applicable when input and output velocity models are in LATTE are of different dimensions
   interpolation_mode: "sample_at_coarse" # sample_at_coarse | expand_to_fine
   velocity_output_format: "csv"          # csv | hdf5 | both
   velocity_output_csv: "${data.analysis_output_dir}/velocity_model_final.csv"
@@ -76,14 +77,13 @@ travel_time_processing:
   enabled: false
   phase_type: "both"                     # both | p | s
   ground_truth_csv: "/full/path/to/geometry_ground_truth_traveltimes.csv"
-  synthetic_tt_dir: "${data.base_dir}/synthetic_traveltimes"
+  synthetic_tt_dir: "${data.base_dir}/synthetic"
   shot_map_file: "/full/path/to/shot_to_source_id_map.txt"
   synthetic_tt_output_csv: "${data.analysis_output_dir}/synthetic_traveltimes.csv"
 
   # Source-receiver exchange (reciprocity-based inversion)
   source_receiver_exchange: false
-  # The exchange is rebuilt from the geometry files exactly as LATTE does it (virtual sources = unique
-  # receivers in order of first appearance; virtual receivers = kept shots in geometry.txt order).
+  # The exchange is rebuilt from the geometry files exactly as LATTE does it.
   geometry_dir: null                     # directory with geometry.txt and shot_<n>_geometry.txt (recommended)
   geometry_file: "geometry.txt"
   # Optional LATTE output used as the virtual-source table; if geometry_dir is also set, mismatches warn
@@ -92,7 +92,7 @@ travel_time_processing:
   # Only needed if LATTE dropped shots/receivers (sid_select, sid_exclude, no valid receivers, ...):
   filtered_shot_ids: []                  # shot ids (geometry file ids) removed by LATTE
   filtered_receiver_ids: []              # station names removed by LATTE
-  coordinate_tolerance: 0.01             # m, matches geometry receivers to ground-truth stations
+  coordinate_tolerance: 1.0             # m, matches geometry receivers to ground-truth stations
 
   source_correction: false
   source_correction_file: ${data.base_dir}/model/updated_st0.bin
@@ -130,18 +130,18 @@ ray_path_diagnosis:
   dws_output_file: "${data.analysis_output_dir}/dws_values.h5"
 
   grid:
-    nx: 401
-    ny: 361
-    nz: 43
-    dx: 0.5                              # km
-    dy: 0.5                              # km
-    dz: 0.5                              # km
+    nx: 101
+    ny: 101
+    nz: 101
+    dx: 1.0                              # km
+    dy: 1.0                              # km
+    dz: 1.0                              # km
     origin_x: 0.0                        # km
     origin_y: 0.0                        # km
     origin_z: 0.0                        # km
 
   phase_type: "both"                     # both | p | s
-  compute_dws: true                      # true = compute and write Derivative Weight Sum
+  compute_dws: false                      # true = compute and write Derivative Weight Sum
 
   # Event filtering; applied only when compute_dws is false (cache-only optimization)
   # null = use all events; or path to a text file with one event ID per line
@@ -149,7 +149,7 @@ ray_path_diagnosis:
   # Fraction of events to sample when event_id_list_file is null; 1.0 = all events
   subsample_fraction: 1.0
 
-  force_recompute: false                 # true = recompute all shots even if cache exists
+  force_recompute: false                # true = recompute all shots even if cache exists
   fix_corrupted_shots: true             # true = detect and recompute only corrupted shots
   compression: "gzip"                   # gzip | lzf | null
   compression_level: 4                  # 0–9 for gzip; 4 is balanced
