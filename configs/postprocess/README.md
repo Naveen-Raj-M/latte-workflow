@@ -8,7 +8,7 @@ The post-processing pipeline converts [LATTE](https://github.com/lanl/latte_trav
 1. Velocity model processing — converts Vp/Vs binary outputs to CSV/HDF5
 2. Travel time processing — merges ground truth and synthetic travel times
 3. Source parameter processing — extracts updated source locations and origin times
-4. Ray path diagnosis — builds HDF5 ray path cache and computes DWS sensitivity
+4. Ray path processing — builds HDF5 ray path cache and computes DWS sensitivity
 5. Ray path simplification — reduces ray path memory footprint via RDP algorithm
 
 ---
@@ -43,16 +43,10 @@ source_processing:
   enabled: true
   # initial_geometry_csv and filtered_shot_ids default to the travel_time_processing values
 
-ray_path_diagnosis:
+ray_path_processing:
   enabled: true
   raypath_binary_dir: "/path/to/raypath/binaries"
-  grid:
-    nx: 401
-    ny: 361
-    nz: 43
-    dx: 0.5
-    dy: 0.5
-    dz: 0.5
+  # grid comes from the reference velocity model; an optional grid block is only a check
 ```
 
 All other parameters inherit their defaults from `default.yaml`.
@@ -224,7 +218,7 @@ Reads updated source location and origin time binaries from the LATTE inversion 
 
 ---
 
-### `ray_path_diagnosis`
+### `ray_path_processing`
 
 Reads precomputed ray path binaries from the LATTE forward solver, builds an HDF5 cache, and optionally computes the Derivative Weight Sum (DWS) — a sensitivity metric indicating the weighted ray path length through each grid cell.
 
@@ -232,6 +226,7 @@ Reads precomputed ray path binaries from the LATTE forward solver, builds an HDF
 |-----|---------|---------|-------------|
 | `enabled` | `false` | `true`, `false` | Enable this stage. |
 | `raypath_binary_dir` | `null` | — | Directory containing `shot_*_raypath_*.bin` files from LATTE. |
+| `reference_velocity_file` | `${velocity_processing.reference_velocity_file}` | — | Reference velocity model whose metadata gives the LATTE grid. `null` = use `grid` (with a warning). |
 | `ground_truth_csv` | derived | — | CSV providing observation weights for DWS computation. |
 | `shot_map_file` | derived | — | Shot-to-event mapping file. |
 | `ray_path_output_file` | derived | — | Output path for the HDF5 ray path cache. |
@@ -243,9 +238,9 @@ Reads precomputed ray path binaries from the LATTE forward solver, builds an HDF
 | `compression` | `gzip` | `gzip`, `lzf`, `null` | HDF5 compression for the ray path cache. |
 | `compression_level` | `4` | `0`–`9` | Gzip compression level. |
 
-#### `ray_path_diagnosis.grid`
+#### `ray_path_processing.grid` *(optional)*
 
-Cartesian grid definition used to bin ray paths and compute DWS. Must match the inversion grid.
+Cartesian grid used to bin ray paths and compute DWS. The grid is read from the metadata of `reference_velocity_file` (for legacy files, inferred from its columns); `grid` is an additional check, and any difference logs a warning (the reference file is used). If `reference_velocity_file` is `null`, `grid` is used instead, with a warning, and must be complete.
 
 | Key | Unit | Description |
 |-----|------|-------------|
@@ -260,7 +255,7 @@ Cartesian grid definition used to bin ray paths and compute DWS. Must match the 
 | `event_id_list_file` | `null` | Path to a text file with one event ID per line. `null` = use all events. |
 | `subsample_fraction` | `1.0` | Fraction of events to sample when `event_id_list_file` is `null`. `1.0` = all events. |
 
-#### `ray_path_diagnosis.dws`
+#### `ray_path_processing.dws`
 
 | Key | Default | Description |
 |-----|---------|-------------|
@@ -268,14 +263,14 @@ Cartesian grid definition used to bin ray paths and compute DWS. Must match the 
 
 ---
 
-### `ray_path_simplification`
+#### `ray_path_processing.simplification`
 
-Reduces the memory footprint of the ray path HDF5 cache using the Ramer–Douglas–Peucker (RDP) algorithm, removing collinear points within a tolerance threshold. Useful for large datasets prior to visualization or further analysis.
+Reduces the memory footprint of the ray path HDF5 cache using the Ramer–Douglas–Peucker (RDP) algorithm, removing collinear points within a tolerance threshold. Useful for large datasets prior to visualization or further analysis. It runs independently of `ray_path_processing.enabled`, so an existing cache can be simplified on its own.
 
 | Key | Default | Options | Description |
 |-----|---------|---------|-------------|
 | `enabled` | `false` | `true`, `false` | Enable this stage. |
-| `input_cache_path` | derived | — | Path to the input ray path HDF5 cache (output of `ray_path_diagnosis`). |
+| `input_cache_path` | derived | — | Path to the input ray path HDF5 cache (output of `ray_path_processing`). |
 | `output_cache_path` | derived | — | Path for the simplified HDF5 output. |
 | `epsilon` | `0.05` | km | RDP simplification tolerance. `0.01` = gentle, `0.05` = moderate, `0.10` = aggressive. |
 | `phase_type` | `both` | `both`, `p`, `s` | Phases to simplify. |
@@ -311,7 +306,7 @@ outputs/<YYYY-MM-DD>/<HH-MM-SS>_postprocess_<config_name>/
 - **The source binaries must hold one value per kept shot.** Kept shots = shots of `initial_geometry_csv` minus `filtered_shot_ids`; a different count raises an error. List shots LATTE removed in `filtered_shot_ids`.
 - **`coarse_grid` spacing must be integer multiples of the fine grid spacing.** Non-integer multiples will produce incorrect coarse grids.
 - **`strict_mode: true` is recommended for production runs.** In lenient mode (`false`), a failed stage is skipped silently and downstream stages that depend on its output may also fail or produce incomplete results.
-- **`ray_path_diagnosis` requires `raypath_binary_dir` to be set.** It defaults to `null` and will raise an error if left unset when the stage is enabled.
-- **`ray_path_simplification` should run after `ray_path_diagnosis`.** It reads the HDF5 cache produced by that stage; if the cache does not exist the stage will fail.
+- **`ray_path_processing` requires `raypath_binary_dir` to be set.** It defaults to `null` and will raise an error if left unset when the stage is enabled.
+- **`ray_path_processing.simplification` needs an existing cache.** It reads the HDF5 cache produced by that stage; if the cache does not exist the stage will fail.
 - **`source_receiver_exchange` requires `geometry_dir` or `exchange_geometry_file`.** If the number of shots or virtual sources in the geometry, the ground truth and the LATTE binaries disagree (e.g. LATTE filtered shots), the stage raises an error unless `exchange_geometry_file` is given; list the dropped shots/stations in `filtered_shot_ids` / `filtered_receiver_ids`.
 - **`event_id_list_file` and `subsample_fraction` filtering applies only when `compute_dws: false`.** When DWS is enabled, all events are processed to ensure a complete sensitivity map.

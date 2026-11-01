@@ -401,7 +401,7 @@ def compute_all_ray_paths_from_binary(
     and processes them in batches to manage memory usage.
 
     Args:
-        config: Ray path diagnosis configuration
+        config: Ray path processing configuration
         subsample_during_computation: If True, apply subsampling before processing
         filter_shot_ids: Optional set of shot IDs to process
 

@@ -7,7 +7,7 @@ Workflow:
 1. Velocity processing — convert updated Vp/Vs binaries to CSV/HDF5
 2. Travel time processing — merge ground truth and synthetic travel times
 3. Source processing — extract updated hypocenter locations and origin times
-4. Ray path diagnosis — build HDF5 ray path cache and compute DWS sensitivity
+4. Ray path processing — build HDF5 ray path cache and compute DWS sensitivity
 5. Ray path simplification — reduce ray path footprint via RDP algorithm
 
 Main components:

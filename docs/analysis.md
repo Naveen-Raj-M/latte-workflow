@@ -434,7 +434,7 @@ Confirm that `model1_csv` and `model2_csv` point to different files (initial vs.
 The DWS HDF5 was computed from a subsampled ray set. Rerun postprocess DWS with `subsample_fraction: 1.0`. Also check that `dws_analysis.use_m2_units` is consistent with the units used during computation.
 
 **Ray path or ray density plots are blank**
-The HDF5 cache may be empty or corrupted. Verify the cache file size and run postprocess `ray_path_diagnosis` with `force_recompute: true`. Also check that `phase_type` is consistent between cache creation and analysis.
+The HDF5 cache may be empty or corrupted. Verify the cache file size and run postprocess `ray_path_processing` with `force_recompute: true`. Also check that `phase_type` is consistent between cache creation and analysis.
 
 **Tradeoff curve shows only one point**
 In `rms` mode, the pipeline expects one per-iteration residual CSV under `inversion_base_path/iter_N/`. Confirm the directory naming convention matches the pattern expected by the module, or switch to `data_misfit` mode and provide the three-column file directly.

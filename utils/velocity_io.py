@@ -334,6 +334,55 @@ def _same_grid_values(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
     return all(_values_match(a[k], b[k]) for k in GRID_KEYS)
 
 
+def resolve_reference_grid(reference_file: Optional[Union[str, Path]] = None,
+                           config_grid: Optional[Dict[str, Any]] = None,
+                           source: str = 'grid') -> Dict[str, Any]:
+    """
+    Grid (``nx..origin_z``) of the LATTE model from a reference velocity file.
+
+    The reference file is the truth: its (fine-grid) metadata, or for a legacy file the grid
+    inferred from its x/y/z columns. ``config_grid`` is an additional check; every value that
+    differs from the reference logs a warning. If ``reference_file`` is None, or no grid can be
+    read from it, ``config_grid`` is used with a warning.
+
+    Raises:
+        ValueError: If no complete grid is available.
+    """
+    cfg = None
+    if config_grid:
+        cfg = _config_grid_to_metadata(config_grid)
+        if not all(k in cfg for k in GRID_KEYS):
+            logger.warning(f"{source}: configured grid is incomplete (needs {', '.join(GRID_KEYS)}); ignored")
+            cfg = None
+
+    if reference_file is None:
+        if cfg is None:
+            raise ValueError(f"{source}: no reference velocity file and no complete grid in the configuration")
+        logger.warning(f"{source}: no reference velocity file; using the grid from the configuration")
+        return cfg
+
+    name = Path(reference_file).name
+    meta = read_velocity_metadata(reference_file)
+    grid = get_fine_grid_metadata(meta)
+    if not all(k in grid for k in GRID_KEYS):
+        df_xyz = read_velocity_file(reference_file, show_progress=False, columns=COORDINATE_COLUMNS)
+        try:
+            grid = resolve_binary_grid(metadata=meta, df=df_xyz, source=name)
+        except ValueError as e:
+            if cfg is None:
+                raise
+            logger.warning(f"{source}: {e}; using the grid from the configuration")
+            return cfg
+
+    if cfg is not None:
+        diffs = [f"{k}: reference {grid[k]} vs configured {cfg[k]}"
+                 for k in GRID_KEYS if not _values_match(grid[k], cfg[k])]
+        if diffs:
+            logger.warning(f"{source}: configured grid differs from {name} ({'; '.join(diffs)}); "
+                           f"using the grid from {name}")
+    return grid
+
+
 def _config_grid_to_metadata(config_grid: Any) -> Dict[str, Any]:
     """Convert a configuration ``grid`` block to the metadata key convention."""
     cfg = dict(config_grid)

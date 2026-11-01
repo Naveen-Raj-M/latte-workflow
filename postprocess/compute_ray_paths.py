@@ -31,7 +31,7 @@ def compute_config_hash(config: DictConfig) -> str:
     If any of these parameters change, the cache must be invalidated.
 
     Args:
-        config: Ray path diagnosis configuration
+        config: Ray path processing configuration
 
     Returns:
         MD5 hash string of the critical parameters
@@ -54,7 +54,7 @@ def get_cache_path(config: DictConfig) -> str:
     Get the cache file path from config.
 
     Args:
-        config: Ray path diagnosis configuration
+        config: Ray path processing configuration
 
     Returns:
         Path to the cache HDF5 file
@@ -576,7 +576,7 @@ def compute_all_ray_paths(
     Read ray paths from pre-computed binary files and cache to HDF5.
 
     Args:
-        config: Ray path diagnosis configuration object
+        config: Ray path processing configuration object
         subsample_during_computation: If True, apply subsampling.
         filter_shot_ids: Optional set of shot IDs to filter by.
 
@@ -605,7 +605,7 @@ def load_ray_paths_from_cache(
     been computed and cached.
 
     Args:
-        config: Ray path diagnosis configuration
+        config: Ray path processing configuration
         filter_shot_ids: Optional set of shot IDs to filter
         subsample_fraction: Fraction of rays to load (for memory efficiency)
 

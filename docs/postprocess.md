@@ -141,18 +141,19 @@ Reads precomputed ray path binaries from the LATTE forward solver, builds an inc
 
 | Key | Purpose |
 |---|---|
-| `ray_path_diagnosis.enabled` | Enable/disable this stage |
-| `ray_path_diagnosis.raypath_binary_dir` | Directory of LATTE ray path binaries |
-| `ray_path_diagnosis.ray_path_output_file` | HDF5 cache output path |
-| `ray_path_diagnosis.dws_output_file` | DWS HDF5 output path |
-| `ray_path_diagnosis.grid.*` | Must match the LATTE inversion grid exactly |
-| `ray_path_diagnosis.compute_dws` | Compute DWS after building the cache |
-| `ray_path_diagnosis.force_recompute` | Ignore existing cache and recompute |
-| `ray_path_diagnosis.fix_corrupted_shots` | Detect and reprocess corrupted cache entries |
-| `ray_path_diagnosis.subsample_fraction` | Fraction of events to process (0.0–1.0) |
-| `ray_path_diagnosis.compression` | HDF5 compression: `gzip` / `lzf` / `none` |
-| `ray_path_simplification.enabled` | Enable RDP simplification |
-| `ray_path_simplification.epsilon` | RDP tolerance in km |
+| `ray_path_processing.enabled` | Enable/disable this stage |
+| `ray_path_processing.raypath_binary_dir` | Directory of LATTE ray path binaries |
+| `ray_path_processing.ray_path_output_file` | HDF5 cache output path |
+| `ray_path_processing.dws_output_file` | DWS HDF5 output path |
+| `ray_path_processing.reference_velocity_file` | Gives the LATTE grid (default: `velocity_processing.reference_velocity_file`); `null` = use `grid` with a warning |
+| `ray_path_processing.grid.*` | *Optional.* Additional check of the reference grid (warning on mismatch); the grid itself if the reference is `null` |
+| `ray_path_processing.compute_dws` | Compute DWS after building the cache |
+| `ray_path_processing.force_recompute` | Ignore existing cache and recompute |
+| `ray_path_processing.fix_corrupted_shots` | Detect and reprocess corrupted cache entries |
+| `ray_path_processing.subsample_fraction` | Fraction of events to process (0.0–1.0) |
+| `ray_path_processing.compression` | HDF5 compression: `gzip` / `lzf` / `none` |
+| `ray_path_processing.simplification.enabled` | Enable RDP simplification |
+| `ray_path_processing.simplification.epsilon` | RDP tolerance in km |
 
 ---
 
@@ -206,14 +207,14 @@ python -m postprocess.main \
 
 # Enable ray path cache and DWS, limit to 50% of events
 python -m postprocess.main \
-  ray_path_diagnosis.enabled=true \
-  ray_path_diagnosis.compute_dws=true \
-  ray_path_diagnosis.subsample_fraction=0.5
+  ray_path_processing.enabled=true \
+  ray_path_processing.compute_dws=true \
+  ray_path_processing.subsample_fraction=0.5
 
 # Force cache recomputation
 python -m postprocess.main \
-  ray_path_diagnosis.enabled=true \
-  ray_path_diagnosis.force_recompute=true
+  ray_path_processing.enabled=true \
+  ray_path_processing.force_recompute=true
 
 # Run in non-strict mode (continue on error)
 python -m postprocess.main general.strict_mode=false
@@ -310,10 +311,10 @@ Many ground truth picks are not found in the synthetic binaries. Confirm that `s
 **`source_processing`: corrections are unexpectedly zero**
 If the source parameter log reports all corrections at zero, a size mismatch between the binaries and the kept shots raises an error; if the stage failed, check `filtered_shot_ids` against the shots LATTE removed.
 
-**`ray_path_diagnosis`: cache invalidated after config change**
+**`ray_path_processing`: cache invalidated after config change**
 Any change to grid dimensions, spacing, origin, or `raypath_binary_dir` invalidates the existing cache. Either revert the config change or set `force_recompute: true` to rebuild from scratch.
 
-**`ray_path_diagnosis`: corrupted shots detected**
+**`ray_path_processing`: corrupted shots detected**
 Enable `fix_corrupted_shots: true` to automatically detect and reprocess incomplete cache entries. Check `general.log_level=DEBUG` to see which shot IDs are affected.
 
 **DWS grid is uniformly zero**
@@ -323,7 +324,7 @@ Confirm that `compute_dws: true` is set and that `ray_path_output_file` points t
 Increase `performance.n_jobs` or switch `performance.backend` from `loky` to `multiprocessing`. For very large datasets, use `subsample_fraction` to compute a representative subset first.
 
 **HDF5 cache file grows too large**
-Enable `ray_path_simplification` with `epsilon: 0.05` to reduce point density. Alternatively, reduce `compression_level` for faster writes at the cost of larger files.
+Enable `ray_path_processing.simplification` with `epsilon: 0.05` to reduce point density. Alternatively, reduce `compression_level` for faster writes at the cost of larger files.
 
 ---
 

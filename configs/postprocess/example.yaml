@@ -26,13 +26,8 @@ source_processing:
   initial_geometry_csv: ${travel_time_processing.ground_truth_csv}
   filtered_shot_ids: ${travel_time_processing.filtered_shot_ids}   # shots LATTE removed during inversion
 
-ray_path_diagnosis:
+ray_path_processing:
   enabled: true
   raypath_binary_dir: "/path/to/raypath/binaries"
-  grid:
-    nx: 401
-    ny: 361
-    nz: 43
-    dx: 0.5
-    dy: 0.5
-    dz: 0.5
+  # Grid comes from reference_velocity_file (default: velocity_processing.reference_velocity_file);
+  # an optional grid block (nx, ny, nz, dx, dy, dz, origin_x/y/z) is only a check, or the grid if the reference is null.

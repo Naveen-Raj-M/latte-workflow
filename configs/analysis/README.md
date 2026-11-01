@@ -564,7 +564,7 @@ outputs/<YYYY-MM-DD>/<HH-MM-SS>_analysis_<config_name>/
 
 - **All analysis modules are disabled by default.** Explicitly set `enabled: true` for each module to run.
 - **`ray_density_analysis.grid` must match the inversion grid exactly.** Mismatched dimensions produce silently incorrect density counts.
-- **`raypath_analysis` and `ray_density_analysis` both require the HDF5 ray path cache** produced by `ray_path_diagnosis` in the postprocess module. Run postprocessing before analysis.
+- **`raypath_analysis` and `ray_density_analysis` both require the HDF5 ray path cache** produced by `ray_path_processing` in the postprocess module. Run postprocessing before analysis.
 - **`event_id_list_file` requires `shot_map_file`** in both `raypath_analysis` and `ray_density_analysis`. Omitting the shot map when an event filter is set will raise an error.
 - **`method_comparison` mode requires both `method1_csv` and `method2_csv`** to be valid paths. Missing either raises a validation error at startup.
 - **`tradeoff_analysis` in `rms` mode requires `inversion_base_path`** to point to a directory with `iteration_*/` subdirectories, each containing travel time residual CSVs matching `traveltime_csv_pattern`.

@@ -370,13 +370,13 @@ def simplify_ray_paths_main(config: DictConfig) -> None:
     Main entry point for ray path simplification.
 
     Args:
-        config: Configuration object containing ray_path_simplification settings
+        config: ray_path_processing configuration containing the ``simplification`` block
     """
-    if not hasattr(config, 'ray_path_simplification'):
-        print("No ray_path_simplification configuration found")
+    if config.get('simplification', None) is None:
+        print("No ray_path_processing.simplification configuration found")
         return
 
-    simp_config = config.ray_path_simplification
+    simp_config = config.simplification
 
     if not getattr(simp_config, 'enabled', False):
         print("Ray path simplification is disabled")

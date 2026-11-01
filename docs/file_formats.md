@@ -333,7 +333,7 @@ One row per grid point (nx × ny × nz total rows). The same columns and metadat
 | `vs` | S-wave velocity | km/s |
 | `grad_vp`, `grad_vs`, `srch_vp`, `srch_vs` | Gradient / search direction fields *(optional, written by postprocess when requested)* | — |
 
-DWS files (`ray_path_diagnosis.dws_output_file`) use the same layout with a `dws` column in place of `vp`, `vs`.
+DWS files (`ray_path_processing.dws_output_file`) use the same layout with a `dws` column in place of `vp`, `vs`.
 
 **Legacy files.** Older files with `X_grid_km`, `Y_grid_km`, `Z_grid_km` (and duplicate lowercase `x`, `y`, `z`) are read transparently: the columns are renamed to `x`, `y`, `z` and the grid index columns `i_raw`, `j_raw`, `k_raw`, `i`, `j`, `k` are dropped, each with a warning. Legacy DWS files that stored DWS in `vp` are also read.
 
@@ -350,7 +350,7 @@ DWS files (`ray_path_diagnosis.dws_output_file`) use the same layout with a `dws
 | `fine_nx` … `fine_origin_z`, `stride_x/y/z` | *Coarse files only:* grid of the original fine model (the grid of the LATTE binaries) and the subsampling strides |
 | `interpolation_mode`, `phase_type`, `processing_mode`, `checkerboard_config.*`, `spike_config.*`, `description`, `units` | Module-specific provenance (optional) |
 
-The grid (spacing and origin) is defined once, in preprocess. All other modules read it from this metadata and cross-check it against the `x`, `y`, `z` columns, logging a warning on any disagreement (the metadata value is used). For legacy files without grid metadata it is inferred from the columns, with a warning; grid keys are only needed in a module's configuration when there is no velocity file to read it from (`ray_path_diagnosis.grid`, `ray_density.grid`) or, as a last resort, for legacy files that cannot be inferred (`model_grid`, `model_conversion.grid`). Legacy nested metadata names (`grid_dimensions.nx`, `grid_spacing.dx`, `grid_origin.x`) are also read.
+The grid (spacing and origin) is defined once, in preprocess. All other modules read it from this metadata and cross-check it against the `x`, `y`, `z` columns, logging a warning on any disagreement (the metadata value is used). For legacy files without grid metadata it is inferred from the columns, with a warning; grid keys are only needed in a module's configuration when there is no velocity file to read it from (`ray_density.grid`, or `ray_path_processing.grid` when `reference_velocity_file` is null; there it is otherwise only a check) or, as a last resort, for legacy files that cannot be inferred (`model_grid`, `model_conversion.grid`). Legacy nested metadata names (`grid_dimensions.nx`, `grid_spacing.dx`, `grid_origin.x`) are also read.
 
 ---
 
@@ -557,7 +557,7 @@ Corrected origin times (one float32 per source) to be applied on top of the base
 | **Required** | Yes (for ray-path / DWS steps) |
 | **Format** | Raw binary (Fortran stream) |
 | **Extension** | `.bin` |
-| **Config key** | `ray_path_diagnosis.raypath_binary_dir` |
+| **Config key** | `ray_path_processing.raypath_binary_dir` |
 | **Naming** | `shot_<shot_id>_raypath_<phase>.bin` |
 
 Binary layout per file:
@@ -633,7 +633,7 @@ Same dataset structure and attributes as the preprocess [Initial Velocity Model 
 | Property | Value |
 |---|---|
 | **Format** | HDF5 |
-| **Config key** | `ray_path_diagnosis.ray_path_output_file` |
+| **Config key** | `ray_path_processing.ray_path_output_file` |
 
 Group hierarchy: `/p_wave/shots/<shot_id>/` and `/s_wave/shots/<shot_id>/`
 
@@ -653,7 +653,7 @@ Stored with gzip compression (level configurable via `compression_level`).
 | Property | Value |
 |---|---|
 | **Format** | HDF5 |
-| **Config key** | `ray_path_diagnosis.dws_output_file` |
+| **Config key** | `ray_path_processing.dws_output_file` |
 
 | Dataset | Shape | Description | Units |
 |---|---|---|---|
@@ -668,9 +668,9 @@ Stored with gzip compression (level configurable via `compression_level`).
 |---|---|
 | **Required** | No |
 | **Format** | HDF5 |
-| **Config key** | `ray_path_simplification.output_cache_path` |
+| **Config key** | `ray_path_processing.simplification.output_cache_path` |
 
-Identical structure to the [Ray Path Cache — HDF5](#ray-path-cache--hdf5). Ray paths are simplified using the Ramer–Douglas–Peucker algorithm; tolerance is controlled by `ray_path_simplification.epsilon` (km).
+Identical structure to the [Ray Path Cache — HDF5](#ray-path-cache--hdf5). Ray paths are simplified using the Ramer–Douglas–Peucker algorithm; tolerance is controlled by `ray_path_processing.simplification.epsilon` (km).
 
 ---
 

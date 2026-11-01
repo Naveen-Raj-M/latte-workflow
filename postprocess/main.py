@@ -15,6 +15,7 @@ from omegaconf import DictConfig, OmegaConf
 
 from utils.io_utils import ensure_directory_exists
 from utils.logging_utils import setup_logging
+from utils.velocity_io import resolve_reference_grid
 
 from .postprocess_velocity import create_velocity_csv_from_binaries
 from .postprocess_traveltime import (
@@ -152,12 +153,27 @@ def postprocess_latte_outputs(config: DictConfig) -> None:
     else:
         print(f"\nSource parameter processing: DISABLED")
 
-    # Process ray path diagnosis (generates ray path cache and DWS files)
+    # Process ray paths (generates ray path cache and DWS files)
     # Visualization is handled in the analysis module
-    if hasattr(config, "ray_path_diagnosis") and config.ray_path_diagnosis.enabled:
-        print(f"\nRay path diagnosis: ENABLED")
+    if hasattr(config, "ray_path_processing") and config.ray_path_processing.enabled:
+        print(f"\nRay path processing: ENABLED")
         try:
-            diag_config = config.ray_path_diagnosis
+            diag_config = config.ray_path_processing
+
+            # Grid: from the reference velocity model; the configured grid is only a check
+            # (or the grid itself when no reference model is set)
+            ref_file = diag_config.get('reference_velocity_file', None)
+            cfg_grid = diag_config.get('grid', None)
+            grid = resolve_reference_grid(
+                reference_file=ref_file or None,
+                config_grid=OmegaConf.to_container(cfg_grid) if cfg_grid else None,
+                source="ray_path_processing",
+            )
+            OmegaConf.set_struct(diag_config, False)
+            diag_config.grid = OmegaConf.create(grid)
+            OmegaConf.set_struct(diag_config, True)
+            print(f"  Grid: {grid['nx']}x{grid['ny']}x{grid['nz']}, "
+                  f"d=({grid['dx']}, {grid['dy']}, {grid['dz']}) km")
 
             # Check if DWS computation is requested
             compute_dws = getattr(diag_config, 'compute_dws', False)
@@ -240,17 +256,18 @@ def postprocess_latte_outputs(config: DictConfig) -> None:
                 print(f"  DWS file saved: {diag_config.dws_output_file}")
 
         except Exception as e:
-            print(f"Error in ray path diagnosis: {e}")
+            print(f"Error in ray path processing: {e}")
             if config.general.strict_mode:
                 raise
     else:
-        print(f"\nRay path diagnosis: DISABLED")
+        print(f"\nRay path processing: DISABLED")
 
-    # Ray path simplification (optional, for reducing memory in analysis)
-    if hasattr(config, "ray_path_simplification") and config.ray_path_simplification.enabled:
+    # Ray path simplification (optional, for reducing memory in analysis); can run on an existing cache
+    simp_cfg = config.get("ray_path_processing", {}).get("simplification", None)
+    if simp_cfg is not None and simp_cfg.get("enabled", False):
         print(f"\nRay path simplification: ENABLED")
         try:
-            simplify_ray_paths_main(config)
+            simplify_ray_paths_main(config.ray_path_processing)
         except Exception as e:
             print(f"Error in ray path simplification: {e}")
             if config.general.strict_mode:

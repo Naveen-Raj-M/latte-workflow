@@ -24,6 +24,7 @@ from .velocity_io import (
     read_velocity_metadata,
     resolve_grid_metadata,
     resolve_binary_grid,
+    resolve_reference_grid,
     get_velocity_grid,
 )
 from .column_utils import (
@@ -72,6 +73,7 @@ __all__ = [
     'read_velocity_metadata',
     'resolve_grid_metadata',
     'resolve_binary_grid',
+    'resolve_reference_grid',
     'get_velocity_grid',
 
     # Column conventions
