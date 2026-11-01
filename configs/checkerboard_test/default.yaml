@@ -165,74 +165,59 @@ model_conversion:
   # Enable conversion of inverted model to CSV
   enabled: true
 
-  # The grid of the LATTE binaries (nx, ny, nz, dx, dy, dz, origin_x/y/z) is read from the
-  # metadata of the input velocity model written by preprocess, and checked against its
-  # x/y/z columns. Define it here only if that model has no grid metadata and it cannot be
-  # inferred from its columns (legacy files):
-  # grid:
-  #   nx: 401
-  #   ny: 361
-  #   nz: 43
-  #   dx: 0.5  # km
-  #   dy: 0.5  # km
-  #   dz: 0.5  # km
-  #   origin_x: 0.0  # km
-  #   origin_y: 0.0  # km
-  #   origin_z: 0.0  # km
-
-  # Input binary precision
-  binary_precision: "single"  # "single" (float32) or "double" (float64)
-
-  # Convert velocity units from m/s to km/s
-  convert_to_kms: true
-
-  # Processing mode: "sample" or "expand"
-  # "sample": Sample at coarse CSV grid points
-  # "expand": Create full fine grid CSV
-  processing_mode: "sample"
-
-  # Additional fields to process (optional)
-  # Files should be named: grad_vp.bin, grad_vs.bin, etc.
-  additional_fields:
-    - "grad_vp"
-    - "grad_vs"
+  # Follows the postprocess velocity_processing section: the inverted binaries are converted
+  # by the same code, with the same keys.
+  phase_type: "both"                     # both | p | s
 
   # Directory where the converted inverted model (CSV/HDF5) is written (Step 3).
   # Change this to save the inverted model anywhere you like; the filenames below
   # are placed inside it.
   output_dir: "${general.output_dir}/inverted_model"
 
-  # Output format control
-  # Options: "csv", "hdf5", "both"
-  output_format: "csv"  # Default: CSV for backward compatibility
+  # Inverted binaries written by LATTE
+  vp_binary: "${input.inverted_model_dir}/updated_vp.bin"
+  vs_binary: "${input.inverted_model_dir}/updated_vs.bin"
 
-  output_csv: "${model_conversion.output_dir}/velocity_model_final.csv"
-  output_hdf5: "${model_conversion.output_dir}/velocity_model_final.h5"
+  # The grid of the LATTE binaries (nx, ny, nz, dx, dy, dz, origin_x/y/z) is read from the
+  # metadata of the input velocity model written by preprocess, and checked against its
+  # x/y/z columns. Define it here only if that model has no grid metadata and it cannot be
+  # inferred from its columns (legacy files). The grid is tested against the number of values
+  # in vp/vs_binary; if the metadata grid does not match them, model_grid is used when it does.
+  model_grid:
+    nx: 401
+    ny: 361
+    nz: 43
+    dx: 0.5  # km
+    dy: 0.5  # km
+    dz: 0.5  # km
+    origin_x: 0.0  # km
+    origin_y: 0.0  # km
+    origin_z: 0.0  # km
 
-  # HDF5-specific options (used when output_format is "hdf5" or "both")
+  # The input (reference) and output (binary) models may differ in dimensions:
+  # sample_at_coarse samples the output at the input points; expand_to_fine writes the full output grid
+  interpolation_mode: "sample_at_coarse"  # sample_at_coarse | expand_to_fine
+  velocity_output_format: "csv"           # csv | hdf5 | both
+  velocity_output_csv: "${model_conversion.output_dir}/velocity_model_final.csv"
+  velocity_output_hdf5: "${model_conversion.output_dir}/velocity_model_final.h5"
+
+  # HDF5 output options; used when velocity_output_format is 'hdf5' or 'both'
   hdf5_options:
-    # Compression type: "gzip", "lzf", or null (no compression)
-    compression: "gzip"
-
-    # Compression level (0-9 for gzip, where 9 is maximum compression)
-    compression_level: 4
-
-    # Parallel processing for coarse grid subsampling
-    parallel_processing: true
-    n_jobs: -1  # -1 = use all CPU cores, 1 = sequential
-
-    # Show progress bars during HDF5 operations
-    show_progress: true
-
-    # Create coarse-resolution dataset within HDF5 file
-    # Coarse dataset enables faster visualization/analysis
-    create_coarse_dataset: false
-
-    # Coarse grid spacing (must be integral multiples of fine grid)
+    compression: "gzip"                   # gzip | lzf | null
+    compression_level: 4                  # 0-9 for gzip; 4 is balanced
+    use_coarse_dataset: false             # true = read the input model from its coarse dataset
+    create_coarse_dataset: false          # true = write coarse dataset inside the HDF5 file
+    write_coarse_csv: false               # true = write a separate coarse CSV file
+    output_coarse_csv: "${model_conversion.output_dir}/velocity_model_final_coarse.csv"
     coarse_grid:
-      dx: 2.0  # km (e.g., 2x coarser than fine grid)
-      dy: 2.0  # km
-      dz: 2.0  # km
+      dx: 2.0                             # km; must be an integer multiple of fine dx
+      dy: 2.0                             # km; must be an integer multiple of fine dy
+      dz: 2.0                             # km; must be an integer multiple of fine dz
+
+  # Global parallel processing settings (as in postprocess)
+  performance:
+    n_jobs: -1                            # -1 = all cores, 1 = serial, N = N cores
+    show_progress: true
 
 # Visualization configuration
 visualization:
@@ -244,9 +229,9 @@ visualization:
   output_dir: null  # e.g., "/path/to/custom/visualization/directory"
 
   # Override to load the inverted model from a custom directory in Step 4 instead of
-  # using the exact paths defined by model_conversion.output_csv / output_hdf5.
+  # using the exact paths defined by model_conversion.velocity_output_csv / velocity_output_hdf5.
   # Useful when visualizing a model produced by a different run.
-  # When null (default), Step 4 reads from model_conversion.output_csv / output_hdf5.
+  # When null (default), Step 4 reads from model_conversion.velocity_output_csv / velocity_output_hdf5.
   inverted_model_dir: null  # e.g., "/path/to/other/run/inverted_model"
 
   # Slice planes to plot

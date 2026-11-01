@@ -39,12 +39,7 @@ from .add_traveltime_noise import (
     write_traveltime_binary,
 )
 
-from .convert_inverted_model import (
-    convert_inverted_model,
-    load_velocity_binary,
-    sample_at_coarse_points,
-    expand_to_fine_grid,
-)
+from .convert_inverted_model import convert_inverted_model
 
 from .visualize_slices import visualize_checkerboard_test
 
@@ -83,10 +78,6 @@ __all__ = [
     "add_noise_to_traveltime",
     "read_traveltime_binary",
     "write_traveltime_binary",
-    # Model conversion utilities
-    "load_velocity_binary",
-    "sample_at_coarse_points",
-    "expand_to_fine_grid",
     # Model visualization
     "visualize_velocity_model",
     "plot_model_xy_slice",

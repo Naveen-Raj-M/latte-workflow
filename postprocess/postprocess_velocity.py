@@ -715,3 +715,5 @@ def create_velocity_csv_from_binaries(config: DictConfig) -> None:
     print(f"  Rows: {len(df_output):,}")
     print(f"  Mode: {mode}")
     print(f"  Phase type: {phase_type}")
+
+    return df_output
