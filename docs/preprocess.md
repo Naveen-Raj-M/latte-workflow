@@ -140,7 +140,7 @@ Extrudes a one-dimensional depth–velocity profile onto a three-dimensional Car
 
 ---
 
-### 1.5 Visualization (`visualization.py`, `ray_density_visualization.py`)
+### 1.5 Visualization (`visualization.py`)
 
 Generates diagnostic plots to verify the processed data before inversion.
 
@@ -148,7 +148,6 @@ Generates diagnostic plots to verify the processed data before inversion.
 
 - **Station/event maps:** geographic map of events (colored by depth, sized by magnitude) and stations, plus vertical cross-sections in the XZ and YZ planes. Optionally overlays basin boundary polygons.
 - **Velocity model plots:** depth-slice contour maps of Vp and Vs at specified depths, and 1D profiles along latitude or longitude.
-- **Ray density analysis:** traces straight-line rays between every accepted event–station pair through the 3D grid using a DDA (Digital Differential Analyzer) algorithm. Produces XY, XZ, and YZ density projections and a per-depth coverage map.
 
 **Key configuration:**
 
@@ -157,8 +156,6 @@ Generates diagnostic plots to verify the processed data before inversion.
 | `visualization.enabled` | Master switch |
 | `visualization.station_event_vis.enabled` | Station/event maps |
 | `visualization.velocity_model_vis.enabled` | Velocity model plots |
-| `visualization.ray_density.enabled` | Ray density analysis |
-| `visualization.ray_density.coverage_threshold` | Minimum ray count to mark a cell as covered |
 | `visualization.figure_dpi` | Output figure DPI |
 
 ---
@@ -182,7 +179,7 @@ All outputs are written under `preprocessing.output_dir`. The table below summar
 | `velocity_model_init.csv` | CSV | Velocity model | 3D grid with Vp and Vs |
 | `velocity_model_init.h5` | HDF5 | Velocity model | Same data with compression |
 | `vp_init.bin`, `vs_init.bin` | Binary (float32) | Velocity model | LATTE-ready velocity binaries |
-| `plots/` | PNG | Visualization | Maps, cross-sections, depth slices, ray density |
+| `plots/` | PNG | Visualization | Maps, cross-sections, depth slices |
 
 ---
 
@@ -318,9 +315,6 @@ The LATTE Fortran kernel reports a dimension mismatch. Ensure `coordinate_transf
 
 **Large grid runs out of memory**
 Reduce `parallel.vectorize_max_points` to trigger the chunked path sooner, or reduce `parallel.grid_chunk_size` to process smaller chunks at a time.
-
-**Ray density visualization is skipped**
-`coordinate_transform.enabled` must be `true` for ray density analysis to run. If coordinate transformation has already been run and CSVs exist, set `coordinate_transform.enabled=true` and all other stages to `false` to reuse the existing data for visualization.
 
 ---
 

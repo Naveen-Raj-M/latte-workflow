@@ -445,10 +445,6 @@ One file per event. Stores receiver geometry in a binary format compatible with 
 | `velocity_depth_<depth>km_vs.png` | Vs depth slice at specified depth |
 | `velocity_profile_lat.png` | Velocity profile along latitude |
 | `velocity_profile_lon.png` | Velocity profile along longitude |
-| `ray_density_xy_projection.png` | Ray density map view |
-| `ray_density_xz_projection.png` | Ray density XZ slice |
-| `ray_density_yz_projection.png` | Ray density YZ slice |
-| `ray_path_density_report.txt` | Ray density summary statistics |
 
 ---
 
