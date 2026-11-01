@@ -350,7 +350,7 @@ DWS files (`ray_path_diagnosis.dws_output_file`) use the same layout with a `dws
 | `fine_nx` … `fine_origin_z`, `stride_x/y/z` | *Coarse files only:* grid of the original fine model (the grid of the LATTE binaries) and the subsampling strides |
 | `interpolation_mode`, `phase_type`, `processing_mode`, `checkerboard_config.*`, `spike_config.*`, `description`, `units` | Module-specific provenance (optional) |
 
-The grid (spacing and origin) is defined once, in preprocess. All other modules read it from this metadata and cross-check it against the `x`, `y`, `z` columns, logging a warning on any disagreement (the metadata value is used). For legacy files without grid metadata it is inferred from the columns, with a warning; grid keys are only needed in a module's configuration when there is no velocity file to read it from (`ray_path_diagnosis.grid`, `ray_density.grid`) or, as a last resort, for legacy files that cannot be inferred (`fine_grid`, `model_conversion.grid`). Legacy nested metadata names (`grid_dimensions.nx`, `grid_spacing.dx`, `grid_origin.x`) are also read.
+The grid (spacing and origin) is defined once, in preprocess. All other modules read it from this metadata and cross-check it against the `x`, `y`, `z` columns, logging a warning on any disagreement (the metadata value is used). For legacy files without grid metadata it is inferred from the columns, with a warning; grid keys are only needed in a module's configuration when there is no velocity file to read it from (`ray_path_diagnosis.grid`, `ray_density.grid`) or, as a last resort, for legacy files that cannot be inferred (`model_grid`, `model_conversion.grid`). Legacy nested metadata names (`grid_dimensions.nx`, `grid_spacing.dx`, `grid_origin.x`) are also read.
 
 ---
 

@@ -533,9 +533,9 @@ def create_velocity_csv_from_binaries(config: DictConfig) -> None:
     coarse_grid = grid_from_metadata(ref_grid_meta)
     print(f"Reference grid: {format_grid(coarse_grid)}")
 
-    # Grid of the LATTE binaries (the fine model grid): from the metadata; the optional
-    # fine_grid configuration is only a last resort for reference files without metadata
-    config_fine_grid = config.get('fine_grid', None)
+    # Grid of the LATTE binaries: the metadata is the reference, the optional model_grid
+    # configuration is an additional check; both are tested against the binary sizes
+    config_fine_grid = config.get('model_grid', None)
     fine_grid_meta = resolve_binary_grid(
         metadata=ref_metadata, df=df_original,
         config_grid=OmegaConf.to_container(config_fine_grid) if config_fine_grid else None,

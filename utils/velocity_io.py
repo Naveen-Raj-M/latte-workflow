@@ -257,53 +257,81 @@ def resolve_binary_grid(metadata: Optional[Dict[str, Any]] = None,
                         bytes_per_value: int = 4,
                         source: str = 'velocity model') -> Dict[str, Any]:
     """
-    Determine the grid of LATTE binary files (always the fine model grid).
+    Determine the grid of LATTE binary files (the model grid the binaries were written on).
 
-    Preference order:
-      1. The fine grid in the file metadata.
-      2. (legacy file without grid metadata) the grid inferred from the x/y/z columns.
-      3. (legacy file, last resort) ``config_grid`` from the configuration.
-    For legacy files the candidates are checked against the size of the first existing
-    binary file, since a coarse file's columns describe the coarse grid, not the binaries.
+    The grid in the file metadata is the reference (for legacy files without grid
+    metadata, the grid inferred from the x/y/z columns). ``config_grid`` is an additional
+    check. The candidates are tested against the number of values in the existing binary files:
+      - the reference matches: it is used (a warning is logged if the configuration differs);
+      - only the configuration matches: it is used, with a warning;
+      - neither matches: ``ValueError``.
+    Without existing binary files the reference is used (or the configuration if there is
+    no reference), and a warning is logged if the two differ.
 
     Raises:
-        ValueError: If no complete grid can be found.
+        ValueError: If no complete grid can be found, or no candidate matches the binaries.
     """
     meta = normalize_metadata(metadata if metadata is not None
                               else (df.attrs.get('metadata') if df is not None else None))
     fine = get_fine_grid_metadata(meta)
+
+    candidates = []  # (name, grid), highest priority first
     if all(k in fine for k in GRID_KEYS):
         if df is not None and not any(k in meta for k in FINE_GRID_KEYS):
             resolve_grid_metadata(df, meta, source)  # cross-check with the columns
-        return fine
-
-    candidates = []
-    if df is not None:
+        candidates.append(('file metadata', fine))
+    elif df is not None:
         inferred = infer_grid_metadata(df)
         if all(k in inferred for k in GRID_KEYS):
+            logger.warning(f"{source}: no grid metadata (legacy file?); grid inferred from the x/y/z columns")
             candidates.append(('x/y/z columns', inferred))
     if config_grid:
         cfg = _config_grid_to_metadata(config_grid)
         if all(k in cfg for k in GRID_KEYS):
             candidates.append(('configuration', cfg))
+        else:
+            logger.warning(f"{source}: configured grid is incomplete (needs {', '.join(GRID_KEYS)}); ignored")
     if not candidates:
         raise ValueError(
             f"{source}: no grid metadata and the grid cannot be inferred from the columns; "
             f"define the grid ({', '.join(GRID_KEYS)}) in the configuration"
         )
 
+    def n_values(grid):
+        return int(grid['nx']) * int(grid['ny']) * int(grid['nz'])
+
     existing = [Path(f) for f in binary_files if f and Path(f).exists()]
-    chosen_name, chosen = candidates[0]
-    if existing:
-        size = existing[0].stat().st_size
-        for name, grid in candidates:
-            if grid['nx'] * grid['ny'] * grid['nz'] * bytes_per_value == size:
-                chosen_name, chosen = name, grid
-                break
-        else:
-            logger.warning(f"{source}: no candidate grid matches the size of {existing[0].name}")
-    logger.warning(f"{source}: no fine-grid metadata (legacy file?); using the grid from {chosen_name}")
-    return chosen
+    if not existing:
+        name, grid = candidates[0]
+        if len(candidates) > 1 and not _same_grid_values(grid, candidates[1][1]):
+            logger.warning(f"{source}: grid from {name} differs from the {candidates[1][0]} grid and "
+                           f"no binary file exists to check against; using {name}")
+        return grid
+
+    sizes = {f.name: f.stat().st_size for f in existing}
+    matching = [(name, grid) for name, grid in candidates
+                if all(size == n_values(grid) * bytes_per_value for size in sizes.values())]
+    if not matching:
+        found = ', '.join(f"{n} has {sz // bytes_per_value:,}" for n, sz in sizes.items())
+        tried = ', '.join(f"{name} {grid['nx']}x{grid['ny']}x{grid['nz']}={n_values(grid):,}"
+                          for name, grid in candidates)
+        raise ValueError(f"{source}: the binary files match none of the candidate grids "
+                         f"(expected {tried}; {found} values)")
+
+    name, grid = matching[0]
+    if name != candidates[0][0]:
+        logger.warning(f"{source}: the {candidates[0][0]} grid does not match the number of values in the "
+                       f"binary files; using the {name} grid instead")
+    elif len(candidates) > 1 and not _same_grid_values(grid, candidates[1][1]):
+        other = candidates[1][0]
+        logger.warning(f"{source}: the {other} grid differs from the {name} grid"
+                       + ("" if len(matching) > 1 else " and does not match the binary files")
+                       + f"; using the {name} grid")
+    return grid
+
+
+def _same_grid_values(a: Dict[str, Any], b: Dict[str, Any]) -> bool:
+    return all(_values_match(a[k], b[k]) for k in GRID_KEYS)
 
 
 def _config_grid_to_metadata(config_grid: Any) -> Dict[str, Any]:

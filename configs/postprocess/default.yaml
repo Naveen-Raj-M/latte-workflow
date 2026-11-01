@@ -30,22 +30,23 @@ velocity_processing:
   vp_binary: "${data.base_dir}/model/updated_vp.bin"
   vs_binary: "${data.base_dir}/model/updated_vs.bin"
 
-  # The grid of the LATTE binaries (nx, ny, nz, dx, dy, dz, origin_x/y/z) is read from the
-  # metadata of reference_velocity_file (written by preprocess) and checked against its x/y/z
-  # columns. Define fine_grid only if the reference file has no grid metadata and the grid
-  # cannot be inferred from its columns (legacy files):
-  # fine_grid:
-  #   nx: 401
-  #   ny: 361
-  #   nz: 43
-  #   dx: 0.5                            # km
-  #   dy: 0.5                            # km
-  #   dz: 0.5                            # km
-  #   origin_x: 0.0                      # km
-  #   origin_y: 0.0                      # km
-  #   origin_z: 0.0                      # km
+  # Grid of the LATTE binaries (nx, ny, nz, dx, dy, dz, origin_x/y/z). The metadata of
+  # reference_velocity_file (written by preprocess) is the reference; model_grid is an optional
+  # additional check. Both are tested against the number of values in vp/vs_binary:
+  # The LATTE input (reference) and output (binary) models may have different dimensions.
+  model_grid:
+    nx: 101
+    ny: 101
+    nz: 101
+    dx: 1.0                            # km
+    dy: 1.0                            # km
+    dz: 1.0                            # km
+    origin_x: 0.0                      # km
+    origin_y: 0.0                      # km
+    origin_z: 0.0                      # km
 
-  # applicable when input and output velocity models are in LATTE are of different dimensions
+  # Used because the LATTE input and output models may differ in dimensions:
+  # sample_at_coarse samples the output at the input points; expand_to_fine writes the full output grid
   interpolation_mode: "sample_at_coarse" # sample_at_coarse | expand_to_fine
   velocity_output_format: "csv"          # csv | hdf5 | both
   velocity_output_csv: "${data.analysis_output_dir}/velocity_model_final.csv"

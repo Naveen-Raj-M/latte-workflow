@@ -32,7 +32,7 @@ data:
 velocity_processing:
   enabled: true
   reference_velocity_file: "/path/to/velocity_cartesian_final.csv"
-  # fine_grid is optional; see "velocity_processing.fine_grid" below
+  # model_grid is optional; see "velocity_processing.model_grid" below
 
 travel_time_processing:
   enabled: true
@@ -129,9 +129,9 @@ Converts Vp/Vs binary output files from LATTE to CSV or HDF5 format by sampling 
 | `velocity_output_csv` | derived | — | Output path for the CSV velocity file. |
 | `velocity_output_hdf5` | derived | — | Output path for the HDF5 velocity file. |
 
-#### `velocity_processing.fine_grid` *(optional)*
+#### `velocity_processing.model_grid` *(optional)*
 
-The 3D Cartesian grid of the LATTE binary output is read from the metadata of `reference_velocity_file` (written by preprocess) and checked against that file's `x`, `y`, `z` columns. Define `fine_grid` only for legacy reference files that have no grid metadata and whose columns cannot give the grid (for example a legacy coarse CSV). It is then used as a last resort, after checking it against the size of the binary files.
+The 3D Cartesian grid of the LATTE binary output. The metadata of `reference_velocity_file` (written by preprocess) is the reference (for legacy files without grid metadata, the grid inferred from the `x`, `y`, `z` columns); `model_grid` is an optional additional check. Both are tested against the number of values in `vp_binary`/`vs_binary`: if the metadata grid matches it is used (with a warning if `model_grid` differs); if only `model_grid` matches it is used, with a warning; if neither matches, an error is raised. The LATTE input (reference) and output (binary) models may have different dimensions.
 
 | Key | Unit | Description |
 |-----|------|-------------|
@@ -306,7 +306,7 @@ outputs/<YYYY-MM-DD>/<HH-MM-SS>_postprocess_<config_name>/
 ## Important Notes
 
 - **All processing stages are disabled by default.** Explicitly set `enabled: true` for each stage you want to run.
-- **The grid comes from the reference file's metadata.** Use a reference file written by preprocess (or by a previous postprocess run); `fine_grid` is only a fallback for legacy files and must then match the LATTE inversion grid exactly.
+- **The grid comes from the reference file's metadata.** Use a reference file written by preprocess (or by a previous postprocess run); `model_grid` is an optional check and is used only if the metadata grid does not match the binary files.
 - **`n_sources` must match the size of the source binary files.** A mismatch will raise a validation error at startup.
 - **`coarse_grid` spacing must be integer multiples of the fine grid spacing.** Non-integer multiples will produce incorrect coarse grids.
 - **`strict_mode: true` is recommended for production runs.** In lenient mode (`false`), a failed stage is skipped silently and downstream stages that depend on its output may also fail or produce incomplete results.

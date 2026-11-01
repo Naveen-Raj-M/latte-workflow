@@ -44,7 +44,7 @@ Reads updated Vp and Vs binary files produced by LATTE and projects them onto a 
 | `velocity_processing.enabled` | Enable/disable this stage |
 | `velocity_processing.vp_binary` / `vs_binary` | Paths to LATTE output velocity binaries |
 | `velocity_processing.reference_velocity_file` | Preprocess CSV or HDF5 reference grid |
-| `velocity_processing.fine_grid.*` | *Optional.* The inversion grid is read from the reference file's metadata; set this only for legacy reference files without grid metadata (must then match LATTE exactly) |
+| `velocity_processing.model_grid.*` | *Optional.* Additional check of the binary grid. The reference file's metadata is the reference; if only `model_grid` matches the binary size it is used with a warning, and if neither matches an error is raised |
 | `velocity_processing.interpolation_mode` | `sample_at_coarse` or `expand_to_fine` |
 | `velocity_processing.velocity_output_format` | `csv` / `hdf5` / `both` |
 | `velocity_processing.process_gradient` | Load and append gradient binaries |
@@ -239,9 +239,8 @@ velocity_processing:
   vp_binary: ${data.base_dir}/model/updated_vp.bin
   vs_binary: ${data.base_dir}/model/updated_vs.bin
   reference_velocity_file: /path/to/preprocess/velocity_model_init.csv
-  # The inversion grid comes from the reference file's metadata. Only for legacy
-  # reference files without grid metadata, add:
-  # fine_grid: {nx: 60, ny: 60, nz: 50, dx: 2.0, dy: 2.0, dz: 1.0,
+  # The binary grid comes from the reference file's metadata; model_grid is an optional check:
+  # model_grid: {nx: 60, ny: 60, nz: 50, dx: 2.0, dy: 2.0, dz: 1.0,
   #             origin_x: -60.0, origin_y: -60.0, origin_z: 0.0}
 
 # Travel time processing
@@ -299,7 +298,7 @@ DWS non-zero cells: N / TOTAL (P.P%)
 ## 5. Troubleshooting
 
 **`velocity_processing`: binary array size does not match grid**
-The product `nx × ny × nz` of the grid (from the reference file's metadata, or `fine_grid` for legacy files) must exactly match the number of float32 values in the binary file. Cross-check the dimensions in the LATTE Fortran input file, and make sure the reference file is the fine model written by preprocess.
+The product `nx × ny × nz` of the grid (from the reference file's metadata, or `model_grid` if only that matches) must exactly match the number of float32 values in the binary file; otherwise an error is raised. The LATTE input and output models may have different dimensions. Cross-check the dimensions in the LATTE Fortran input file, and make sure the reference file is the fine model written by preprocess.
 
 **`travel_time_processing`: binary array size mismatch (exchange mode)**
 In exchange mode the binary array length must equal the number of shots LATTE kept. The error prints expected vs. actual sizes. If LATTE dropped shots, list them in `travel_time_processing.filtered_shot_ids` (and dropped stations in `filtered_receiver_ids`).
@@ -331,7 +330,7 @@ Enable `ray_path_simplification` with `epsilon: 0.05` to reduce point density. A
 
 - **Enable stages incrementally.** Run velocity processing first to confirm the grid is correct before enabling travel time or source processing. Add DWS last, as it is the most compute-intensive stage.
 - **Keep `strict_mode: true` in production.** Silent failures in binary conversions can propagate undetected errors into the analysis. Let the pipeline stop and report the cause.
-- **Verify the grid matches LATTE.** The grid comes from the reference file's metadata; log warnings about metadata/column mismatches or about an inferred grid (legacy file) point to a wrong reference file. For legacy files, set `fine_grid` from the LATTE Fortran input file.
+- **Verify the grid matches LATTE.** The grid comes from the reference file's metadata; log warnings about metadata/column mismatches or about an inferred grid (legacy file) point to a wrong reference file. Optionally set `model_grid` from the LATTE Fortran input file as an additional check.
 - **Use the incremental cache.** Do not set `force_recompute: true` routinely. The cache stores completed shots, so interrupted runs resume automatically.
 - **Set a meaningful `compression` level.** `gzip` with `compression_level: 4` gives a good balance of file size and read/write speed for the ray path HDF5 cache.
 - **Use `subsample_fraction` for exploratory runs.** A 10–20% sample is usually sufficient to assess DWS coverage patterns before committing to a full computation.
