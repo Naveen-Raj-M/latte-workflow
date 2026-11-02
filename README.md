@@ -248,8 +248,8 @@ latte-workflow/
 │   ├── preprocess/                  # default.yaml, example.yaml, README.md
 │   ├── postprocess/                 # default.yaml, example.yaml, README.md
 │   ├── analysis/                    # default.yaml, example.yaml, README.md
-│   ├── checkerboard_test/           # default.yaml
-│   └── spike_test/                  # default.yaml
+│   ├── checkerboard_test/           # default.yaml, README.md
+│   └── spike_test/                  # default.yaml, README.md
 │
 ├── shell_scripts/                   # Slurm jobs and batch processing scripts
 │
@@ -281,6 +281,8 @@ latte-workflow/
 | [configs/preprocess/README.md](configs/preprocess/README.md) | All preprocessing parameters with defaults and descriptions |
 | [configs/postprocess/README.md](configs/postprocess/README.md) | All post-processing parameters with defaults and descriptions |
 | [configs/analysis/README.md](configs/analysis/README.md) | All analysis parameters with defaults and descriptions |
+| [configs/checkerboard_test/README.md](configs/checkerboard_test/README.md) | All checkerboard test parameters with defaults and descriptions |
+| [configs/spike_test/README.md](configs/spike_test/README.md) | All spike test parameters with defaults and descriptions |
 | [shell_scripts/README.md](shell_scripts/README.md) | Slurm jobs and processing scripts |
 
 ---

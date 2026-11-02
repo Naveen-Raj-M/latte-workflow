@@ -9,7 +9,7 @@ Two tests share one workflow:
 | **Checkerboard** | Periodic pattern of alternating positive and negative anomalies | `checkerboard_test` |
 | **Spike** | One or more localised Gaussian anomalies of arbitrary shape and orientation | `spike_test` |
 
-> **Configuration reference:** The configuration keys are defined in [`configs/checkerboard_test/default.yaml`](../configs/checkerboard_test/default.yaml) and [`configs/spike_test/default.yaml`](../configs/spike_test/default.yaml); their comments describe every key. The two files have the same structure.
+> **Configuration reference:** See [`configs/checkerboard_test/README.md`](../configs/checkerboard_test/README.md) and [`configs/spike_test/README.md`](../configs/spike_test/README.md) for every configuration parameter. The two configurations have the same structure.
 
 ---
 
