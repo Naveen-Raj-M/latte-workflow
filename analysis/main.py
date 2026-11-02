@@ -391,17 +391,11 @@ def initialize_analysis_configuration(cfg: DictConfig) -> None:
         logger.info("Path configuration:")
         logger.info(f"  Input directory: {cfg.paths.input_dir}")
         logger.info(f"  Output base directory: {cfg.paths.output_base_dir}")
-        logger.info(f"  Plots subdirectory: {cfg.paths.plots_subdir}")
-        logger.info(f"  Statistics subdirectory: {cfg.paths.stats_subdir}")
-        logger.info(f"  Reports subdirectory: {cfg.paths.reports_subdir}")
 
         # Ensure output directories exist
         from pathlib import Path
         output_base = Path(cfg.paths.output_base_dir)
         ensure_directory_exists(output_base)
-        ensure_directory_exists(output_base / cfg.paths.plots_subdir)
-        ensure_directory_exists(output_base / cfg.paths.stats_subdir)
-        ensure_directory_exists(output_base / cfg.paths.reports_subdir)
 
     # Initialize performance settings
     if hasattr(cfg, 'performance'):

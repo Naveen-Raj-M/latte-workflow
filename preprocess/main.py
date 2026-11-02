@@ -312,8 +312,7 @@ def setup_output_directories(config: DictConfig) -> None:
     ensure_directory_exists(output_dir)
 
     # Create subdirectories for different processing types
-    subdirs = ['coordinate_transform', 'velocity_models', 'geometry',
-              'traveltime', 'model', 'visualizations']
+    subdirs = ['coordinate_transform', 'geometry', 'model', 'visualizations']
     for subdir in subdirs:
         ensure_directory_exists(output_dir / subdir)
 

@@ -249,9 +249,9 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
     setup_plot_style(analysis_cfg)
 
     output_dir = Path(tcfg['output_dir'])
-    plots_dir = output_dir / config.get('paths', {}).get('plots_subdir', 'plots')
-    stats_dir = output_dir / config.get('paths', {}).get('stats_subdir', 'statistics')
-    reports_dir = output_dir / config.get('paths', {}).get('reports_subdir', 'reports')
+    plots_dir = output_dir / 'plots'
+    stats_dir = output_dir / 'statistics'
+    reports_dir = output_dir / 'reports'
 
     for d in (plots_dir, stats_dir, reports_dir):
         ensure_directory_exists(d)

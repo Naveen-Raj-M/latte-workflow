@@ -17,9 +17,6 @@ paths:
   station_csv_name: "stations_cartesian.csv"
   events_csv_name: "events_cartesian*.csv"
   source_csv_pattern: "source_relocation.csv"
-  plots_subdir: "plots"
-  stats_subdir: "statistics"
-  reports_subdir: "reports"
 
 # Global settings shared across all analysis modules
 analysis:
