@@ -1,18 +1,18 @@
 # LATTE Tomography Toolkit
 
-A comprehensive Python toolkit for seismic tomography data processing, analysis, and visualization using the [LATTE (Los Alamos Travel Time Estimation)](https://academic.oup.com/gji/article/241/2/1275/8046728) framework.
+A Python toolkit for seismic tomography data processing, analysis and visualization around the **LATTE** (Los Alamos Travel-Time package based on Eikonal Equation) framework.
 
 ## Overview
 
-This toolkit provides end-to-end capabilities for regional and local-scale seismic tomography studies, from raw data preprocessing through tomographic inversion to results analysis and visualization.
+The toolkit covers regional and local-scale seismic tomography studies from end to end: preparing LATTE inputs from raw catalogs, converting inversion results into analysis-ready tables, diagnosing the results, and running resolution tests.
 
-> **Note:** This workflow is designed to work with the [`dev2` branch](https://github.com/Naveen-Raj-M/latte_traveltime/tree/dev2) of the forked LATTE repository at [https://github.com/Naveen-Raj-M/latte_traveltime.git](https://github.com/Naveen-Raj-M/latte_traveltime.git), which contains important functionality required by this workflow.
+> **Recommended LATTE version:** The workflow can be used with the original [LATTE](https://github.com/lanl/latte_traveltime). A [forked LATTE repository](https://github.com/Naveen-Raj-M/latte_traveltime) is suggested, though not mandatory; it adds ray path computation and other improvements that this workflow uses (ray path and DWS processing).
 
-## Related Publications
+## Related Publications and Code
 
 - **LATTE Framework**: [LATTE: open-source, high-performance traveltime computation, tomography and source location in acoustic and elastic media](https://academic.oup.com/gji/article/241/2/1275/8046728) — Geophysical Journal International, 2025
-- **Original LATTE Code**: [LANL LATTE Repository](https://github.com/lanl/latte_traveltime)
-- **Data Source**: [Mapping the 3-D Lithospheric Structure of the Greater Permian Basin in West Texas and Southeast New Mexico for Earthquake Monitoring](https://agupubs.onlinelibrary.wiley.com/doi/full/10.1029/2019JB018351) — Huang et al., Journal of Geophysical Research: Solid Earth, 2019
+- **Original LATTE code**: [LANL LATTE repository](https://github.com/lanl/latte_traveltime)
+- **Forked LATTE code**: [Naveen-Raj-M/latte_traveltime](https://github.com/Naveen-Raj-M/latte_traveltime)
 
 ---
 
@@ -22,49 +22,79 @@ This toolkit provides end-to-end capabilities for regional and local-scale seism
 
 ```bash
 # Clone the repository
-git clone <repository-url>
+git clone https://github.com/Naveen-Raj-M/latte-workflow.git
 cd latte-workflow
+```
 
-# Install dependencies
+Create the Python environment with either conda or pip.
+
+**conda (recommended):**
+
+```bash
+conda env create -f environment.yml
+conda activate latte-workflow
+```
+
+`environment-tested.yml` pins the exact versions of the last test run:
+
+```bash
+conda env create -f environment-tested.yml
+```
+
+**pip:**
+
+```bash
+python -m venv latte-workflow-venv
+source latte-workflow-venv/bin/activate
 pip install -r requirements.txt
 ```
 
-**Required Dependencies:**
-- Python 3.8+
-- NumPy, Pandas, SciPy
-- Matplotlib, imageio
-- Hydra, OmegaConf
-- ObsPy (for QuakeML input)
-- pyproj (optional, for exact coordinate transformations)
+**Dependencies** (Python 3.10 – 3.13):
+
+| Package | Used for |
+|---|---|
+| NumPy, pandas (2.x), SciPy | Numerical work and tables |
+| Matplotlib | Plots |
+| h5py, PyTables (`tables`) | HDF5 files; PyTables is needed by `pandas.read_hdf` / `to_hdf` |
+| Hydra (`hydra-core`, brings OmegaConf and PyYAML) | Configuration |
+| ObsPy | QuakeML parsing and geodetic distances |
+| joblib, tqdm | Parallel processing and progress bars |
+| Numba | Ray path simplification |
+
+Check the installation:
+
+```bash
+python -c "import preprocess.main, postprocess.main, analysis.main; print('ok')"
+```
 
 ### Basic Usage
 
-All pipelines are driven by [Hydra](https://hydra.cc) configuration. Copy the relevant `example.yaml` from `configs/<pipeline>/`, update the file paths, and run:
+All pipelines are driven by [Hydra](https://hydra.cc) configuration. Copy the relevant `example.yaml` from `configs/<pipeline>/`, update the file paths, and run it from the repository root:
 
 ```bash
-# Run preprocessing pipeline
+# Preprocessing
 python -m preprocess.main --config-name=example
 
-# Run post-processing pipeline
+# Post-processing
 python -m postprocess.main --config-name=example
 
-# Run analysis pipeline
+# Analysis
 python -m analysis.main --config-name=example
 ```
 
-Individual parameters can be overridden directly on the command line without modifying the config file:
+Individual parameters can be overridden on the command line:
 
 ```bash
-# Override a single parameter
+# A single parameter
 python -m analysis.main --config-name=example travel_time_analysis.enabled=true
 
-# Override multiple parameters
+# Several parameters
 python -m postprocess.main --config-name=example \
   velocity_processing.enabled=true \
   travel_time_processing.enabled=true
 ```
 
-> For full details on available parameters, override syntax, and example configs, see the configuration documentation in [`configs/preprocess/README.md`](configs/preprocess/README.md), [`configs/postprocess/README.md`](configs/postprocess/README.md), and [`configs/analysis/README.md`](configs/analysis/README.md).
+> The parameters, override syntax and example configurations are described in [`configs/preprocess/README.md`](configs/preprocess/README.md), [`configs/postprocess/README.md`](configs/postprocess/README.md) and [`configs/analysis/README.md`](configs/analysis/README.md).
 
 ---
 
@@ -72,66 +102,86 @@ python -m postprocess.main --config-name=example \
 
 ### Preprocessing
 
-The preprocessing pipeline transforms raw seismic data into binary and tabular inputs required by the LATTE inversion kernel. It accepts event catalogs in **QuakeML** or **HDF5** format and produces geometry files, travel time tables, and initial 3D velocity model binaries.
+The preprocessing pipeline transforms a raw catalog into the binary and tabular inputs of the LATTE inversion. It reads **QuakeML** or **HDF5** catalogs and produces geometry files, travel time tables and binaries, source binaries, and an initial 3D velocity model.
 
-**Pipeline stages (executed in order):**
-1. **Data Loading** — reads events, stations, picks, and arrivals; applies magnitude, geographic, depth, and distance filters
-2. **Coordinate Transformation** — converts geodetic (lon/lat/depth) to local Cartesian coordinates (x/y/z km) via a first-order flattening transformation
-3. **Geometry & Travel Time Generation** — constructs source–receiver geometry files and ground truth travel time tables in LATTE-compatible format
-4. **Initial Velocity Model** — generates a 3D initial Vp/Vs model from a 1D reference profile and writes it as Fortran-compatible binary
-5. **Visualization** — produces quality control plots and animations
+**Steps (executed in order):**
+1. **QuakeML Loading** — parses the QuakeML files once (optionally with secondary catalogs) and applies per-step filters
+2. **Raw Data Visualization** — maps and histograms of the QuakeML catalog, with their own filters (optional)
+3. **HDF5 Conversion** — writes the filtered catalog to an HDF5 file for fast reuse (optional)
+4. **Data Loading** — reads events, stations, picks and arrivals and applies the global filters
+5. **Coordinate Transformation** — converts geodetic (lon/lat/depth) to local Cartesian (x/y/z km) coordinates with a first-order flattening transformation
+6. **Geometry and Travel Time Generation** — writes source–receiver geometry, travel time binaries and source binaries in LATTE format, with optional azimuthal and separate P/S weights
+7. **Initial Velocity Model** — extrudes a 1D Vp/Vs profile onto the 3D grid; writes CSV/HDF5 and the LATTE binaries
+8. **Final Data Visualization** — quality-control plots of the processed data
 
-For detailed documentation, see [docs/preprocess.md](docs/preprocess.md).
+Details: [docs/preprocess.md](docs/preprocess.md).
 
 ---
 
 ### Post-Processing
 
-The post-processing pipeline converts LATTE binary inversion outputs into analysis-ready CSV and HDF5 files. All five stages are independent and disabled by default; enable only those relevant to a given run.
+The post-processing pipeline converts the binary outputs of LATTE into CSV and HDF5 files. The stages are independent and disabled by default.
 
-**Pipeline stages:**
-1. **Velocity Processing** — reads updated Vp/Vs binary files and projects them onto the reference coordinate grid; optionally extracts gradient and search direction binaries
-2. **Travel Time Processing** — merges observed ground truth travel times with synthetic predictions from the inversion kernel, computing per-pick residuals
-3. **Source Parameter Processing** — extracts updated hypocenter locations and origin times from binary outputs
-4. **Ray Path Diagnosis** — builds an HDF5 ray path cache and computes Derivative Weight Sum (DWS) sensitivity grids for model coverage assessment
-5. **Ray Path Simplification** — reduces ray path memory footprint using the Ramer–Douglas–Peucker algorithm
+**Stages:**
+1. **Velocity Processing** — reads the updated Vp/Vs binaries and writes them on the reference grid; optionally adds gradient and search direction fields
+2. **Travel Time Processing** — merges observed and synthetic travel times, including source–receiver exchange runs
+3. **Source Processing** — extracts updated hypocenters and origin times
+4. **Ray Path Processing** — builds an HDF5 ray path cache from the LATTE ray path binaries and computes the Derivative Weight Sum (DWS)
+5. **Ray Path Simplification** — shrinks the cache with the Ramer–Douglas–Peucker algorithm
 
-For detailed documentation, see [docs/postprocess.md](docs/postprocess.md).
+Details: [docs/postprocess.md](docs/postprocess.md).
 
 ---
 
 ### Analysis
 
-The analysis pipeline provides post-inversion diagnostics for LATTE tomography results. It reads post-processed CSV, HDF5, and ray path cache files to produce publication-quality plots and statistical reports. All ten modules are independent and disabled by default.
+The analysis pipeline provides post-inversion diagnostics. It reads the post-processed files and writes plots, statistics and reports. All ten modules are independent and disabled by default.
 
-**Analysis modules:**
-1. **Travel Time Residual Analysis** — residual distributions, histograms, scatter plots, and summary statistics; supports ground truth and method-to-method comparison modes
-2. **Velocity Model Analysis** — point-wise differences and log-ratios between two models; spatial projections, depth slices, and 1D profile plots
-3. **Distance-Dependent Residual Analysis** — residual dependence on source–receiver distance; identifies systematic distance-dependent bias
-4. **Short-Distance Analysis** — residual analysis restricted to near-field source–receiver pairs with spatial clustering
-5. **Source Correction Analysis** — hypocenter relocation evaluation and spatial distribution of correction magnitudes
-6. **Gradient Analysis** — velocity and source gradient / search direction diagnostics from inversion optimization
-7. **DWS Analysis** — Derivative Weight Sum model coverage and resolution assessment
-8. **Ray Path Analysis** — 3D ray path projection visualization
-9. **Ray Density Analysis** — ray count per grid cell and coverage mapping
-10. **Tradeoff Analysis** — data misfit vs. model variance L-curve for regularization selection
+**Modules:**
+1. **Travel Time Residual Analysis** — residual distributions and statistics; ground truth and method-comparison modes
+2. **Velocity Model Analysis** — differences and ratios between two models, projections, slices and profiles
+3. **Distance-Dependent Residual Analysis** — residual dependence on source–receiver distance
+4. **Short-Distance Analysis** — near-field residuals with spatial clusters
+5. **Source Correction Analysis** — hypocenter and origin time corrections
+6. **Gradient Analysis** — gradient and search direction diagnostics
+7. **DWS Analysis** — Derivative Weight Sum coverage maps
+8. **Ray Path Analysis** — ray path projections
+9. **Ray Density Analysis** — ray counts per cell, depth slices and oblique sections
+10. **Tradeoff Analysis** — data misfit versus model change across iterations or parameter values
 
-For detailed documentation, see [docs/analysis.md](docs/analysis.md).
+Details: [docs/analysis.md](docs/analysis.md).
+
+---
+
+### Resolution Tests
+
+The checkerboard and spike tests check how well an inversion recovers known structure: a perturbed model is created, noise is added to its synthetic travel times, the noisy data are inverted, and the recovered model is compared with the input.
+
+- **Checkerboard test** (`checkerboard_test`) — periodic sinusoidal or block patterns in 3D, 2D or on selected depth planes
+- **Spike test** (`spike_test`) — localised Gaussian anomalies (3D, single layer, arbitrary orientation)
+
+Details: [docs/resolution_tests.md](docs/resolution_tests.md).
+
+---
+
+### Cluster Scripts
+
+`shell_scripts/` contains Slurm jobs for LATTE forward runs, inversions and resolution tests, and a script that post-processes and analyses selected inversion iterations. Details: [shell_scripts/README.md](shell_scripts/README.md).
 
 ---
 
 ## Complete Workflow
 
 ```
-1. Preprocessing            2. LATTE Inversion          3. Post-Processing           4. Analysis
+1. Preprocessing            2. LATTE                    3. Post-Processing           4. Analysis
    ↓                           ↓                            ↓                            ↓
 Input Data                 Binary Outputs               Analysis-Ready Files         Results & Plots
 ├─ Event catalog           ├─ updated_vp.bin            ├─ velocity_model_final.csv   ├─ Residual plots
 │  (QuakeML / HDF5)        ├─ updated_vs.bin            ├─ synthetic_traveltimes.csv  ├─ Velocity comparisons
-├─ Station inventory       ├─ updated_sx/sy/sz.bin      ├─ source_relocation.csv     ├─ DWS coverage maps
-└─ 1D reference model      ├─ updated_st0.bin           ├─ ray_paths.h5              ├─ Ray path projections
-                           ├─ synthetic_traveltimes/    └─ dws_grid.csv              ├─ L-curve tradeoff
-                           └─ ray_path binaries                                      └─ Statistical reports
+├─ Station inventory       ├─ updated_sx/sy/sz/st0.bin  ├─ source_relocation.csv      ├─ DWS coverage maps
+└─ 1D reference model      ├─ synthetic travel times    ├─ ray_paths.h5               ├─ Ray path projections
+                           └─ ray path binaries         └─ dws_values.h5              ├─ L-curve tradeoff
+                                                                                       └─ Statistical reports
 ```
 
 ---
@@ -142,21 +192,26 @@ Input Data                 Binary Outputs               Analysis-Ready Files    
 latte-workflow/
 ├── preprocess/                      # Preprocessing pipeline
 │   ├── main.py
+│   ├── quakeml_loader.py
+│   ├── catalog_filters.py
+│   ├── raw_data_visualization.py
+│   ├── hdf5_conversion.py
 │   ├── data_loader.py
 │   ├── coordinate_transformation.py
-│   ├── initial_velocity_model.py
 │   ├── geometry_traveltime.py
-│   └── visualization.py
+│   ├── initial_velocity_model.py
+│   ├── visualization.py
+│   └── plot_settings.py
 │
 ├── postprocess/                     # Post-processing pipeline
 │   ├── main.py
 │   ├── postprocess_velocity.py
 │   ├── postprocess_traveltime.py
 │   ├── postprocess_source.py
-│   ├── postprocess_raypath.py
-│   ├── postprocess_dws.py
 │   ├── compute_ray_paths.py
 │   ├── read_raypath_binary.py
+│   ├── postprocess_raypath.py
+│   ├── postprocess_dws.py
 │   └── simplify_ray_paths.py
 │
 ├── analysis/                        # Analysis pipeline
@@ -172,40 +227,43 @@ latte-workflow/
 │   ├── raypath_analysis.py
 │   ├── ray_density_analysis.py
 │   ├── tradeoff_analysis.py
-│   └── [supporting plot/data/report modules]
+│   └── [supporting data / statistics / plot / report modules]
+│
+├── checkerboard_test/               # Checkerboard resolution test
+├── spike_test/                      # Spike resolution test
 │
 ├── utils/                           # Shared utilities
 │   ├── io_utils.py
-│   ├── logging_utils.py
-│   ├── plot_utils.py
+│   ├── velocity_io.py
+│   ├── traveltime_io.py
+│   ├── csv_metadata.py
+│   ├── column_utils.py
+│   ├── exchange.py
 │   ├── distance_utils.py
 │   ├── origin_time_utils.py
-│   └── velocity_io.py
+│   ├── logging_utils.py
+│   └── plot_utils.py
 │
 ├── configs/                         # Hydra configuration files
-│   ├── preprocess/
-│   │   ├── default.yaml             # Default configuration
-│   │   ├── example.yaml             # Minimal template to copy
-│   │   └── README.md                # Configuration reference
-│   ├── postprocess/
-│   │   ├── default.yaml
-│   │   ├── example.yaml
-│   │   └── README.md
-│   └── analysis/
-│       ├── default.yaml
-│       ├── example.yaml
-│       ├── high_quality.yaml
-│       ├── traveltime_only.yaml
-│       ├── velocity_only.yaml
-│       └── README.md
+│   ├── preprocess/                  # default.yaml, example.yaml, README.md
+│   ├── postprocess/                 # default.yaml, example.yaml, README.md
+│   ├── analysis/                    # default.yaml, example.yaml, README.md
+│   ├── checkerboard_test/           # default.yaml
+│   └── spike_test/                  # default.yaml
+│
+├── shell_scripts/                   # Slurm jobs and batch processing scripts
 │
 ├── docs/                            # Detailed documentation
 │   ├── preprocess.md
 │   ├── postprocess.md
 │   ├── analysis.md
-│   └── file_formats.md
+│   ├── resolution_tests.md
+│   ├── file_formats.md
+│   └── update_notes.md
 │
-└── tests/                           # Unit tests
+├── requirements.txt                 # pip dependencies
+├── environment.yml                  # conda environment
+└── environment-tested.yml           # conda environment with the tested versions
 ```
 
 ---
@@ -214,23 +272,39 @@ latte-workflow/
 
 | Document | Description |
 |---|---|
-| [docs/preprocess.md](docs/preprocess.md) | Module-level reference for each preprocessing stage, configuration keys, and outputs |
-| [docs/postprocess.md](docs/postprocess.md) | Module-level reference for each post-processing stage, configuration keys, and outputs |
-| [docs/analysis.md](docs/analysis.md) | Module-level reference for each analysis module, configuration keys, and plot descriptions |
-| [docs/file_formats.md](docs/file_formats.md) | Complete specification of all input and output file formats across all three pipelines |
-| [configs/preprocess/README.md](configs/preprocess/README.md) | All preprocessing configuration parameters with defaults and descriptions |
-| [configs/postprocess/README.md](configs/postprocess/README.md) | All post-processing configuration parameters with defaults and descriptions |
-| [configs/analysis/README.md](configs/analysis/README.md) | All analysis configuration parameters with defaults and descriptions |
+| [docs/preprocess.md](docs/preprocess.md) | Module reference for each preprocessing step, configuration keys and outputs |
+| [docs/postprocess.md](docs/postprocess.md) | Module reference for each post-processing stage, configuration keys and outputs |
+| [docs/analysis.md](docs/analysis.md) | Module reference for each analysis module, configuration keys and plots |
+| [docs/resolution_tests.md](docs/resolution_tests.md) | Checkerboard and spike resolution tests |
+| [docs/file_formats.md](docs/file_formats.md) | Specification of all input and output file formats |
+| [docs/update_notes.md](docs/update_notes.md) | Changes of the releases, known limitations, and the log of fixes |
+| [configs/preprocess/README.md](configs/preprocess/README.md) | All preprocessing parameters with defaults and descriptions |
+| [configs/postprocess/README.md](configs/postprocess/README.md) | All post-processing parameters with defaults and descriptions |
+| [configs/analysis/README.md](configs/analysis/README.md) | All analysis parameters with defaults and descriptions |
+| [shell_scripts/README.md](shell_scripts/README.md) | Slurm jobs and processing scripts |
 
 ---
 
 ## Compatibility
 
-- **Python**: 3.8+
-- **LATTE**: Requires the [`dev2` branch](https://github.com/Naveen-Raj-M/latte_traveltime/tree/dev2) of [https://github.com/Naveen-Raj-M/latte_traveltime.git](https://github.com/Naveen-Raj-M/latte_traveltime.git)
-- **Fortran Binary Format**: Binary outputs use Fortran stream access format (float32 or float64)
-- **Operating Systems**: Linux, macOS, Windows
-- **Input Data Formats**: QuakeML, HDF5, plain-text station files
+- **Python**: 3.10 – 3.13
+- **LATTE**: the original [LATTE](https://github.com/lanl/latte_traveltime) or the [forked repository](https://github.com/Naveen-Raj-M/latte_traveltime) (suggested; adds ray path computation and other improvements)
+- **Binary format**: all binary files exchanged with LATTE are headerless little-endian **float32** (Fortran stream access); LATTE reads and writes single precision only
+- **Operating system**: developed and tested on Linux
+- **Input formats**: QuakeML, HDF5, plain-text station files
+
+---
+
+## Reporting Issues
+
+The core functionality was tested at the development stage. Almost the whole workflow was then refactored to prepare this release, and the core functionality was tested again with the refactored code. Some parts may therefore still contain bugs. If you find one, please open an issue in this repository and describe:
+
+1. **Problem** — what fails, concisely, with the command, the configuration and the error message
+2. **Root cause** — where in the code and why it happens
+3. **Potential solution** — the change that would fix it
+4. **Behaviour before and after the fix** — what the workflow does now, and what it will do afterwards
+
+Fixes are recorded in [docs/update_notes.md](docs/update_notes.md) (section *Recording a fix*) with the same four parts; please refer to that entry from the issue.
 
 ---
 
@@ -238,35 +312,33 @@ latte-workflow/
 
 When contributing to this repository:
 
-1. Maintain modular design principles across all components
-2. Add comprehensive docstrings and type hints
-3. Include unit tests for new functionality
-4. Update configuration schemas as needed
-5. Follow PEP 8 style guidelines
-6. Document new features in relevant README sections
-7. Consider cross-module compatibility
+1. Keep the modular design: one module per task, configured through Hydra
+2. Add docstrings and type hints
+3. Test new functionality end to end on a small example before submitting
+4. Update the configuration files and their README sections together
+5. Follow PEP 8
+6. Document new features in the relevant document under `docs/`
+7. Record fixes in [docs/update_notes.md](docs/update_notes.md)
 
 ## License
 
-This project is intended for academic and research use. Please cite the relevant papers when using this code in publications.
+Released under the MIT License (see [LICENSE](LICENSE)). Please cite the relevant papers when using this code in publications.
 
 ## Acknowledgments
 
-- LANL LATTE development team for the original tomography framework
-- Huang et al. for the Permian Basin dataset and methodological insights
-- Contributors to the open-source scientific Python ecosystem
-- Seismological community for data standards and best practices
+- The LANL LATTE development team for the tomography framework
+- The contributors to the open-source scientific Python ecosystem
+- The seismological community for data standards and best practices
 
 ---
 
 ## Support
 
 For questions about:
-- **LATTE Framework**: Refer to the [forked LATTE repository (dev2 branch)](https://github.com/Naveen-Raj-M/latte_traveltime/tree/dev2) or the [original LATTE repository](https://github.com/lanl/latte_traveltime)
-- **This Toolkit**: Open an issue in this repository
-- **Data Formats**: See [docs/file_formats.md](docs/file_formats.md) for a complete specification of all input and output formats
-- **Scientific Applications**: Review the cited literature
+- **LATTE**: the [original repository](https://github.com/lanl/latte_traveltime) or the [forked repository](https://github.com/Naveen-Raj-M/latte_traveltime)
+- **This toolkit**: open an issue in this repository (see [Reporting Issues](#reporting-issues))
+- **File formats**: [docs/file_formats.md](docs/file_formats.md)
 
 ---
 
-*This toolkit is designed to work with the LATTE tomographic framework but is maintained independently. It aims to provide a complete workflow solution for seismic tomography research and applications.*
+*This toolkit is designed to work with the LATTE tomography framework and is maintained independently.*

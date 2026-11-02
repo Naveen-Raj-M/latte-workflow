@@ -1,8 +1,6 @@
 # Shell Scripts
 
-Scripts for running LATTE on a cluster (Slurm) and processing its output with the
-`postprocess` and `analysis` modules. All paths in the scripts are placeholders
-(`/path/to/...`, `your_allocation`, ...); edit them before use.
+Scripts for running LATTE on a cluster (Slurm) and for processing its output with the `postprocess` and `analysis` modules. All paths in the scripts are placeholders (`/path/to/...`, `your_allocation`, …); edit them before use. Commands below are run from the root of this repository.
 
 | File | What it does |
 |---|---|
@@ -16,84 +14,68 @@ Scripts for running LATTE on a cluster (Slurm) and processing its output with th
 
 ## Common setup
 
-Every `.slurm` file loads the Intel and MPI modules (`intel/25.1`, `impi`), activates
-the Python virtual environment, and sets `OMP_NUM_THREADS`. Before submitting, edit:
+Every `.slurm` file loads the Intel and MPI modules (`intel/25.1`, `impi`), activates the Python environment, and sets `OMP_NUM_THREADS`. Before submitting, edit:
 
 - `#SBATCH` header: partition (`-p`), allocation (`-A`), wall time (`-t`), email.
-- `-N` and `-n`: nodes = MPI ranks x OpenMP threads / cores per node. `-n` must equal
-  `NUM_RANK` in the script (the number of receivers in the final data).
-- Paths: virtual environment, `BINDIR` (directory with `x_tloc3` / `x_eikonal3`), and
-  the run directories.
+- `-N` and `-n`: nodes = MPI ranks × OpenMP threads / cores per node. `-n` must equal `NUM_RANK` in the script (the number of receivers in the final data).
+- Environment: the line that activates the Python environment (`source /path/to/latte-workflow-venv/bin/activate`). For a conda environment, replace it with `conda activate latte-workflow` (see the installation section of the [main README](../README.md)).
+- Paths: `BINDIR` (the directory with `x_tloc3` / `x_eikonal3`) and the run directories.
 
 ## Forward modelling
 
 ```bash
-sbatch /home/rajmanoharann/latte-workflow/shell_scripts/forward_job_submission.slurm
+sbatch shell_scripts/forward_job_submission.slurm
 ```
 
-Set `RUN`, `BASE_DIR`, `EXECUTABLE`. Needs `<BASE_DIR>/<RUN>.rb`.
-Log: `<BASE_DIR>/logs/run_<RUN>_simulation_log_<timestamp>.txt`.
+Set `RUN`, `BASE_DIR`, `EXECUTABLE`. Needs `<BASE_DIR>/<RUN>.rb`. Log: `<BASE_DIR>/logs/run_<RUN>_simulation_log_<timestamp>.txt`.
 
 ## Inversion
 
 ```bash
-sbatch /home/rajmanoharann/latte-workflow/shell_scripts/inversion_job_submission.slurm
+sbatch shell_scripts/inversion_job_submission.slurm
 ```
 
-Set `BASE_DIR` and `RUN_NAMES`. Each run needs `<BASE_DIR>/<run>.rb`; LATTE writes
-`<BASE_DIR>/<run>/iteration_<N>/{model,synthetic}/`. Runs go one after another inside
-the same job, so size `-t` for all of them. Log per run: `<BASE_DIR>/logs/`.
+Set `BASE_DIR` and `RUN_NAMES`. Each run needs `<BASE_DIR>/<run>.rb`; LATTE writes `<BASE_DIR>/<run>/iteration_<N>/{model,synthetic}/`. Runs go one after another inside the same job, so size `-t` for all of them. Log per run: `<BASE_DIR>/logs/`.
 
 ## Checkerboard and spike tests
 
 ```bash
-sbatch /home/rajmanoharann/latte-workflow/shell_scripts/checkerboard_test_job_submission.slurm
-sbatch /home/rajmanoharann/latte-workflow/shell_scripts/spike_test_job_submission.slurm
+sbatch shell_scripts/checkerboard_test_job_submission.slurm
+sbatch shell_scripts/spike_test_job_submission.slurm
 ```
 
-Prerequisite: create the perturbed model first with `checkerboard_test.main` or
-`spike_test.main` (`workflow.step1_create_checkerboard=true` / `workflow.step1_create_spike=true`).
-This writes the model binaries and you provide the LATTE parameter files:
+Prerequisite: create the perturbed model first with `checkerboard_test.main` or `spike_test.main` (`workflow.step1_create_checkerboard=true` / `workflow.step1_create_spike=true`; see [docs/resolution_tests.md](../docs/resolution_tests.md)). This writes the model binaries; you provide the LATTE parameter files:
 
 ```
 <BASE_..._TEST_DIR>/inversion_runs_perturbed/<test>.rb   # LATTE on the perturbed model
 <BASE_..._TEST_DIR>/inversion_runs/<test>.rb             # LATTE inversion of noisy data
 ```
 
-The config named by `CONFIG_FILE` must live in `configs/checkerboard_test/` or
-`configs/spike_test/` and include `default` in its `defaults` list.
+The configuration named by `CONFIG_FILE` must live in `configs/checkerboard_test/` or `configs/spike_test/` and include `default` in its `defaults` list.
 
-In the job file, list the test names in `tests` and edit the `CFG` block. Each test
-runs these steps, switched on or off by the `RUN_*` flags (a failed test is logged and
-the next one still runs):
+In the job file, list the test names in `tests` and edit the `CFG` block. Each test runs the steps below, switched on or off by the `RUN_*` flags (a failed test is logged and the next one still runs):
 
 1. `RUN_INVERSION_PERTURBED`: LATTE on the perturbed model (one iteration) to produce synthetic travel times.
-2. `RUN_ADD_NOISE`: adds noise to those travel times (`*.main`, `workflow.step2_add_noise`), giving `<test>/noisy_traveltimes/`.
+2. `RUN_ADD_NOISE`: adds noise to those travel times (`<test>.main`, `workflow.step2_add_noise`), giving `<test>/noisy_traveltimes/`.
 3. `RUN_INVERSION`: LATTE inversion of the noisy travel times.
 
-Set `SOURCE_RECEIVER_EXCHANGE=true` if LATTE used stations as virtual sources.
-LATTE logs go to `inversion_runs_perturbed/logs/` and `inversion_runs/logs/`.
+Set `SOURCE_RECEIVER_EXCHANGE=true` if LATTE used the stations as virtual sources. LATTE logs go to `inversion_runs_perturbed/logs/` and `inversion_runs/logs/`.
 
-To resume after a failure, set the finished steps' flags to `false` and resubmit.
+To resume after a failure, set the flags of the finished steps to `false` and resubmit.
 
-Converting and visualizing the inverted model (`workflow.step3_convert_inverted`,
-`workflow.step4_visualize`) is not part of these scripts; run `checkerboard_test.main`
-or `spike_test.main` manually for those.
+Converting and visualizing the inverted model (`workflow.step3_convert_inverted`, `workflow.step4_visualize`) is not part of these scripts; run `checkerboard_test.main` or `spike_test.main` for those steps.
 
 ## Processing inversion output
 
-`process_inversion.sh` runs on a login or compute node, not through Slurm. Edit the
-CONFIGURATION section at the top of the script, then:
+`process_inversion.sh` runs on a login or compute node, not through Slurm. Edit the CONFIGURATION section at the top of the script, then:
 
 ```bash
-bash /home/rajmanoharann/latte-workflow/shell_scripts/process_inversion.sh > /path/to/process_inversion.log 2>&1 &
+bash shell_scripts/process_inversion.sh > /path/to/process_inversion.log 2>&1 &
 ```
 
 Follow progress with `tail -f /path/to/process_inversion.log`.
 
-For each run in `RUN_NAMES` and each selected iteration (`ITERATION_MODE` = `range`,
-`step` or `list`) it reads `<BASE_INVERSION_DIR>/<run>/iteration_<N>/` and writes to
-`<BASE_ANALYSIS_DIR>/<run>/iteration_<N>/`:
+For each run in `RUN_NAMES` and each selected iteration (`ITERATION_MODE` = `range`, `step` or `list`) the script reads `<BASE_INVERSION_DIR>/<run>/iteration_<N>/` and writes to `<BASE_ANALYSIS_DIR>/<run>/iteration_<N>/`:
 
 | Stage | Switch | Output |
 |---|---|---|
@@ -111,4 +93,4 @@ Notes:
 - For checkerboard and spike tests, set `GROUND_TRUTH_CSV` to the noisy travel time CSV (`<test>/noisy_traveltimes/noisy_traveltimes.csv`).
 - Set `SOURCE_RECEIVER_EXCHANGE=true` (with `GEOMETRY_DIR`) if the inversion used it.
 - Failed iterations are skipped and listed at the end; the script then exits with status 1.
-- Both stages use the default configs (`configs/postprocess/default.yaml`, `configs/analysis/default.yaml`); all settings are passed as Hydra overrides.
+- Both stages use the default configurations (`configs/postprocess/default.yaml`, `configs/analysis/default.yaml`); all settings are passed as Hydra overrides.

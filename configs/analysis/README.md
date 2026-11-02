@@ -84,14 +84,11 @@ Global path patterns used as defaults across all analysis modules. Module-level 
 |-----|---------|-------------|
 | `input_dir` | `data/processed` | Root directory for all input files. Used to resolve relative paths within modules. |
 | `output_base_dir` | `results/analysis` | Root directory for all analysis outputs. |
-| `travel_time_csv_pattern` | `synthetic_traveltimes.csv` | Glob pattern for travel time residual CSVs. |
+| `travel_time_csv_pattern` | `synthetic_traveltimes.csv` | Glob pattern for travel time CSVs. |
 | `velocity_csv_pattern` | `velocity_model_final*.csv` | Glob pattern for velocity model CSVs. |
 | `station_csv_name` | `stations_cartesian.csv` | Filename for the Cartesian station list. |
 | `events_csv_name` | `events_cartesian*.csv` | Glob pattern for the Cartesian events file. |
 | `source_csv_pattern` | `source_relocation.csv` | Glob pattern for source parameter CSVs. |
-| `plots_subdir` | `plots` | Subdirectory name for plot outputs within each module's output directory. |
-| `stats_subdir` | `statistics` | Subdirectory name for statistics outputs. |
-| `reports_subdir` | `reports` | Subdirectory name for text report outputs. |
 
 ---
 
@@ -204,7 +201,6 @@ Analyzes travel time residuals between synthetic predictions and observed ground
 | `method1_name` / `method2_name` | `Method 1` / `Method 2` | — | Display names for each method in plots. |
 | `enable_log_log_plots` | `true` | `true`, `false` | Generate log–log scale residual plots. |
 | `enable_ln_ratio_analysis` | `true` | `true`, `false` | Compute and plot natural log ratio statistics. |
-| `enable_corrected_format` | `true` | `true`, `false` | Parse picks in LATTE corrected-residual format. |
 | `outlier_threshold_sigma` | `3.0` | — | Residuals beyond N·σ are flagged as outliers. |
 | `min_residual_threshold` | `-50.0` | s | Residuals below this are treated as unrealistic and excluded. |
 | `max_residual_threshold` | `50.0` | s | Residuals above this are treated as unrealistic and excluded. |
@@ -331,9 +327,10 @@ Analyzes source parameter corrections (location shifts and origin time changes) 
 | Key | Default | Options | Description |
 |-----|---------|---------|-------------|
 | `enabled` | `false` | `true`, `false` | Enable this module. |
+| `parameters_to_process` | `["sx","sy","sz","st0"]` | subset of `sx`, `sy`, `sz`, `st0` | Parameters whose corrections are computed and plotted (omit `st0` if origin times were not updated). |
 | `comparison_mode` | `ground_truth` | `ground_truth`, `method_comparison` | Data input mode. |
-| `input_csv` | `null` | — | Source parameter CSV from the postprocess module. Used in `ground_truth` mode. |
-| `output_dir` | `results/analysis/source_corrections` | — | Output directory for plots and reports. |
+| `input_csv` | `null` | — | Source relocation CSV from the postprocess module. Used in `ground_truth` mode. |
+| `output_dir` | `${paths.output_base_dir}/source_corrections` | — | Output directory for plots and reports. |
 | `method1_csv` / `method2_csv` | `null` | — | Source CSVs for each method. Used in `method_comparison` mode. |
 | `method1_name` / `method2_name` | `Method 1` / `Method 2` | — | Display names for each method. |
 | `use_log_scale` | `false` | `true`, `false` | Use log scale on correction magnitude axes. |
@@ -343,7 +340,7 @@ Analyzes source parameter corrections (location shifts and origin time changes) 
 | `histogram_bins` | `50` | — | Number of bins for correction magnitude histograms. |
 | `max_arrows_map` | `5000` | — | Maximum correction vectors drawn on the map plot. |
 | `generate_summary_report` | `true` | `true`, `false` | Write a text summary report. |
-| `save_corrected_data` | `true` | `true`, `false` | Write `source_corrections_with_deltas.csv` with computed correction deltas. |
+| `save_corrected_data` | `true` | `true`, `false` | Write `source_corrections_with_deltas.csv` (`source_method_comparison_with_deltas.csv` in method comparison) with the computed deltas. |
 | `plot_basin_boundaries` | `false` | `true`, `false` | Overlay basin boundaries on the XY geographic map. |
 
 ---
@@ -449,73 +446,94 @@ Computes per-cell ray counts on the inversion grid and visualizes spatial covera
 | `enable_xy_threshold_count` | `true` | `true`, `false` | Map showing the count of depth layers with ray density ≥ threshold. |
 | `enable_depth_slices` | `true` | `true`, `false` | Horizontal slice plots at specified depths. |
 | `depth_slices` | `[5,10,15,20,30,40,50]` | km | Depths at which horizontal slice plots are generated. |
-| `plot_basin_boundaries` | `false` | `true`, `false` | Overlay basin boundaries on XY projection and depth slice plots. |
+| `plot_basin_boundaries` | `false` | `true`, `false` | Overlay basin boundaries on XY projection, depth slice and oblique section plots. |
+| `enable_oblique_sections` | `false` | `true`, `false` | Plot the ray density along the vertical planes defined in `oblique_sections`. |
+| `enable_oblique_section_plan_view` | `false` | `true`, `false` | Plan-view map of all oblique section traces. |
+| `oblique_sections` | `[{label: A, x1: 0, y1: 0, x2: 100, y2: 100}]` | — | List of sections: `label` (used in file names and plot labels) and the end points `x1`, `y1`, `x2`, `y2` in km. |
 | `figure_width` / `figure_height` | `12` / `10` | — | Figure dimensions in inches. |
 | `colormap` | `hot` | `hot`, `viridis`, `plasma`, `inferno`, `jet` | Colormap for density plots. |
 
 #### `ray_density_analysis.grid`
 
-Cartesian grid definition used to bin ray paths. Must match the inversion grid exactly.
+Cartesian grid used to bin the ray paths. The grid stored in the metadata of the ray path cache takes precedence; the configured values are used only for keys the cache lacks, and a difference logs a warning.
 
 | Key | Unit | Description |
 |-----|------|-------------|
 | `nx`, `ny`, `nz` | — | Number of grid nodes along x, y, z axes. |
 | `dx`, `dy`, `dz` | km | Grid spacing along each axis. |
-| `origin_x`, `origin_y`, `origin_z` | km | Cartesian origin of the grid (legacy keys `x_min`, `y_min`, `z_min` are still accepted). |
+| `origin_x`, `origin_y`, `origin_z` | km | Cartesian origin of the grid. |
 
 ---
 
 ### `tradeoff_analysis`
 
-Generates the inversion L-curve (data misfit vs. model variance) across iterations to identify the optimal regularization point.
+Builds the tradeoff curve (L-curve) between data fit and model change across inversion iterations, or across a parameter sweep.
 
 | Key | Default | Options | Description |
 |-----|---------|---------|-------------|
 | `enabled` | `false` | `true`, `false` | Enable this module. |
-| `y_axis_mode` | `data_misfit` | `data_misfit`, `rms` | `data_misfit`: read a pre-computed misfit file. `rms`: compute RMS from per-iteration residual CSVs. |
-| `data_misfit_file_path` | `null` | — | Path to `data_misfit.txt` (3-column: iteration, data_misfit, normalized_data_misfit). Used when `y_axis_mode: data_misfit`. |
-| `use_normalized_misfit` | `false` | `true`, `false` | Use the normalized misfit column instead of the absolute column. |
-| `inversion_base_path` | `null` | — | Directory containing `iteration_*/` subdirs with travel time residual CSVs. Used when `y_axis_mode: rms`. |
-| `traveltime_csv_pattern` | `synthetic_traveltimes.csv` | — | Glob pattern for travel time CSVs within each iteration directory. |
-| `phase_mode` | `both` | `both`, `p`, `s`, `separate` | Phase filter for RMS computation. `separate` = plot Vp and Vs curves independently. |
-| `min_residual_threshold` | `-50.0` | s | Lower bound for RMS computation. |
-| `max_residual_threshold` | `50.0` | s | Upper bound for RMS computation. |
-| `rms_comparison_mode` | `ground_truth` | `ground_truth`, `method_comparison` | `ground_truth`: single residual set. `method_comparison`: compare two methods. |
-| `method1_csv` | `null` | — | Static travel time CSV for Method 1 (method comparison mode). |
-| `method2_csv_pattern` | `synthetic_traveltimes.csv` | — | Glob pattern for Method 2 CSVs per iteration. |
-| `initial_model_csv` / `initial_model_hdf5` | `null` | — | Path to the initial velocity model for variance computation. HDF5 takes precedence. |
-| `inversion_analysis_dir` | `null` | — | Directory containing per-iteration post-processed velocity outputs. |
-| `velocity_dataset` | `velocity` | `velocity`, `velocity_coarse` | HDF5 dataset name to read for velocity model. |
-| `output_dir` | derived | — | Output directory for tradeoff curve plots. |
+| `write_report` | `true` | `true`, `false` | Write a detailed report (settings, paths, computed values) in every mode. |
+| `x_axis_mode` | `iteration` | `iteration`, `parameter` | `iteration`: discover the `iteration_<N>/` directories under `inversion_base_path`. `parameter`: use the entries of `parameter_mode`. |
+| `y_axis_mode` | `data_misfit` | `data_misfit`, `rms`, `data_variance` | `data_misfit`: read a misfit file. `rms`: RMS residual computed from per-iteration travel time CSVs. `data_variance`: mean squared residual (s²). |
+| `data_misfit_file_path` | `null` | — | Three-column file (`iteration`, `data_misfit`, `normalized_data_misfit`). Used when `y_axis_mode: data_misfit`. |
+| `use_normalized_misfit` | `false` | `true`, `false` | Use the normalised column instead of the absolute one. |
+| `inversion_base_path` | `null` | — | Directory with the `iteration_<N>/` subdirectories holding the travel time CSVs. Used by `rms` and `data_variance`. |
+| `traveltime_csv_pattern` | `synthetic_traveltimes.csv` | — | Glob pattern of the travel time CSV in each iteration directory. |
+| `velocity_csv_pattern` | `velocity*.csv` | — | Glob pattern of the velocity file in each iteration directory. |
+| `phase_mode` | `both` | `both`, `p`, `s`, `separate` | Phase filter. `separate` plots independent Vp and Vs curves. |
+| `min_residual_threshold`, `max_residual_threshold` | `-50.0`, `50.0` | s | Residuals outside these bounds are excluded from the RMS. |
+| `use_weighted_rms` | `false` | `true`, `false` | Weight the RMS with the `weight` column; `false` uses uniform weights. |
+| `use_log_residuals` | `false` | `true`, `false` | `rms` and `data_variance` only: use \|log(observed) − log(synthetic)\| instead of the residual. |
+| `log_residual_base` | `natural` | `natural`, `log10` | Logarithm used with `use_log_residuals`. |
+| `log_residual_epsilon` | `1.0e-10` | — | Travel times below this value are clamped to it before the logarithm. |
+| `rms_comparison_mode` | `ground_truth` | `ground_truth`, `method_comparison` | `ground_truth`: one residual set. `method_comparison`: compare two methods. |
+| `method1_csv` | `null` | — | Static travel time CSV of method 1 (method comparison). |
+| `method2_csv_pattern` | `synthetic_traveltimes.csv` | — | Glob pattern of the per-iteration CSV of method 2. |
+| `initial_model_csv` / `initial_model_hdf5` | `null` | — | Initial velocity model used for the model change. HDF5 takes precedence. |
+| `inversion_analysis_dir` | `null` | — | Directory with the per-iteration post-processed velocity outputs. |
+| `velocity_dataset` | `velocity` | `velocity`, `velocity_coarse` | HDF5 dataset to read. |
+| `output_dir` | `${paths.output_base_dir}/tradeoff_analysis` | — | Output directory. |
+
+#### `tradeoff_analysis.parameter_mode`
+
+Used when `x_axis_mode: parameter`.
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `parameter_name` | `step_max` | Label of the swept parameter in plots and reports. |
+| `p_wave_entries` | `[]` | List of `{parameter_value, directory_name, iteration}` for P. |
+| `s_wave_entries` | `[]` | Same for S. |
 
 #### `tradeoff_analysis.model_variance`
 
-Controls how model variance (X-axis of the L-curve) is computed.
+Controls how the model change (X axis) is computed.
 
 | Key | Default | Options | Description |
 |-----|---------|---------|-------------|
-| `region` | `full` | `full`, `z_bounded`, `depth_layer` | Grid region over which variance is averaged. |
-| `z_bounds` | `[null, null]` | km | `[z_min, z_max]` bounds. Used when `region: z_bounded`. |
-| `depth_layers` | `[]` | km | Specific depth layers for stratified variance. Used when `region: depth_layer`. |
-| `depth_tolerance_km` | `0.5` | km | Z-matching tolerance for depth layer mode. |
-| `x_bounds` / `y_bounds` | `[null, null]` | km | Optional spatial clip applied before variance computation. `null` = no clip. |
-| `use_percentage_change` | `false` | `true`, `false` | Express variance as mean(\|Δv\| / \|v_initial\|) × 100 (%). |
-| `aggregation` | `mean` | `mean`, `max` | Aggregation method over selected grid points. |
+| `region` | `full` | `full`, `z_bounded`, `depth_layer` | Region over which the change is evaluated. |
+| `z_bounds` | `[null, null]` | km | `[z_min, z_max]`; used with `region: z_bounded`. |
+| `depth_layers` | `[]` | km | Depth layers; used with `region: depth_layer`. |
+| `depth_tolerance_km` | `0.5` | km | z-matching tolerance for `depth_layer`. |
+| `x_bounds`, `y_bounds` | `[null, null]` | km | Optional spatial clip before the evaluation. |
+| `use_percentage_change` | `false` | `true`, `false` | Express the change as mean(\|Δv\| / \|v_initial\|) × 100 (%). |
+| `aggregation` | `mean` | `mean`, `max`, `model_variance`, `rms_variation` | Aggregation over the selected grid points. |
+| `exclude_zero_change` | `false` | `true`, `false` | With `rms_variation`: skip nodes without velocity change. |
+| `zero_change_tolerance` | `1.0e-6` | km/s | Velocity change below which a node counts as unchanged. |
 
 #### `tradeoff_analysis.plot`
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `figure_width` / `figure_height` | `10` / `8` | Figure dimensions in inches. |
-| `show_grid` | `true` | Show grid lines. |
-| `show_iteration_labels` | `true` | Annotate each data point with its iteration number. |
-| `use_log_scale_x` / `use_log_scale_y` | `false` | Log scale on X (model variance) or Y (data misfit/RMS) axis. |
-| `x_label` / `y_label` | `null` | Axis labels. `null` = auto-derived from mode and phase. |
-| `marker_style` | `o` | Data point marker (any matplotlib marker). |
-| `color_by_iteration` | `false` | Color each point by iteration number using `colormap`. |
-| `colormap` | `viridis` | Colormap used when `color_by_iteration: true`. |
-| `highlight_optimal` | `false` | Annotate the elbow/optimal point with a gold star. |
-| `vp_color` / `vs_color` | `null` | Line colors for Vp/Vs curves. `null` = use global palette colors. |
+| `figure_width` / `figure_height` | `10` / `8` | Figure size in inches. |
+| `show_grid` | `true` | Grid lines. |
+| `show_iteration_labels` | `true` | Label every point with its iteration. |
+| `use_log_scale_x` / `use_log_scale_y` | `false` | Logarithmic X (model change) or Y (misfit / RMS) axis. |
+| `x_label` / `y_label` | `null` | Axis labels; `null` = derived from the modes. |
+| `marker_style` | `o` | Matplotlib marker. |
+| `color_by_iteration` | `false` | Colour the points by iteration with `colormap`. |
+| `colormap` | `viridis` | Colormap for `color_by_iteration`. |
+| `highlight_optimal` | `false` | Mark the elbow of the curve with a gold star. |
+| `vp_color` / `vs_color` | `null` | Curve colours; `null` = global palette. |
 
 ---
 
@@ -530,19 +548,16 @@ Controls how model variance (X-axis of the L-curve) is computed.
 
 ## Output Structure
 
-Each module writes to its own `output_dir`. Within each directory the layout follows:
+Each module writes into its own `output_dir`. Within it, the usual layout is:
 
 ```
 output_dir/
-├── plots/
-│   ├── <module>_<plot_type>.png
-│   └── ...
-├── reports/
-│   ├── <module>_report.txt
-│   └── <module>_summary.txt
-└── statistics/
-    └── <module>_stats.json
+├── plots/          # figures; format set by analysis.output_format
+├── reports/        # text reports
+└── statistics/     # JSON / CSV statistics (modules that produce them)
 ```
+
+The names of the files are listed in [`docs/file_formats.md`](../../docs/file_formats.md#32-outputs).
 
 Hydra also writes a timestamped run log to:
 ```
@@ -554,11 +569,11 @@ outputs/<YYYY-MM-DD>/<HH-MM-SS>_analysis_<config_name>/
 ## Important Notes
 
 - **All analysis modules are disabled by default.** Explicitly set `enabled: true` for each module to run.
-- **`ray_density_analysis.grid` must match the inversion grid exactly.** Mismatched dimensions produce silently incorrect density counts.
+- **`ray_density_analysis.grid` is a fallback.** The grid stored in the ray path cache is used; configured values only fill keys the cache lacks, and a difference logs a warning.
 - **`raypath_analysis` and `ray_density_analysis` both require the HDF5 ray path cache** produced by `ray_path_processing` in the postprocess module. Run postprocessing before analysis.
 - **`event_id_list_file` requires `shot_map_file`** in both `raypath_analysis` and `ray_density_analysis`. Omitting the shot map when an event filter is set will raise an error.
 - **`method_comparison` mode requires both `method1_csv` and `method2_csv`** to be valid paths. Missing either raises a validation error at startup.
-- **`tradeoff_analysis` in `rms` mode requires `inversion_base_path`** to point to a directory with `iteration_*/` subdirectories, each containing travel time residual CSVs matching `traveltime_csv_pattern`.
+- **`tradeoff_analysis` with `x_axis_mode: iteration` needs `inversion_base_path`** to point to a directory with `iteration_<N>/` subdirectories, each containing the travel time CSV matching `traveltime_csv_pattern` (for `rms` and `data_variance`) and the velocity file matching `velocity_csv_pattern`.
 - **`use_coarse_dataset: true` in `velocity_analysis`** requires the HDF5 file to contain a `velocity_coarse` dataset, created by the postprocess module when `hdf5_options.create_coarse_dataset: true` is set.
 - **`basin_boundaries` is optional.** Modules only draw boundaries when `plot_basin_boundaries: true` and `basin_boundaries.data_dir` contains readable CSV files.
 - **`plane_ratio_plots.coordinates` accepts an empty list** (`[]`), which triggers automatic coordinate selection from the data range.

@@ -1,8 +1,8 @@
 # Analysis Pipeline
 
-The analysis pipeline provides post-inversion diagnostics for LATTE tomography results. It reads post-processed CSVs, HDF5 files, and ray path caches to produce publication-quality plots and statistical reports. All ten analysis modules are independent and disabled by default; enable only the modules relevant to a given evaluation.
+The analysis pipeline provides post-inversion diagnostics for LATTE tomography results. It reads the CSV, HDF5 and ray path cache files written by [postprocess](postprocess.md) and produces plots, statistics and text reports. All ten modules are independent and disabled by default; enable only the modules needed for an evaluation.
 
-> **Configuration reference:** See [`configs/analysis/README.md`](../configs/analysis/README.md) for a complete description of every configuration parameter and all required file paths.
+> **Configuration reference:** See [`configs/analysis/README.md`](../configs/analysis/README.md) for a complete description of every configuration parameter.
 
 ---
 
@@ -19,22 +19,22 @@ The analysis pipeline provides post-inversion diagnostics for LATTE tomography r
 
 ## 1. Modules
 
-The pipeline is driven by `analysis/main.py`. Each module is called in sequence and is guarded by an `enabled` flag. Failures in one module are caught and logged without stopping the remaining modules.
+The pipeline is driven by `analysis/main.py`. The modules run in the order of the sections below, except that ray path analysis runs before DWS analysis. Each module is guarded by an `enabled` flag. A failing module is logged and the next one runs; add `+strict_mode=true` to stop at the first failure.
 
 ---
 
 ### 1.1 Travel Time Residual Analysis (`traveltime_analysis.py`)
 
-Analyzes residuals between synthetic travel time predictions and observed ground truth picks.
+Analyses the residuals between synthetic travel times and the observed travel times.
 
 **What it does:**
 
-- **`ground_truth` mode:** loads a single merged travel time CSV and computes the distribution of residuals (`observed_tt − synthetic_tt`).
-- **`method_comparison` mode:** loads two separate residual CSVs and computes their difference, identifying picks present in only one file (mismatch log) and flagging outliers that exceed physical thresholds.
-- Applies outlier rejection using a configurable sigma threshold (`outlier_threshold_sigma`, default 3.0).
-- Computes summary statistics: mean, standard deviation, median, and weighted RMS per phase and overall.
-- Generates histograms, scatter plots, phase-separated plots, and log-ratio plots.
-- Writes a plain-text summary report and optional mismatch/outlier logs.
+- **`ground_truth` mode:** reads one travel time CSV and analyses the residual distribution (`observed_tt − synthetic_tt`).
+- **`method_comparison` mode:** reads two CSVs, compares them pick by pick, and logs the picks that are present in only one file.
+- Excludes residuals outside `min_residual_threshold` / `max_residual_threshold` and flags outliers beyond `outlier_threshold_sigma`.
+- Computes mean, standard deviation, median and weighted RMS, per phase and overall.
+- Plots residual histograms, synthetic-versus-observed scatter plots (linear and log–log) and natural-log ratio plots.
+- Writes a text report and optional mismatch and outlier logs.
 
 **Key configuration:**
 
@@ -42,50 +42,49 @@ Analyzes residuals between synthetic travel time predictions and observed ground
 |---|---|
 | `travel_time_analysis.enabled` | Enable/disable this module |
 | `travel_time_analysis.comparison_mode` | `ground_truth` or `method_comparison` |
-| `travel_time_analysis.input_csv` | Merged TT CSV (ground_truth mode) |
-| `travel_time_analysis.method1_csv` / `method2_csv` | Two residual CSVs (comparison mode) |
-| `travel_time_analysis.outlier_threshold_sigma` | Sigma cutoff for outlier rejection |
-| `travel_time_analysis.min/max_residual_threshold` | Hard residual bounds (±50 s default) |
+| `travel_time_analysis.input_csv` | Travel time CSV (`ground_truth` mode) |
+| `travel_time_analysis.method1_csv`, `method2_csv` | Two CSVs (`method_comparison` mode) |
+| `travel_time_analysis.outlier_threshold_sigma` | Outlier cutoff in standard deviations |
+| `travel_time_analysis.min_residual_threshold`, `max_residual_threshold` | Residual bounds in s (±50 by default) |
 
 ---
 
 ### 1.2 Velocity Model Analysis (`velocity_analysis.py`)
 
-Compares two velocity models and characterizes spatial velocity variations.
+Compares two velocity models and characterises their spatial differences.
 
 **What it does:**
 
-- Loads two velocity model files (CSV or HDF5) representing, for example, the initial and final models or two method variants.
-- Computes point-wise differences (Δvp, Δvs) and log-ratios (ln(v₂/v₁)).
-- Produces spatial projections onto the XY, XZ, and YZ planes by averaging or slicing the 3D model.
-- Generates depth-slice heatmaps, 1D profile plots, a domain overview, and a velocity ratio analysis.
-- Reports per-plane statistics in a plain-text summary report.
+- Reads two velocity files (CSV or HDF5), for example the initial and final model, or the models of two methods.
+- Computes differences (Δvp, Δvs), percent changes and log ratios (ln(v₂/v₁)), and geometric-mean Vp/Vs ratios.
+- Produces spatial projections on the XY, XZ and YZ planes, depth-slice heatmaps, vertical profiles at the locations of largest difference, per-plane ratio slices and a domain overview.
+- Writes a text report with statistics per plane.
 
 **Key configuration:**
 
 | Key | Purpose |
 |---|---|
 | `velocity_analysis.enabled` | Enable/disable this module |
-| `velocity_analysis.comparison_mode` | `initial_vs_final` / `method_comparison` / `custom` |
-| `velocity_analysis.model1_csv` / `model2_csv` | Paths to velocity model files |
-| `velocity_analysis.use_coarse_dataset` | Use the `velocity_coarse` HDF5 dataset for speed |
-| `velocity_analysis.compute_log_ratios` | Compute ln-ratio in addition to differences |
-| `velocity_analysis.enable_*_plots` | Toggle individual plot types |
+| `velocity_analysis.comparison_mode` | `initial_vs_final` / `method_comparison` / `custom` (sets plot labels) |
+| `velocity_analysis.model1_csv`, `model2_csv` (or `*_hdf5`) | The two models |
+| `velocity_analysis.use_coarse_dataset` | Read the `velocity_coarse` HDF5 dataset for speed |
+| `velocity_analysis.compute_log_ratios` | Also compute ln-ratios |
+| `velocity_analysis.enable_*` | Switch individual plot groups |
+| `velocity_analysis.plane_ratio_plots.planes` | Planes and coordinates of the ratio slices |
 
 ---
 
 ### 1.3 Distance-Dependent Residual Analysis (`distance_analysis.py`)
 
-Examines how travel time residuals vary with source-receiver distance to identify systematic distance-dependent bias.
+Examines how the residuals depend on source–receiver distance.
 
 **What it does:**
 
-- Merges the travel time CSV with event and station Cartesian coordinates to compute hypocentral and/or epicentral distances.
-- Bins picks by distance and computes mean residual and standard deviation per bin.
-- Computes Pearson or Spearman correlation between residual and distance.
-- Fits a low-degree polynomial to the residual–distance trend.
-- Produces scatter plots, binned statistics plots, correlation analysis plots, and (optionally) ratio plots.
-- Supports `ground_truth` (single file) and `method_comparison` (two files) modes.
+- Merges the travel time CSV with the event and station Cartesian coordinates to compute hypocentral and/or epicentral distances.
+- Bins the picks by distance and computes the mean residual and standard deviation per bin.
+- Computes the Pearson or Spearman correlation between residual and distance, and fits a polynomial trend.
+- Plots residuals versus distance, binned statistics, the correlation analysis and (optionally) ratios versus distance.
+- Supports `ground_truth` and `method_comparison` modes.
 
 **Key configuration:**
 
@@ -93,47 +92,46 @@ Examines how travel time residuals vary with source-receiver distance to identif
 |---|---|
 | `distance_analysis.enabled` | Enable/disable this module |
 | `distance_analysis.comparison_mode` | `ground_truth` or `method_comparison` |
-| `distance_analysis.travel_time_csv` | Merged TT CSV path |
-| `distance_analysis.distance_types` | `["hypocentral"]` and/or `["epicentral"]` |
+| `distance_analysis.travel_time_csv`, `station_csv`, `events_csv` | Inputs (`ground_truth` mode) |
+| `distance_analysis.distance_types` | `hypocentral` and/or `epicentral` |
 | `distance_analysis.distance_bins` | Number of distance bins |
 | `distance_analysis.correlation_method` | `pearson` or `spearman` |
-| `distance_analysis.enable_ratio_analysis` | Generate ratio plots |
 
 ---
 
 ### 1.4 Short-Distance Residual Analysis (`short_distance_analysis.py`)
 
-Focuses analysis on near-field event–station pairs, where 3D velocity heterogeneity has the strongest influence on residuals.
+Restricts the residual analysis to near-field event–station pairs.
 
 **What it does:**
 
-- Applies a distance cutoff (`distance_cutoff_km`) to retain only short-path picks.
-- Plots a geographic map of the retained event–station pairs with travel path lines.
-- Identifies spatial clusters of nearby events and renders a zoomed panel for each cluster.
-- Computes residual histograms for the near-field subset.
-- Reports statistics broken down by distance type and phase.
+- Keeps only the picks within `distance_cutoff_km`.
+- Plots an overview map of the retained pairs with travel path lines.
+- Renders a zoomed map for every cluster defined in `zoom_clusters`.
+- Plots residual histograms and residual-versus-distance for the subset.
+- Reports statistics by distance type and phase.
 
 **Key configuration:**
 
 | Key | Purpose |
 |---|---|
 | `short_distance_analysis.enabled` | Enable/disable this module |
-| `short_distance_analysis.distance_cutoff_km` | Maximum source-receiver distance to include |
+| `short_distance_analysis.distance_cutoff_km` | Maximum source–receiver distance |
 | `short_distance_analysis.distance_types` | `hypocentral` and/or `epicentral` |
-| `short_distance_analysis.phase_filter` | `null` (both), `P`, or `S` |
+| `short_distance_analysis.phase_filter` | `null` (use `analysis.phase_type`), `P` or `S` |
+| `short_distance_analysis.zoom_clusters` | Cartesian bounding boxes of the zoom panels |
 
 ---
 
 ### 1.5 Source Parameter Analysis (`source_analysis.py`)
 
-Analyzes hypocenter location corrections and origin time adjustments produced by the inversion.
+Analyses the hypocenter and origin time corrections produced by the inversion.
 
 **What it does:**
 
-- Reads the source parameters CSV (postprocess output) with columns for updated coordinates and origin time.
-- Computes correction vectors: Δx, Δy, Δz (km) and Δt₀ (s) relative to the preprocess starting locations.
-- Plots a geographic correction vector map, magnitude histograms for each parameter, depth-dependent correction profiles, and a spatial distribution.
-- Optionally writes a new CSV with the corrected coordinates and grouping labels (depth bin, zone).
+- Reads `source_relocation.csv` and computes the corrections Δx, Δy, Δz (km) and Δt₀ (s) relative to the starting locations. `parameters_to_process` selects the parameters (for example `["sx", "sy", "sz"]` when origin times were not updated).
+- Plots correction vector maps, histograms, scatter relationships between corrections, depth-dependent corrections and a summary.
+- Optionally writes a CSV with the computed deltas (`source_corrections_with_deltas.csv`).
 - Supports `ground_truth` and `method_comparison` modes.
 
 **Key configuration:**
@@ -142,156 +140,156 @@ Analyzes hypocenter location corrections and origin time adjustments produced by
 |---|---|
 | `source_analysis.enabled` | Enable/disable this module |
 | `source_analysis.comparison_mode` | `ground_truth` or `method_comparison` |
-| `source_analysis.input_csv` | Source parameters CSV path |
-| `source_analysis.use_log_scale` | Log-scale histograms |
+| `source_analysis.input_csv` | Source relocation CSV |
+| `source_analysis.parameters_to_process` | Subset of `sx`, `sy`, `sz`, `st0` |
 | `source_analysis.enable_depth_analysis` | Depth-dependent correction plots |
-| `source_analysis.save_corrected_data` | Write corrected source CSV |
+| `source_analysis.save_corrected_data` | Write the CSV with deltas |
 
 ---
 
 ### 1.6 Gradient and Search Direction Analysis (`gradient_analysis.py`)
 
-Diagnoses inversion convergence by inspecting the velocity and source gradient fields and their alignment with search directions.
+Diagnoses inversion convergence from the gradient fields and their alignment with the search directions.
 
 **What it does:**
 
-- Loads velocity and/or source gradient fields from the postprocess output CSV or HDF5.
-- Computes gradient magnitude distributions and per-parameter histograms.
-- Plots the alignment between gradient and search direction vectors (scatter with cosine similarity).
-- Maps the spatial distribution of gradient magnitudes in depth slices and 1D depth profiles.
-- Reports mean, maximum, and spatial distribution statistics.
+- Reads velocity and/or source gradient and search direction columns from the postprocess CSV or HDF5 files.
+- Plots gradient and search direction histograms, gradient–search alignment (cosine similarity), spatial maps of the gradient magnitude, and depth profiles.
+- Writes a report per analysis type.
 
 **Key configuration:**
 
 | Key | Purpose |
 |---|---|
 | `gradient_analysis.enabled` | Enable/disable this module |
-| `gradient_analysis.analysis_type` | `["velocity"]`, `["source"]`, or `["velocity", "source"]` |
-| `gradient_analysis.velocity_input_csv` | Velocity model CSV with grad/srch columns |
-| `gradient_analysis.source_input_csv` | Source parameters CSV with grad/srch columns |
+| `gradient_analysis.analysis_type` | `["velocity"]`, `["source"]` or both |
+| `gradient_analysis.velocity_input_csv` | Velocity file with gradient/search columns |
+| `gradient_analysis.source_input_csv` | Source file with gradient/search columns |
 
 ---
 
-### 1.7 Derivative Weight Sum Analysis (`dws_analysis.py`)
+### 1.7 Ray Path Visualization (`raypath_analysis.py`)
 
-Visualizes the volumetric ray path coverage using the DWS grid computed during postprocessing.
-
-**What it does:**
-
-- Reads the DWS HDF5 file and reshapes it to the 3D grid `(nz, ny, nx)`.
-- Generates horizontal depth-slice plots (linear and log scale) at specified depths.
-- Generates vertical XZ and YZ cross-section plots at specified positions.
-- Produces binary coverage maps (cells with DWS > `coverage_threshold` are marked as covered).
-- Computes coverage statistics: total cells, covered cells, percentage, min/max/mean/median DWS values.
-
-**Key configuration:**
-
-| Key | Purpose |
-|---|---|
-| `dws_analysis.enabled` | Enable/disable this module |
-| `dws_analysis.input_hdf5` | Path to DWS HDF5 file |
-| `dws_analysis.coverage_threshold` | DWS value above which a cell is considered covered |
-| `dws_analysis.horizontal_slice_depths` | List of depths (km) for horizontal slice plots |
-| `dws_analysis.vertical_slices.xz_positions` | Y-positions (km) for XZ vertical slices |
-| `dws_analysis.vertical_slices.yz_positions` | X-positions (km) for YZ vertical slices |
-| `dws_analysis.enable_log_scale` | Logarithmic color scale for DWS plots |
-| `dws_analysis.use_m2_units` | Interpret DWS values as m² rather than km² |
-
----
-
-### 1.8 Ray Path Visualization (`raypath_analysis.py`)
-
-Projects 3D ray paths onto the XY, XZ, and YZ planes to visualize the ray coverage geometry.
+Projects ray paths onto the XY, XZ and YZ planes.
 
 **What it does:**
 
-- Loads ray paths from the postprocess HDF5 cache, optionally filtering by event ID list, maximum ray count, or a random sub-sample fraction.
-- Optionally filters to only receiver–event pairs listed in an anomalous pick CSV (matched by coordinate proximity within `filter_match_tolerance_km`).
-- Renders one projection plot per plane, with configurable ray color, transparency, source markers, and receiver markers.
-- Overlays optional basin boundary polygons.
-- Reports the number of rays plotted and per-phase counts.
+- Reads rays from the ray path cache, optionally restricted by `event_id_list_file`, `max_rays` or `subsample_fraction`.
+- Optionally keeps only the receivers listed in `filter_csv` (matched by coordinates within `filter_match_tolerance_km`).
+- Plots one projection per plane and phase with configurable ray, source and receiver styles, and optional basin boundaries.
+- Writes statistics and a text report.
 
 **Key configuration:**
 
 | Key | Purpose |
 |---|---|
 | `raypath_analysis.enabled` | Enable/disable this module |
-| `raypath_analysis.input_cache` | Path to ray path HDF5 cache |
-| `raypath_analysis.event_id_list_file` | Filter to specific events (null = all) |
-| `raypath_analysis.max_rays` | Cap total rays loaded (null = no limit) |
-| `raypath_analysis.subsample_fraction` | Random fraction of rays to plot (0.0–1.0) |
-| `raypath_analysis.filter_csv` | Anomalous pick CSV for receiver filtering |
-| `raypath_analysis.filter_match_tolerance_km` | Coordinate match tolerance for receiver filter |
+| `raypath_analysis.input_cache` | Ray path HDF5 cache |
+| `raypath_analysis.event_id_list_file`, `shot_map_file` | Restrict to listed events |
+| `raypath_analysis.max_rays`, `subsample_fraction` | Limit the number of rays |
+| `raypath_analysis.filter_csv`, `filter_match_tolerance_km` | Receiver filter |
+| `raypath_analysis.plot.*` | Styling |
+
+---
+
+### 1.8 Derivative Weight Sum Analysis (`dws_analysis.py`)
+
+Visualises the ray coverage of the model using the DWS grid.
+
+**What it does:**
+
+- Reads the DWS HDF5 file (columns `x`, `y`, `z`, `dws`) and reshapes it to the model grid.
+- Plots horizontal depth slices and vertical XZ and YZ slices, in linear and logarithmic scale.
+- Plots binary coverage maps (cells with DWS above `coverage_threshold` are covered) and DWS histograms.
+- Reports the number of covered cells and the minimum, maximum, mean and median DWS.
+
+**Key configuration:**
+
+| Key | Purpose |
+|---|---|
+| `dws_analysis.enabled` | Enable/disable this module |
+| `dws_analysis.input_hdf5` | DWS HDF5 file |
+| `dws_analysis.coverage_threshold` | DWS above which a cell counts as covered |
+| `dws_analysis.horizontal_slice_depths` | Depths (km) of the horizontal slices |
+| `dws_analysis.vertical_slices.xz_positions`, `yz_positions` | Positions (km) of the vertical slices |
+| `dws_analysis.enable_log_scale` | Add logarithmic plots |
+| `dws_analysis.use_m2_units` | Show DWS in m² instead of km² |
 
 ---
 
 ### 1.9 Ray Density Analysis (`ray_density_analysis.py`)
 
-Quantifies the number of ray paths passing through each grid cell and maps coverage patterns.
+Counts the rays that pass through each grid cell.
 
 **What it does:**
 
-- Loads ray paths from the HDF5 cache and samples each path at `num_samples_per_ray` uniformly spaced points.
-- Assigns each sample point to its nearest grid cell and increments that cell's ray count.
-- Applies a threshold mask: cells with count < `threshold` are shown as masked (uncovered).
-- Generates XY, XZ, and YZ projection maps (column sum over the third dimension), horizontal depth-slice maps at specified depths, and a depth-layer count map showing how many depth layers meet the threshold at each XY location.
-- Reports coverage statistics.
+- Samples every ray at `num_samples_per_ray` points and assigns the samples to their nearest grid cell.
+- Masks cells whose count is below `threshold`.
+- Plots XY, XZ and YZ projections (sum over the third axis), horizontal depth slices, and a map of how many depth layers reach the threshold at each XY location.
+- Optionally plots the density along user-defined **oblique vertical sections** (`enable_oblique_sections`, `oblique_sections`) and a plan view of the section traces (`enable_oblique_section_plan_view`).
+- Saves statistics per phase.
 
 **Key configuration:**
 
 | Key | Purpose |
 |---|---|
 | `ray_density_analysis.enabled` | Enable/disable this module |
-| `ray_density_analysis.input_cache` | Path to ray path HDF5 cache |
-| `ray_density_analysis.grid.*` | Must match LATTE inversion grid |
-| `ray_density_analysis.threshold` | Minimum ray count to mark a cell as covered |
-| `ray_density_analysis.num_samples_per_ray` | Points sampled per ray for grid assignment |
-| `ray_density_analysis.depth_slices` | Depths (km) for horizontal slice plots |
+| `ray_density_analysis.input_cache` | Ray path HDF5 cache |
+| `ray_density_analysis.grid.*` | Model grid; the metadata of the ray path cache takes precedence, configured values fill missing keys |
+| `ray_density_analysis.threshold` | Minimum ray count for a covered cell |
+| `ray_density_analysis.num_samples_per_ray` | Samples per ray |
+| `ray_density_analysis.depth_slices` | Depths (km) of the horizontal slices |
+| `ray_density_analysis.oblique_sections` | Sections defined by `label`, `x1`, `y1`, `x2`, `y2` (km) |
 
 ---
 
 ### 1.10 Tradeoff Curve Analysis (`tradeoff_analysis.py`)
 
-Constructs and analyzes the L-curve (data misfit vs. model variance) to identify the optimal regularization point.
+Builds the tradeoff (L-curve) between data fit and model change across inversion iterations, or across a parameter sweep.
 
 **What it does:**
 
-- **`data_misfit` mode:** reads a whitespace-separated three-column file (`iteration | data_misfit | normalized_data_misfit`) produced by LATTE.
-- **`rms` mode:** computes the per-iteration RMS from travel time residual CSVs located under `inversion_base_path` by iterating over per-iteration directories.
-- Computes model variance from the velocity model CSV at each iteration, restricted to a configurable spatial region (`full`, `z_bounded`, or `depth_layer`) and aggregated as mean or maximum percentage change.
-- Supports per-phase analysis with `phase_mode: separate` to generate independent Vp and Vs curves.
-- Plots the tradeoff curve with optional iteration labels, a polynomial fit, and a gold-star annotation at the estimated optimal point.
+- **X axis:** `x_axis_mode: iteration` finds the `iteration_<N>/` directories under `inversion_base_path`; `x_axis_mode: parameter` uses the entries listed in `parameter_mode` (one directory and iteration per parameter value, for P and S).
+- **Y axis (`y_axis_mode`):**
+  - `data_misfit`: reads the three-column LATTE misfit file (`iteration | data_misfit | normalized_data_misfit`);
+  - `rms`: computes the RMS residual from the travel time CSV of each iteration (`use_weighted_rms` selects pick weights);
+  - `data_variance`: mean squared residual (s²).
+  
+  `use_log_residuals` replaces the residual by the absolute log difference of observed and synthetic travel times.
+- **Model change (X axis values):** computed from the velocity files of each iteration relative to the initial model, over a region (`full`, `z_bounded` or `depth_layer`, with optional `x_bounds`/`y_bounds`), as `mean`, `max`, `model_variance` or `rms_variation` (with `exclude_zero_change` to skip unchanged nodes), optionally as a percentage.
+- `phase_mode: separate` produces independent Vp and Vs curves.
+- Plots the curve with optional iteration labels, colouring by iteration and an elbow marker, and writes statistics CSVs and a report.
 
 **Key configuration:**
 
 | Key | Purpose |
 |---|---|
 | `tradeoff_analysis.enabled` | Enable/disable this module |
-| `tradeoff_analysis.y_axis_mode` | `data_misfit` (file) or `rms` (computed) |
-| `tradeoff_analysis.data_misfit_file_path` | Path to data misfit file (data_misfit mode) |
-| `tradeoff_analysis.inversion_base_path` | Root directory of per-iteration results (rms mode) |
-| `tradeoff_analysis.phase_mode` | `both`, `p`, `s`, or `separate` |
-| `tradeoff_analysis.model_variance.region` | `full`, `z_bounded`, or `depth_layer` |
-| `tradeoff_analysis.model_variance.aggregation` | `mean` or `max` |
+| `tradeoff_analysis.x_axis_mode` | `iteration` or `parameter` |
+| `tradeoff_analysis.y_axis_mode` | `data_misfit`, `rms` or `data_variance` |
+| `tradeoff_analysis.data_misfit_file_path` | LATTE misfit file (`data_misfit` mode) |
+| `tradeoff_analysis.inversion_base_path` | Directory with `iteration_<N>/` results |
+| `tradeoff_analysis.phase_mode` | `both`, `p`, `s` or `separate` |
+| `tradeoff_analysis.model_variance.*` | Region, aggregation and units of the model change |
 
 ---
 
 ## 2. Outputs
 
-All outputs are plots and text reports; no new data files are produced. Plot format (`png`, `pdf`, or `svg`) and DPI are controlled by `analysis.output_format` and `analysis.dpi`. Each module writes into its own `output_dir`.
+Analysis produces plots, statistics and text reports; it writes no new data tables except the optional source-delta CSV. Plot format (`png`, `pdf`, `svg`) and DPI are set by `analysis.output_format` and `analysis.dpi`. Each module writes into its own `output_dir`, usually with the subdirectories `plots/`, `reports/` and (for some modules) `statistics/`.
 
-| Module | Plots | Report |
+| Module | Main plots | Report |
 |---|---|---|
-| Travel time | Residual histogram, scatter, by-phase, ratio, method comparison | `travel_time_analysis_report.txt` |
-| Velocity | Comparison, spatial projections, profile, slice heatmap, ratio, domain overview | `velocity_comparison_report.txt` |
-| Distance | Residual vs. distance scatter, binned, correlation, ratio | `distance_analysis_report.txt` |
-| Short distance | Map, path visualization, cluster zooms, histogram | `short_distance_analysis_report.txt` |
-| Source | Correction map, histograms, depth profile, spatial distribution | `source_correction_analysis_report.txt` |
-| Gradient | Histograms, alignment scatter, spatial distribution, depth profiles | `gradient_analysis_report.txt` |
-| DWS | Horizontal slices (linear/log), vertical slices, coverage map, histogram | `dws_analysis_report.txt` |
-| Ray path | XY, XZ, YZ projections | `ray_path_analysis_report.txt` |
-| Ray density | XY/XZ/YZ projections, depth slices, threshold count map | `ray_density_analysis_report.txt` |
-| Tradeoff | Tradeoff curve, iteration-labeled curve, per-phase curves | `tradeoff_analysis_report.txt` |
+| Travel time | `residual_histograms`, `synthetic_vs_observed`, `synthetic_vs_observed_loglog`, `ln_ratio_analysis`, `ln_ratio_histograms` | `travel_time_analysis_report.txt` |
+| Velocity | `basic_velocity_comparison`, `spatial_velocity_projections`, `spatial_geometric_ratio_projections`, `velocity_vertical_profiles`, `depth_slice_heatmaps`, `xy/xz/yz_plane_ratio_*`, `domain_overview` | `velocity_comparison_report.txt` |
+| Distance | `residuals_vs_distance`, `binned_distance_analysis`, `correlation_analysis`, `ratios_vs_distance` | `distance_analysis_report_*.txt` |
+| Short distance | `overview_map`, `residual_histograms`, `distance_vs_residual`, `cluster_<name>` | `short_distance_report_*.txt` |
+| Source | `hist_*`, `scatter_relationships`, `geographic_corrections_<plane>`, `depth_analysis`, `correction_summary` | `source_correction_report.txt` |
+| Gradient | `*_gradient_histograms`, `*_search_histograms`, `*_gradient_search_alignment`, `velocity_gradient_*_xy_projection`, `velocity_gradient_depth_profiles` | `velocity_gradient_analysis_report.txt`, `source_gradient_analysis_report.txt` |
+| Ray path | `ray_paths_<phase>_wave_<plane>`, `raypath_summary` | `raypath_analysis_report.txt` |
+| DWS | `dws_horizontal_depth_<d>km_{linear,log}`, `dws_vertical_{xz,yz}_pos_<p>km_*`, `dws_coverage_depth_<d>km`, `dws_histogram_{linear,log}` | `dws_analysis_report.txt` |
+| Ray density | `ray_density_<phase>_wave_<plane>`, `…_xy_threshold_count`, `ray_density_depth_<d>km`, `…_oblique_<label>` | statistics JSON |
+| Tradeoff | `tradeoff_curve`, `tradeoff_curve_<phase>`, `tradeoff_curve_depth_<d>km` | `tradeoff_analysis_report.txt`, `tradeoff_statistics.csv` |
 
 ---
 
@@ -300,14 +298,14 @@ All outputs are plots and text reports; no new data files are produced. Plot for
 ### Running the pipeline
 
 ```bash
-# Use the default configuration
+# Default configuration (configs/analysis/default.yaml)
 python -m analysis.main
 
-# Use a named configuration
+# A named configuration
 python -m analysis.main --config-name example
 ```
 
-Hydra writes run metadata to:
+Hydra writes the resolved configuration and the log to:
 
 ```
 outputs/YYYY-MM-DD/HH-MM-SS_analysis_<config_name>/
@@ -316,44 +314,47 @@ outputs/YYYY-MM-DD/HH-MM-SS_analysis_<config_name>/
 ### CLI overrides
 
 ```bash
-# Enable only travel time analysis
+# Travel time analysis only
 python -m analysis.main travel_time_analysis.enabled=true
 
-# Enable velocity analysis and change comparison mode
+# Velocity analysis with explicit models
 python -m analysis.main \
   velocity_analysis.enabled=true \
   velocity_analysis.comparison_mode=initial_vs_final \
-  velocity_analysis.model1_csv=/data/initial/velocity_model_init.csv \
+  velocity_analysis.model1_csv=/data/preprocess/velocity_model_init.csv \
   velocity_analysis.model2_csv=/data/iter10/velocity_model_final.csv
 
-# Enable DWS analysis with custom depth slices
+# DWS slices at chosen depths
 python -m analysis.main \
   dws_analysis.enabled=true \
   "dws_analysis.horizontal_slice_depths=[5.0,10.0,15.0,20.0]"
 
-# Enable ray density and match grid to LATTE
+# Ray density on the LATTE grid
 python -m analysis.main \
   ray_density_analysis.enabled=true \
   ray_density_analysis.grid.nx=60 \
   ray_density_analysis.grid.ny=60 \
   ray_density_analysis.grid.nz=50
 
-# Enable tradeoff analysis in RMS mode
+# Tradeoff curve from per-iteration residuals
 python -m analysis.main \
   tradeoff_analysis.enabled=true \
   tradeoff_analysis.y_axis_mode=rms \
-  tradeoff_analysis.inversion_base_path=/data/iterations
+  tradeoff_analysis.inversion_base_path=/data/inversion/run_1
 
-# Change global output format and DPI
+# Global plot settings
 python -m analysis.main analysis.output_format=pdf analysis.dpi=600
 
-# Change log level
+# Stop at the first failing module
+python -m analysis.main +strict_mode=true
+
+# Log verbosity
 python -m analysis.main analysis.log_level=DEBUG
 ```
 
 ### Minimal configuration checklist
 
-Each module requires only its `enabled` flag and the relevant input paths. The following keys are common across modules:
+Each module needs its `enabled` flag and its input paths. Settings shared by all modules:
 
 ```yaml
 analysis:
@@ -361,16 +362,17 @@ analysis:
   output_format: png     # png | pdf | svg
   dpi: 300
   phase_type: both       # both | p | s
-  plot_style:
-    font_size: 14
 
-# Optional but recommended — add basin boundary overlays
+paths:
+  input_dir: /path/to/postprocess/output
+  output_base_dir: /path/to/analysis/output
+
+# Optional: basin boundary overlays
 basin_boundaries:
   data_dir: /path/to/basin_files/cartesian
   basins:
-    - {file: delaware.csv, label: Delaware Basin}
+    - {file: basin_a.csv, label: Basin A}
 
-# Example: enable travel time and velocity modules
 travel_time_analysis:
   enabled: true
   comparison_mode: ground_truth
@@ -380,81 +382,67 @@ travel_time_analysis:
 velocity_analysis:
   enabled: true
   comparison_mode: initial_vs_final
-  model1_csv: /path/to/initial/velocity_model_init.csv
-  model2_csv: /path/to/final/velocity_model_final.csv
+  model1_csv: /path/to/velocity_model_init.csv
+  model2_csv: /path/to/velocity_model_final.csv
   output_dir: /path/to/output/velocity
 ```
 
-Refer to `configs/analysis/example.yaml` for a complete working template.
+`configs/analysis/example.yaml` is a ready-to-copy template.
 
 ---
 
 ## 4. Logging
 
-The log level is controlled by `analysis.log_level` (default: `INFO`). Valid values are `DEBUG`, `INFO`, `WARNING`, and `ERROR`. A `ProcessTimer` context manager wraps each module and logs its wall-clock duration.
+The log level is set by `analysis.log_level` (default `INFO`; `DEBUG`, `INFO`, `WARNING`, `ERROR`). A timer wraps every module and logs its duration (`Completed <module> in <time>`); at the end the pipeline prints the lists of completed and failed modules.
 
 | Level | What is logged |
 |---|---|
-| `DEBUG` | Input data shapes; filter counts before and after; interpolation fallback events; per-iteration model variance values |
-| `INFO` | Module start/end with timing; input record counts; summary statistics (mean, std, RMS); output directory paths; plot file names |
-| `WARNING` | Missing optional columns (gradient, search); picks present in one file only (comparison mode); depth slices outside grid bounds; out-of-range DWS values |
-| `ERROR` | Missing required input files; coordinate inconsistencies; failed plot generation |
-
-Key log messages to monitor:
-
-```
-# Confirms module timing
-[ProcessTimer] Travel time analysis completed in X.X s
-
-# Summary statistics — verify plausible values
-RMS residual (all picks):   X.XXX s
-Mean residual:              X.XXX ± X.XXX s
-
-# DWS coverage check
-DWS covered cells: N / TOTAL (P.P%)
-
-# Ray density check
-Rays plotted: N (P-wave: M, S-wave: K)
-```
+| `DEBUG` | Input shapes; counts before and after filters; per-iteration model variance |
+| `INFO` | Module start and end with timing; input record counts; summary statistics; output directories |
+| `WARNING` | Missing optional columns; picks present in one file only (comparison mode); depth slices outside the grid; out-of-range values |
+| `ERROR` | Missing required inputs; failed plots; the failure of a module |
 
 ---
 
 ## 5. Troubleshooting
 
-**Module is enabled but produces no output**
-Confirm that all required input paths exist and are readable. Check the log for `ERROR` or `WARNING` messages. Run with `analysis.log_level=DEBUG` to see per-step progress.
+**A module is enabled but writes nothing**
+Check that its input paths exist, then look for `ERROR` and `WARNING` lines in the log. `analysis.log_level=DEBUG` shows the progress of each step.
 
-**Travel time residual plots show bimodal distribution**
-A bimodal pattern typically indicates a systematic origin time offset or an incorrect configured origin time that was not subtracted during postprocessing. Verify that `origin_time.fixed_value` in the preprocess config matches what was used when building the travel time binaries.
+**The pipeline summary lists a failed module**
+The failure is logged with its message; the other modules still ran. Fix the cause (usually an input path) and re-run with only that module enabled.
 
-**Velocity comparison shows no change between models**
-Confirm that `model1_csv` and `model2_csv` point to different files (initial vs. final iteration). If `use_coarse_dataset: true`, confirm that the `velocity_coarse` dataset exists in both HDF5 files.
+**Travel time residuals are bimodal**
+This usually points to an origin time offset that was not removed. Make sure `origin_time.fixed_value` of the preprocess run matches the value used for the travel time binaries, and that source correction in postprocess is consistent with the run.
 
-**DWS plot is uniformly zero or very small**
-The DWS HDF5 was computed from a subsampled ray set. Rerun postprocess DWS with `subsample_fraction: 1.0`. Also check that `dws_analysis.use_m2_units` is consistent with the units used during computation.
+**Velocity analysis fails with `attempt to get argmin of an empty sequence`**
+The two models are identical, so there is no difference to locate. Check that `model1_csv` and `model2_csv` point to different models. With `use_coarse_dataset: true`, both HDF5 files must contain the `velocity_coarse` dataset.
 
-**Ray path or ray density plots are blank**
-The HDF5 cache may be empty or corrupted. Verify the cache file size and run postprocess `ray_path_processing` with `force_recompute: true`. Also check that `phase_type` is consistent between cache creation and analysis.
+**DWS plots are zero or very small**
+The DWS file was computed from a subsampled ray set. Re-run postprocess with `subsample_fraction: 1.0` and `compute_dws: true`, and check that `use_m2_units` matches the intended unit.
+
+**Ray path or ray density plots are empty**
+The cache may be empty or damaged. Check its size and rebuild it with `force_recompute: true` in postprocess. `phase_type` must be consistent between postprocess and analysis.
 
 **Tradeoff curve shows only one point**
-In `rms` mode, the pipeline expects one per-iteration residual CSV under `inversion_base_path/iter_N/`. Confirm the directory naming convention matches the pattern expected by the module, or switch to `data_misfit` mode and provide the three-column file directly.
+In `iteration` mode the module looks for directories named `iteration_<N>` under `inversion_base_path`, each holding the travel time and velocity files matched by `traveltime_csv_pattern` and `velocity_csv_pattern`. Check the directory names and patterns, or use `data_misfit` mode with the misfit file.
 
-**Source correction vectors appear unrealistically large**
-The number of kept shots (`initial_geometry_csv` minus `source_processing.filtered_shot_ids`) must match the binary size, otherwise postprocess raises an error; check `filtered_shot_ids` against the shots LATTE removed. A size mismatch causes incorrect binary indexing, producing spurious correction values.
+**Source corrections look unrealistically large**
+The number of kept shots (`initial_geometry_csv` minus `filtered_shot_ids`) must equal the size of the source binaries; otherwise postprocess stops with an error. Check `filtered_shot_ids` against the shots removed by LATTE.
 
-**Basin boundary overlays do not appear**
-Boundary files must be in Cartesian coordinates (x, y in km), not geographic. Use the Cartesian basin boundary CSVs produced by the preprocess coordinate transformation stage. Confirm `basin_boundaries.data_dir` points to the correct directory.
+**Basin boundaries are not drawn**
+Boundary files must be in Cartesian coordinates (x, y in km), as written to `coordinate_transform/basin_boundaries/` by preprocess. Check `basin_boundaries.data_dir` and that `plot_basin_boundaries: true` is set for the module.
 
 ---
 
 ## 6. Best Practices
 
-- **Enable modules one at a time during setup.** This isolates configuration issues and avoids confusing errors from multiple modules running simultaneously.
-- **Start with travel time and velocity analysis.** These two modules directly assess inversion quality and should be run before more specialized diagnostics (DWS, gradients, tradeoff).
-- **Use `method_comparison` mode to evaluate multiple inversions.** Rather than interpreting each model independently, direct comparison between two runs highlights meaningful differences and suppresses common artifacts.
-- **Set consistent `phase_type` across all modules.** Mixing phase filters (e.g., `both` in one module and `p` in another) makes cross-module comparison difficult.
-- **Use `pdf` output format for publications.** PNG is sufficient for rapid iteration; switch to PDF or SVG for final figures to preserve vector quality.
-- **Verify DWS coverage before interpreting velocity anomalies.** Velocity changes in cells with DWS below the coverage threshold are poorly constrained. Use the DWS coverage map to mask low-coverage regions in velocity plots.
-- **Run ray density analysis before DWS.** Ray density is faster to compute (no weighting) and gives a quick qualitative view of coverage. Use it to tune grid parameters before committing to a full DWS computation.
-- **Inspect gradient histograms to diagnose convergence.** Gradient magnitudes that do not decrease between iterations suggest a step size or regularization problem in the inversion, not a data quality issue.
-- **Archive the config snapshot from each Hydra run.** Hydra saves a copy of the resolved configuration in `outputs/`. Keeping these snapshots alongside results makes it straightforward to reproduce any analysis plot.
+- **Enable modules one at a time during setup.** This isolates configuration problems.
+- **Start with travel time and velocity analysis.** They assess inversion quality directly and should come before the specialised diagnostics.
+- **Use `method_comparison` to compare inversions.** A direct comparison highlights real differences and suppresses shared artifacts.
+- **Keep `phase_type` consistent across modules.** Mixed phase filters make results hard to compare.
+- **Use `pdf` for publication figures.** Use `png` for fast iteration.
+- **Check coverage before interpreting anomalies.** Velocity changes in cells with low DWS or ray density are poorly constrained.
+- **Run ray density before DWS.** It is cheaper and gives a quick view of the coverage; use it to check the grid settings first.
+- **Inspect the gradient histograms.** Gradient magnitudes that do not decrease between iterations point to a step-size or regularisation problem rather than a data problem.
+- **Keep the Hydra run directory.** `outputs/` holds the resolved configuration of every run; archive it next to the results to reproduce any figure.

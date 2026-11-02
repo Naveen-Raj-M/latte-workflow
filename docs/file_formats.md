@@ -1,6 +1,6 @@
 # LATTE Workflow — File Format Reference
 
-This document describes all input and output file formats across the three pipeline stages: **Preprocess**, **Postprocess**, and **Analysis**. For each file, the format, structure, column/key definitions (with units), and whether it is required or optional are specified.
+This document describes all input and output file formats of the workflow: **Preprocess**, **Postprocess**, **Analysis**, and the **resolution tests**. For each file it gives the format, the structure, column or key definitions with units, and whether the file is required or optional.
 
 ---
 
@@ -15,24 +15,42 @@ This document describes all input and output file formats across the three pipel
 3. [Analysis](#3-analysis)
    - [Inputs](#31-inputs)
    - [Outputs](#32-outputs)
-4. [Configuration Files](#4-configuration-files)
-5. [File Format Summary](#5-file-format-summary)
+4. [Resolution Tests](#4-resolution-tests)
+5. [Configuration Files](#5-configuration-files)
+6. [File Format Summary](#6-file-format-summary)
 
 ---
 
-## File Naming
+## Conventions
 
-The per-pick CSV tables and velocity models use the same names as the published data package (`analysis/geometry_and_travel_times/`):
+**Binary files.** All `.bin` files exchanged with LATTE are headerless, little-endian **float32** arrays (ray path files additionally contain `int32` counts). LATTE reads and writes single precision only. Read them with `np.fromfile(path, dtype=np.float32)`.
 
-| Table | Standard name | Legacy names (read-only fallback) |
-|---|---|---|
-| Ground truth travel times (preprocess) | `geometry_ground_truth_traveltimes.csv` | `ground_truth_traveltimes.csv`, `ground_truth_travel_times_corrected.csv`, `ground_truth_travel_times.csv` |
-| Synthetic travel times (postprocess) | `synthetic_traveltimes.csv` | `synthetic_travel_times_latte_output.csv`, `travel_time_residuals*.csv` (iteration scans) |
-| Source relocation (postprocess) | `source_relocation.csv` | `source_parameters_latte_output.csv`, `synthetic_travel_times_latte_output.csv`, `source_corrections*.csv` (iteration scans) |
-| Initial velocity model (preprocess) | `velocity_model_init.{csv,h5}` (also `_coarse`, `_exact` variants) | `velocity_model_cartesian`, `velocity_initial_cartesian`, `velocity_cartesian_initial`, `velocity_cartesian` |
-| Final velocity model (postprocess, spike/checkerboard inverted model) | `velocity_model_final.{csv,h5}` (also `_coarse`) | `velocity_cartesian_latte_output`, `velocity_cartesian_updated`, `velocity_model_inverted` |
+**Model binaries.** A velocity model is a 1D array in Fortran order with shape `(nz, ny, nx)`: z varies fastest, x slowest. Reshape with `array.reshape((nz, ny, nx), order="F")`.
 
-New files are always written with the standard names. When a configured input is missing, the same directory is searched for the standard name and then the legacy names; a warning is logged whenever a legacy file is used.
+**Units.**
+
+| Quantity | Unit |
+|---|---|
+| Geometry files, `sx/sy/sz.bin`, `exchange_geometry.txt`, Cartesian coordinates in the travel time CSVs | m |
+| Velocity binaries (`vp_init.bin`, `updated_vp.bin`, …) | m/s |
+| Velocity model CSV/HDF5 files (coordinates, grid spacing, velocities) | km, km/s |
+| Cartesian event/station CSVs of preprocess, ray path cache, DWS grid | km |
+| Times (travel times, origin times) | s |
+| Angles | degrees |
+
+**Cartesian frame.** x east, z down; y points south when `coordinate_transform.invert_y_axis` is true. The origin is set in the preprocess configuration.
+
+**CSV metadata.** Travel time tables and velocity-format CSV files start with `# key: value` comment lines (values are JSON). Readers skip them (`pandas.read_csv(..., comment="#")`). In HDF5 files the same keys are dataset attributes.
+
+**Standard file names.**
+
+| Table | Name |
+|---|---|
+| Ground truth travel times (preprocess) | `geometry_ground_truth_traveltimes.csv` |
+| Synthetic travel times (postprocess) | `synthetic_traveltimes.csv` |
+| Source relocation (postprocess) | `source_relocation.csv` |
+| Initial velocity model (preprocess) | `velocity_model_init.{csv,h5}` (coarse: `velocity_model_init_coarse.csv`) |
+| Final velocity model (postprocess, resolution tests) | `velocity_model_final.{csv,h5}` (coarse: `velocity_model_final_coarse.csv`) |
 
 ---
 
@@ -45,90 +63,88 @@ New files are always written with the standard names. When a configured input is
 #### QuakeML Event Catalog
 | Property | Value |
 |---|---|
-| **Required** | Yes (if `use_hdf5: false`) |
-| **Format** | XML (ObsPy QuakeML) |
+| **Required** | Yes, when QuakeML is parsed (`data.use_hdf5: false`, raw data visualization, HDF5 conversion) |
+| **Format** | XML (QuakeML) |
 | **Extension** | `.qml` |
 | **Config key** | `data.quakeml_dir` |
 
-Seismic event catalog read via `obspy.read_events()`. The directory is scanned recursively, including year subdirectories. Contains events, origins, picks, arrivals, and magnitudes.
+Read with `obspy.read_events()`. Files sit directly in the directory or in four-digit year subdirectories (`<quakeml_dir>/<year>/<file>.qml`). Each file contains events, origins, picks, arrivals and magnitudes. Additional catalogs are given in `data.secondary_catalogs`.
 
 ---
 
-#### Seismic Data — HDF5
+#### Seismic Catalog — HDF5
 | Property | Value |
 |---|---|
-| **Required** | Yes (if `use_hdf5: true`) |
-| **Format** | HDF5 |
+| **Required** | Yes, when `data.use_hdf5: true` |
+| **Format** | HDF5 (pandas tables) |
 | **Extension** | `.h5` / `.hdf5` |
 | **Config key** | `data.hdf5_file` |
 
-Read via `pd.read_hdf()`. The file must contain the following datasets:
+Written by the HDF5 conversion step and read with `pd.read_hdf()`. The file holds four tables.
 
-**Dataset: `events`**
+**Table `events`**
 
-| Key | Description | Units |
+| Column | Description | Units |
 |---|---|---|
 | `event_id` | Unique event identifier | — |
-| `origin_time` | Event origin time | UTC datetime string |
-| `latitude` | Event latitude | degrees |
-| `longitude` | Event longitude | degrees |
+| `catalog` | Catalog label (`data.catalog_label`) | — |
+| `origin_time` | Origin time | UTC datetime string |
+| `latitude`, `longitude` | Hypocenter position | degrees |
 | `depth` | Hypocenter depth (positive down) | km |
-| `magnitude` | Event magnitude | — |
+| `magnitude`, `magnitude_type` | Magnitude and its scale | — |
+| `num_picks`, `num_arrivals` | Number of picks and arrivals | — |
+| `azimuthal_gap` | Largest azimuthal gap *(optional column)* | degrees |
 
-**Dataset: `stations`**
+**Table `stations`**
 
-| Key | Description | Units |
+| Column | Description | Units |
 |---|---|---|
 | `station_id` | Unique station identifier | — |
-| `latitude` | Station latitude | degrees |
-| `longitude` | Station longitude | degrees |
-| `depth` | Station depth (negative = above MSL) | km |
+| `latitude`, `longitude` | Station position | degrees |
+| `depth` | Station depth (negative above mean sea level) | km |
 
-**Dataset: `arrivals`**
+**Table `arrivals`**
 
-| Key | Description | Units |
+| Column | Description | Units |
 |---|---|---|
-| `arrival_id` | Unique arrival identifier | — |
-| `event_id` | Associated event identifier | — |
-| `pick_id` | Associated pick identifier | — |
-| `station_id` | Associated station identifier | — |
-| `phase` | Phase label (P or S) | — |
+| `arrival_id`, `event_id`, `pick_id`, `station_id` | Identifiers | — |
+| `catalog` | Catalog label | — |
+| `phase` | Phase label (`P` or `S`) | — |
 | `azimuth` | Source-to-receiver azimuth | degrees |
-| `distance` | Source-receiver distance | km |
+| `distance` | Source–receiver distance of the arrival | km |
 | `time_residual` | Observed minus predicted travel time | s |
-| `time_weight` | Arrival weight used in inversion | — |
-| `epicentral_distance` | Epicentral distance | km |
-| `hypocentral_distance` | Hypocentral (slant) distance | km |
+| `time_weight` | Arrival weight | — |
+| `epicentral_distance`, `hypocentral_distance` | Distances | km |
 
-**Dataset: `picks`** *(optional)*
+**Table `picks`** *(optional)*
 
-| Key | Description | Units |
+| Column | Description | Units |
 |---|---|---|
-| `pick_id` | Unique pick identifier | — |
-| `event_id` | Associated event identifier | — |
-| `station_id` | Associated station identifier | — |
+| `pick_id`, `event_id`, `station_id` | Identifiers | — |
+| `catalog` | Catalog label | — |
 | `pick_time` | Absolute pick time | UTC datetime string |
 | `phase_hint` | Phase label | — |
-| `evaluation_mode` | Manual or automatic | — |
+| `evaluation_mode` | `manual` or `automatic` | — |
+
+The columns written to each table are selected with `hdf5_conversion.event_fields`, `station_fields`, `pick_fields` and `arrival_fields`.
 
 ---
 
 #### Station Inventory
 | Property | Value |
 |---|---|
-| **Required** | Yes |
+| **Required** | Yes, when QuakeML is parsed |
 | **Format** | Plain text, whitespace-delimited |
-| **Extension** | `.txt` |
 | **Config key** | `data.station_file` |
 
-Lines beginning with `#` are treated as comments and skipped.
+Lines starting with `#` are comments.
 
 | Column | Description | Units |
 |---|---|---|
-| `ID` | Station identifier | — |
-| `latitude` | Station latitude | degrees |
-| `longitude` | Station longitude | degrees |
-| `elevation_meters` | Station elevation | m |
+| 1 | Station identifier | — |
+| 2 | Latitude | degrees |
+| 3 | Longitude | degrees |
+| 4 | Elevation | m |
 
 ---
 
@@ -137,44 +153,29 @@ Lines beginning with `#` are treated as comments and skipped.
 |---|---|
 | **Required** | Yes |
 | **Format** | CSV |
-| **Extension** | `.csv` |
 | **Config key** | `initial_velocity_model.initial_model_file` |
 
-Supports two column layouts:
+Two column layouts are accepted.
 
-**3-column layout:**
-
-| Column | Description | Units |
-|---|---|---|
-| `depth` | Depth (positive down) | km |
-| `vp` | P-wave velocity | km/s |
-| `vs` | S-wave velocity | km/s |
-
-**4-column layout:**
-
-| Column | Description | Units |
-|---|---|---|
-| `depth` | Depth (positive down) | km |
-| `radius` | Earth radius at layer | km |
-| `vp` | P-wave velocity | km/s |
-| `vs` | S-wave velocity | km/s |
+| Layout | Columns |
+|---|---|
+| 3 columns | `depth` (km, positive down), `vp` (km/s), `vs` (km/s) |
+| 4 columns | `depth` (km), `radius` (km), `vp` (km/s), `vs` (km/s) |
 
 ---
 
-#### Basin Boundary Files
+#### Basin Boundary Files *(optional)*
 | Property | Value |
 |---|---|
 | **Required** | No |
 | **Format** | CSV |
-| **Extension** | `.csv` |
-| **Config key** | `coordinate_transform.basin_boundaries.data_dir` |
+| **Config keys** | `coordinate_transform.basin_boundaries.data_dir`, `plots.basin_boundaries.data_dir` |
 
-One file per basin. Used as overlays on visualization plots.
+One file per basin, used as plot overlays.
 
 | Column | Description | Units |
 |---|---|---|
-| `latitude` | Vertex latitude | degrees |
-| `longitude` | Vertex longitude | degrees |
+| `latitude`, `longitude` | Polygon vertex | degrees |
 
 ---
 
@@ -182,38 +183,13 @@ One file per basin. Used as overlays on visualization plots.
 
 ---
 
-#### Geodetic Events
+#### Geodetic Events and Stations
 | Property | Value |
 |---|---|
 | **Format** | CSV |
-| **Config key** | `coordinate_transform.events_geodetic_csv` |
+| **Config keys** | `coordinate_transform.events_geodetic_csv`, `coordinate_transform.stations_geodetic_csv` |
 
-| Column | Description | Units |
-|---|---|---|
-| `event_id` | Unique event identifier | — |
-| `origin_time` | Event origin time | UTC datetime string |
-| `latitude` | Event latitude | degrees |
-| `longitude` | Event longitude | degrees |
-| `depth` | Hypocenter depth (positive below MSL) | km |
-| `magnitude` | Event magnitude | — |
-| `magnitude_type` | Magnitude scale | — |
-| `num_picks` | Number of picks | — |
-| `num_arrivals` | Number of arrivals used | — |
-
----
-
-#### Geodetic Stations
-| Property | Value |
-|---|---|
-| **Format** | CSV |
-| **Config key** | `coordinate_transform.stations_geodetic_csv` |
-
-| Column | Description | Units |
-|---|---|---|
-| `station_id` | Unique station identifier | — |
-| `latitude` | Station latitude | degrees |
-| `longitude` | Station longitude | degrees |
-| `depth` | Depth (negative = above MSL) | km |
+Events: `event_id, origin_time, latitude, longitude, depth, magnitude`. Stations: `station_id, latitude, longitude, depth`. Units as in the HDF5 tables.
 
 ---
 
@@ -225,11 +201,8 @@ One file per basin. Used as overlays on visualization plots.
 
 | Column | Description | Units |
 |---|---|---|
-| `event_id` | Unique event identifier | — |
-| `origin_time` | Event origin time | UTC datetime string |
-| `x` | Easting (Cartesian) | km |
-| `y` | Northing (Cartesian) | km |
-| `z` | Depth (Cartesian, positive down) | km |
+| `event_id`, `origin_time`, `latitude`, `longitude`, `depth`, `magnitude` | As in the geodetic file | see above |
+| `x`, `y`, `z` | Cartesian coordinates (z positive down) | km |
 
 ---
 
@@ -241,10 +214,8 @@ One file per basin. Used as overlays on visualization plots.
 
 | Column | Description | Units |
 |---|---|---|
-| `station_id` | Unique station identifier | — |
-| `x` | Easting (Cartesian) | km |
-| `y` | Northing (Cartesian) | km |
-| `z` | Depth (Cartesian) | km |
+| `station_id`, `latitude`, `longitude`, `depth` | As in the geodetic file | see above |
+| `x`, `y`, `z` | Cartesian coordinates | km |
 
 ---
 
@@ -256,11 +227,10 @@ One file per basin. Used as overlays on visualization plots.
 
 | Column | Description | Units |
 |---|---|---|
-| `pick_id` | Unique pick identifier | — |
-| `event_id` | Associated event identifier | — |
-| `station_id` | Associated station identifier | — |
-| `pick_time` | Absolute pick time | UTC datetime string |
+| `event_id`, `station_id` | Identifiers | — |
 | `phase_hint` | Phase label | — |
+| `physical_travel_time` | Pick time minus origin time | s |
+| `weight` | Pick weight | — |
 
 ---
 
@@ -268,47 +238,95 @@ One file per basin. Used as overlays on visualization plots.
 | Property | Value |
 |---|---|
 | **Format** | CSV |
-| **Config key** | `geometry_traveltime.csv_output_dir` (filename: `geometry_ground_truth_traveltimes.csv`) |
-| **Condition** | Written only if `generate_travel_time_csv: true` |
+| **Config key** | `geometry_traveltime.csv_output_dir` (file `geometry_ground_truth_traveltimes.csv`) |
+| **Condition** | Written when `generate_travel_time_csv: true` |
 
-One row per pick. The same layout (and the same units) is used by the synthetic travel-time CSV and the source-relocation CSV, which add columns to it.
+One row per pick. The synthetic travel time table and the source relocation table use the same layout and add columns.
 
 | Column | Description | Units |
 |---|---|---|
-| `shot_id` | Shot number (matches the binary file numbering) | — |
+| `shot_id` | Shot number; matches the numbering of the geometry and binary files | — |
 | `event_id` | Event identifier | — |
 | `station` | Station name | — |
-| `phase` | Phase label (`P` or `S`) | — |
+| `phase` | `P` or `S` | — |
 | `observed_tt` | Observed (physical) travel time | s |
-| `weight` | Arrival weight | — |
-| `event_longitude`, `event_latitude` | Event geographic position | degrees |
+| `weight` | Pick weight | — |
+| `event_longitude`, `event_latitude` | Event position | degrees |
 | `event_depth_km` | Event depth, absolute, positive down | km |
-| `station_longitude`, `station_latitude` | Station geographic position | degrees |
-| `station_depth_km` | Station depth, absolute, positive down (negative above MSL) | km |
-| `event_x`, `event_y`, `event_z` | Event Cartesian coordinates (relative to the coordinate-transform origin) | **m** |
-| `station_x`, `station_y`, `station_z` | Station Cartesian coordinates | **m** |
+| `station_longitude`, `station_latitude` | Station position | degrees |
+| `station_depth_km` | Station depth, absolute, positive down (negative above sea level) | km |
+| `event_x`, `event_y`, `event_z` | Event Cartesian coordinates relative to the transformation origin | m |
+| `station_x`, `station_y`, `station_z` | Station Cartesian coordinates | m |
 | `origin_time_s` | Configured origin time | s |
-| `magnitude` | Event magnitude *(only if `include_magnitude_in_csv: true`)* | — |
+| `magnitude` | Event magnitude *(only with `include_magnitude_in_csv: true`)* | — |
 
-Residuals (`observed_tt − synthetic_tt`) and source–receiver distances are **not stored**; they are computed from these columns wherever they are needed.
+The header carries `data_type` (`geometry_traveltime`) and `units.<column>` for every column. Residuals (`observed_tt − synthetic_tt`) and source–receiver distances are not stored; they are computed from these columns where needed.
 
-**Units and metadata.** Geometry files (`shot_*_geometry.txt`, `sx/sy/sz.bin`, `exchange_geometry.txt`) and the Cartesian coordinates in these CSVs are in metres, as before; the velocity model files are in km. The CSV header carries `# key: value` comment lines: `data_type` (`geometry_traveltime`, `synthetic_traveltime`, `source_relocation`, `noisy_traveltime`) and `units.<column>` for every column. Readers skip these lines. Files without the header (legacy files) are read with the same units, so nothing is converted.
+---
 
-**Synthetic travel times** (`synthetic_traveltimes.csv`) add `synthetic_tt` (s) and, when a source correction was applied, `corrected_origin_time_s` (s). **Source relocation** (`source_relocation.csv`) is the synthetic table plus `corrected_event_x`, `corrected_event_y`, `corrected_event_z` (m), `corrected_origin_time_s` (s; an existing column of that name is overwritten, with a warning) and the optional `grad_*` / `srch_*` columns.
+#### Geometry Files
+| Property | Value |
+|---|---|
+| **Format** | Text |
+| **Config key** | `geometry_traveltime.geometry_dir` |
+| **Naming** | `shot_<N>_geometry.txt`, with `N` the shot number starting at 1 |
 
-**Legacy names.** Older files with `event_x_transformed` … `corrected_event_z_transformed` are read transparently (the `_transformed` suffix is dropped), and their `weighted_rms`, `residual`, `residual_s` and `distance_m` columns are ignored, with a warning.
+One file per shot (event). Layout:
 
----|---|---|
-| `event_id` | Event identifier | — |
-| `station_id` | Station identifier | — |
-| `phase` | Phase label (P or S) | — |
-| `travel_time` | Observed travel time | s |
-| `distance` | Source-receiver distance | km |
-| `azimuth` | Source-to-receiver azimuth | degrees |
-| `weight` | Arrival weight | — |
-| `epicentral_distance` | Epicentral distance | km |
-| `hypocentral_distance` | Hypocentral distance | km |
-| `magnitude` | Event magnitude *(optional)* | — |
+```
+<shot id>
+                                    (blank line)
+1                                   number of sources
+x y z t0                            source position (m) and origin time (s)
+                                    (blank line)
+<n receivers>
+x y z weight                        one line per receiver (m, m, m, weight)
+...
+```
+
+With `geometry_traveltime.separate_weight_p_s: true` every receiver line has five columns: `x y z weight_p weight_s`.
+
+`geometry.txt` in the same directory lists the geometry file names in shot order (the index read by LATTE).
+
+---
+
+#### Shot Map
+| Property | Value |
+|---|---|
+| **Format** | Plain text, tab-separated |
+| **Location** | `<geometry_dir>/shot_to_source_id_map.txt` |
+
+| Column | Description |
+|---|---|
+| `Shot_ID` | Integer shot number |
+| `Original_Event_ID` | Event identifier from the catalog |
+
+---
+
+#### Ground Truth Travel Time Binaries
+| Property | Value |
+|---|---|
+| **Format** | Raw binary (float32) |
+| **Config key** | `geometry_traveltime.traveltime_dir` |
+| **Naming** | `shot_<N>_traveltime_p.bin`, `shot_<N>_traveltime_s.bin` |
+
+One value per receiver, in the receiver order of the geometry file. The values are `physical_travel_time + configured origin time` (seconds).
+
+---
+
+#### Source Binaries
+| Property | Value |
+|---|---|
+| **Format** | Raw binary (float32) |
+| **Config key** | `geometry_traveltime.source_dir` |
+| **Condition** | `generate_source_binaries: true` |
+
+One value per shot, in shot order.
+
+| File | Description | Units |
+|---|---|---|
+| `sx.bin`, `sy.bin`, `sz.bin` | Source coordinates | m |
+| `st0.bin` | Source origin times | s |
 
 ---
 
@@ -317,27 +335,21 @@ Residuals (`observed_tt − synthetic_tt`) and source–receiver distances are *
 |---|---|
 | **Format** | CSV |
 | **Config key** | `initial_velocity_model.output_csv` |
-| **Condition** | Written when `output_format` is `csv` or `both` |
+| **Condition** | `output_format` is `csv` or `both` |
 
-One row per grid point (nx × ny × nz total rows). The same columns and metadata are used by every velocity-format file in the workflow (initial model, final model, checkerboard/spike models, coarse files).
+One row per grid point (`nx × ny × nz` rows). Every velocity-format file of the workflow (initial and final models, resolution-test models, coarse files) uses these columns and the same metadata.
 
 | Column | Description | Units |
 |---|---|---|
-| `lat` | Geographic latitude (NaN where not available) | degrees |
-| `lon` | Geographic longitude (NaN where not available) | degrees |
+| `lat`, `lon` | Geographic position (NaN where not available) | degrees |
 | `depth` | Absolute depth, positive down (NaN where not available) | km |
-| `x` | Cartesian x (relative to the grid origin lon/lat) | km |
-| `y` | Cartesian y | km |
-| `z` | Cartesian z (relative to `origin_depth_km`) | km |
-| `vp` | P-wave velocity | km/s |
-| `vs` | S-wave velocity | km/s |
-| `grad_vp`, `grad_vs`, `srch_vp`, `srch_vs` | Gradient / search direction fields *(optional, written by postprocess when requested)* | — |
+| `x`, `y`, `z` | Cartesian coordinates | km |
+| `vp`, `vs` | P and S velocity | km/s |
+| `grad_vp`, `grad_vs`, `srch_vp`, `srch_vs` | Gradient and search direction *(optional, written by postprocess on request)* | — |
 
-DWS files (`ray_path_processing.dws_output_file`) use the same layout with a `dws` column in place of `vp`, `vs`.
+DWS files (`ray_path_processing.dws_output_file`) have the same layout with a `dws` column in place of `vp` and `vs`.
 
-**Legacy files.** Older files with `X_grid_km`, `Y_grid_km`, `Z_grid_km` (and duplicate lowercase `x`, `y`, `z`) are read transparently: the columns are renamed to `x`, `y`, `z` and the grid index columns `i_raw`, `j_raw`, `k_raw`, `i`, `j`, `k` are dropped, each with a warning. Legacy DWS files that stored DWS in `vp` are also read.
-
-**Metadata.** Every file carries the same flat metadata: in HDF5 as attributes of the dataset, in CSV as `# key: value` comment lines at the top of the file (values are JSON). Readers skip the comment lines.
+**Metadata.** Every file carries the same flat metadata, as `# key: value` lines in CSV and as dataset attributes in HDF5.
 
 | Key | Description |
 |---|---|
@@ -347,10 +359,11 @@ DWS files (`ray_path_processing.dws_output_file`) use the same layout with a `dw
 | `origin_lon`, `origin_lat`, `origin_depth_km` | Geographic origin of the Cartesian frame |
 | `transformation_method`, `invert_y_axis` | Coordinate transformation used by preprocess |
 | `data_type` | `velocity` or `dws` |
-| `fine_nx` … `fine_origin_z`, `stride_x/y/z` | *Coarse files only:* grid of the original fine model (the grid of the LATTE binaries) and the subsampling strides |
-| `interpolation_mode`, `phase_type`, `checkerboard_config.*`, `spike_config.*`, `description`, `units` | Module-specific provenance (optional) |
+| `units.<name>` | Unit of every column and grid key |
+| `fine_nx` … `fine_origin_z`, `stride_x/y/z` | *Coarse files only:* grid of the original fine model and the subsampling strides |
+| `interpolation_mode`, `phase_type`, `checkerboard_config.*`, `spike_config.*`, `description` | Module-specific provenance *(optional)* |
 
-The grid (spacing and origin) is defined once, in preprocess. All other modules read it from this metadata and cross-check it against the `x`, `y`, `z` columns, logging a warning on any disagreement (the metadata value is used). For legacy files without grid metadata it is inferred from the columns, with a warning; grid keys are only needed in a module's configuration when there is no velocity file to read it from (`ray_density.grid`, or `ray_path_processing.grid` when `reference_velocity_file` is null; there it is otherwise only a check) or, as a last resort, for legacy files that cannot be inferred (`model_grid`, `model_conversion.model_grid`). Legacy nested metadata names (`grid_dimensions.nx`, `grid_spacing.dx`, `grid_origin.x`) are also read.
+The grid is defined once, in preprocess. All later stages read it from this metadata and compare it with the `x`, `y`, `z` columns, logging a warning for any disagreement (the metadata value is used). If a file has no grid metadata, the grid is inferred from the columns, with a warning. Grid keys are needed in a module's configuration only when there is no velocity file to read the grid from (`ray_path_processing.grid` when `reference_velocity_file` is `null`), or as an additional check (`velocity_processing.model_grid`). The ray path cache stores the grid of the run, and ray density analysis reads it from there; `ray_density_analysis.grid` fills only keys that the cache lacks.
 
 ---
 
@@ -359,60 +372,24 @@ The grid (spacing and origin) is defined once, in preprocess. All other modules 
 |---|---|
 | **Format** | HDF5 |
 | **Config key** | `initial_velocity_model.output_hdf5` |
-| **Condition** | Written when `output_format` is `hdf5` or `both` |
+| **Condition** | `output_format` is `hdf5` or `both` |
 
 | Dataset | Shape | Description | Units |
 |---|---|---|---|
-| `velocity` | `(n_points, n_columns)` | All grid point data (same columns as velocity CSV) | km / km/s |
-| `velocity_coarse` *(optional)* | `(n_coarse, n_columns)` | Subsampled grid for fast analysis | km / km/s |
+| `velocity` | `(n_points, n_columns)` | All grid points, same columns as the CSV | km, km/s |
+| `velocity_coarse` *(optional)* | `(n_coarse, n_columns)` | Subsampled grid for fast analysis | km, km/s |
 
-File-level attributes are the metadata described above, plus `columns` (the column names). The `velocity_coarse` dataset has its own grid keys and the `fine_*` keys. Datasets are stored with gzip compression (level configurable).
+The dataset attributes hold the metadata above and `columns` (the column names). `velocity_coarse` has its own grid keys plus the `fine_*` keys. Data is stored with gzip compression (level set by `compression_level`).
 
 ---
 
-#### Initial Velocity Model — Binary
+#### Initial Velocity Model — Binaries
 | Property | Value |
 |---|---|
 | **Format** | Raw binary (float32) |
 | **Config keys** | `initial_velocity_model.vp_binary`, `initial_velocity_model.vs_binary` |
 
-One binary file each for Vp and Vs. Contains a 1D array of velocity values in Fortran-style ordering (x varies fastest, z varies slowest). Read back with `np.fromfile(dtype=np.float32)` and reshape to `(nx, ny, nz)`.
-
----
-
-#### Geometry Files
-| Property | Value |
-|---|---|
-| **Format** | Text (Fortran-format) |
-| **Extension** | `.txt` |
-| **Config key** | `geometry_traveltime.geometry_dir` |
-| **Naming** | `geometry_<source_id>.txt` |
-
-One file per source event. Contains event-receiver geometry used as input to the ray tracer.
-
----
-
-#### Travel Time Files
-| Property | Value |
-|---|---|
-| **Format** | Text / binary |
-| **Extension** | `.txt` |
-| **Config key** | `geometry_traveltime.traveltime_dir` |
-| **Naming** | `traveltime_<source_id>.txt` |
-
-Synthetic travel times between each source and its receivers, computed during preprocessing.
-
----
-
-#### Shot Binary Files
-| Property | Value |
-|---|---|
-| **Format** | Raw binary (Fortran stream) |
-| **Extension** | `.bin` |
-| **Config key** | `geometry_traveltime.source_dir` |
-| **Naming** | `shot_<id>.bin` |
-
-One file per event. Stores receiver geometry in a binary format compatible with the inversion kernel. Written via `np.ndarray.tofile()` and `struct.pack()`.
+One file each for Vp and Vs in **m/s**, Fortran order, shape `(nz, ny, nx)` (see [Conventions](#conventions)).
 
 ---
 
@@ -420,31 +397,27 @@ One file per event. Stores receiver geometry in a binary format compatible with 
 | Property | Value |
 |---|---|
 | **Format** | CSV |
-| **Config key** | `coordinate_transform.output_dir/basin_boundaries/<label>.csv` |
+| **Location** | `<coordinate_transform.output_dir>/basin_boundaries/<label>.csv` |
 
 | Column | Description | Units |
 |---|---|---|
-| `x` | Easting (Cartesian) | km |
-| `y` | Northing (Cartesian) | km |
+| `x`, `y` | Cartesian polygon vertex | km |
 
 ---
 
 #### Visualization Plots
 | Property | Value |
 |---|---|
-| **Format** | PNG (default; configurable) |
-| **Config key** | `visualization.*_vis.output_dir` |
+| **Format** | PNG by default (`plots.figure.format`: `png`, `pdf`, `svg`) |
+| **Config keys** | `final_data_visualization.*.output_dir`, `raw_data_visualization.output_dir` |
 
 | File | Description |
 |---|---|
-| `station_event_map_geodetic.png` | Geographic map of stations and events |
-| `station_event_cross_section_xz.png` | Vertical cross-section (XZ plane) |
-| `station_event_cross_section_yz.png` | Vertical cross-section (YZ plane) |
-| `station_event_map_cartesian.png` | Cartesian map of stations and events |
-| `velocity_depth_<depth>km_vp.png` | Vp depth slice at specified depth |
-| `velocity_depth_<depth>km_vs.png` | Vs depth slice at specified depth |
-| `velocity_profile_lat.png` | Velocity profile along latitude |
-| `velocity_profile_lon.png` | Velocity profile along longitude |
+| `map_view_lat_lon` | Map of events and stations |
+| `cross_section_lat_depth`, `cross_section_lon_depth` | Depth cross-sections |
+| `velocity_slice_depth_<d>km` | Vp and Vs depth slice |
+| `velocity_profiles` | 1D velocity profiles |
+| `histogram_*`, `cumulative_azimuthal_gap` | Raw-data histograms (see [preprocess.md](preprocess.md)) |
 
 ---
 
@@ -457,81 +430,85 @@ One file per event. Stores receiver geometry in a binary format compatible with 
 #### Updated Velocity Binaries
 | Property | Value |
 |---|---|
-| **Required** | Yes |
+| **Required** | Yes (velocity processing) |
 | **Format** | Raw binary (float32) |
-| **Extension** | `.bin` |
 | **Config keys** | `velocity_processing.vp_binary`, `velocity_processing.vs_binary` |
 
-Output from the inversion kernel. Same memory layout as the preprocess velocity binaries: 1D Fortran-ordered array, shape `(nx × ny × nz,)`, dtype `float32`.
+Written by LATTE: velocities in m/s, Fortran order, shape `(nz, ny, nx)`.
 
 ---
 
 #### Ground Truth Travel Times
 | Property | Value |
 |---|---|
-| **Required** | Yes |
+| **Required** | Yes (travel time processing) |
 | **Format** | CSV |
 | **Config key** | `travel_time_processing.ground_truth_csv` |
 
-Same schema as the preprocess output `geometry_ground_truth_traveltimes.csv` (see [§1.2](#ground-truth-travel-times)).
+The preprocess table described in [§1.2](#ground-truth-travel-times).
 
 ---
 
 #### Synthetic Travel Time Binaries
 | Property | Value |
 |---|---|
-| **Required** | Yes |
+| **Required** | Yes (travel time processing) |
 | **Format** | Raw binary (float32) |
-| **Extension** | `.bin` |
 | **Config key** | `travel_time_processing.synthetic_tt_dir` |
-| **Naming** | `tt_<shot_id>.bin` |
+| **Naming** | `shot_<id>_traveltime_p.bin`, `shot_<id>_traveltime_s.bin` |
 
-One file per shot. Contains computed synthetic travel times from the inversion kernel.
+One file per shot and phase, with one value per receiver in the order of the geometry file. The values are `physical_tt + origin time`. In source–receiver exchange mode the files belong to the virtual sources and hold one value per shot kept by LATTE.
 
 ---
 
-#### Shot Map File
+#### Shot Map
 | Property | Value |
 |---|---|
-| **Required** | Yes |
+| **Required** | Yes (travel time and ray path processing) |
 | **Format** | Plain text, tab-separated |
-| **Extension** | `.txt` |
 | **Config key** | `travel_time_processing.shot_map_file` |
 
-| Column | Description | Units |
-|---|---|---|
-| `Shot_ID` | Integer shot index used by the kernel | — |
-| `Original_Event_ID` | String event identifier from catalog | — |
+Same file as the preprocess [Shot Map](#shot-map).
 
 ---
 
-#### Source Parameter Binaries
+#### Geometry Directory *(exchange mode)*
 | Property | Value |
 |---|---|
-| **Required** | Yes |
-| **Format** | Raw binary (float32) |
-| **Extension** | `.bin` |
-| **Config keys** | `source_processing.sx_file`, `sy_file`, `sz_file`, `st0_file` |
+| **Required** | In source–receiver exchange mode, unless `exchange_geometry_file` is given |
+| **Format** | Text |
+| **Config key** | `travel_time_processing.geometry_dir` |
 
-One value per source (shot). Arrays hold one value per shot kept by LATTE (shots of `initial_geometry_csv` minus `filtered_shot_ids`).
-
-| File | Description | Units |
-|---|---|---|
-| `sx_file` | Source x-coordinate (Cartesian) | km |
-| `sy_file` | Source y-coordinate (Cartesian) | km |
-| `sz_file` | Source z-coordinate (Cartesian) | km |
-| `st0_file` | Source origin time correction | s |
+The preprocess geometry directory (`geometry.txt` and `shot_<N>_geometry.txt`).
 
 ---
 
-#### Source Correction File *(optional)*
+#### Exchange Geometry *(optional)*
 | Property | Value |
 |---|---|
 | **Required** | No |
-| **Format** | Raw binary (float32) |
-| **Config key** | `source_processing.source_correction_file` |
+| **Format** | Plain text |
+| **Config key** | `travel_time_processing.exchange_geometry_file` |
 
-Corrected origin times (one float32 per source) to be applied on top of the baseline `st0`.
+Written by LATTE. One line per virtual source: `virtual_id x y z` (coordinates in m). When given it is used as the virtual-source table.
+
+---
+
+#### Source Binaries
+| Property | Value |
+|---|---|
+| **Required** | Yes (source processing) |
+| **Format** | Raw binary (float32) |
+| **Config keys** | `source_processing.sx_file`, `sy_file`, `sz_file`, `st0_file` |
+
+Written by LATTE, one value per shot kept by LATTE (the shots of `initial_geometry_csv` that are not in `filtered_shot_ids`, in ascending shot id).
+
+| File | Description | Units |
+|---|---|---|
+| `updated_sx.bin`, `updated_sy.bin`, `updated_sz.bin` | Updated source coordinates | m |
+| `updated_st0.bin` | Updated origin times | s |
+
+`updated_st0.bin` is also read by `travel_time_processing.source_correction_file` when `source_correction: true`; there it is indexed by shot id.
 
 ---
 
@@ -540,33 +517,32 @@ Corrected origin times (one float32 per source) to be applied on top of the base
 |---|---|
 | **Required** | No |
 | **Format** | Raw binary (float32) |
-| **Extension** | `.bin` |
-| **Config keys** | `velocity_processing.grad_vp`, `grad_vs`, `srch_vp`, `srch_vs`; `source_processing.grad_sx`, etc. |
+| **Config keys** | `velocity_processing.grad_*_binary`, `srch_*_binary`; `source_processing.grad_*_file`, `srch_*_file` |
 
-| File pattern | Description |
+| File | Description |
 |---|---|
-| `grad_vp.bin`, `grad_vs.bin` | Velocity model gradient |
+| `grad_vp.bin`, `grad_vs.bin` | Velocity gradient (model grid, Fortran order) |
 | `srch_vp.bin`, `srch_vs.bin` | Velocity search direction |
-| `grad_sx.bin`, `grad_sy.bin`, `grad_sz.bin`, `grad_st0.bin` | Source parameter gradient |
+| `grad_sx.bin`, `grad_sy.bin`, `grad_sz.bin`, `grad_st0.bin` | Source gradient (one value per kept shot) |
+| `srch_sx.bin`, `srch_sy.bin`, `srch_sz.bin`, `srch_st0.bin` | Source search direction |
 
 ---
 
-#### Ray Path Binary Files
+#### Ray Path Binaries
 | Property | Value |
 |---|---|
-| **Required** | Yes (for ray-path / DWS steps) |
-| **Format** | Raw binary (Fortran stream) |
-| **Extension** | `.bin` |
+| **Required** | Yes (ray path and DWS processing) |
+| **Format** | Raw binary |
 | **Config key** | `ray_path_processing.raypath_binary_dir` |
-| **Naming** | `shot_<shot_id>_raypath_<phase>.bin` |
+| **Naming** | `shot_<shot_id>_raypath_<phase>.bin` with `phase` = `p` or `s` |
 
-Binary layout per file:
+Written by LATTE (`raypath_save = true`).
 
 | Field | Type | Description |
 |---|---|---|
-| `nrays` | `int32` | Number of rays in this shot |
-| `ray_npoints[nrays]` | `int32[nrays]` | Number of points per ray |
-| `x, y, z` coordinates | `float32` | Ray point coordinates (in **meters**) |
+| `nrays` | `int32` | Number of rays in the shot |
+| `ray_npoints[nrays]` | `int32` | Number of points of each ray |
+| coordinates | `float32` | Ray points `x, y, z`, consecutive per point, rays one after another (m) |
 
 ---
 
@@ -574,23 +550,13 @@ Binary layout per file:
 
 ---
 
-#### Updated Velocity Model — CSV
+#### Updated Velocity Model — CSV and HDF5
 | Property | Value |
 |---|---|
-| **Format** | CSV |
-| **Config key** | `velocity_processing.velocity_output_csv` |
+| **Format** | CSV / HDF5 |
+| **Config keys** | `velocity_processing.velocity_output_csv`, `velocity_output_hdf5` |
 
-Same 17-column schema as the preprocess [Initial Velocity Model — CSV](#initial-velocity-model--csv).
-
----
-
-#### Updated Velocity Model — HDF5
-| Property | Value |
-|---|---|
-| **Format** | HDF5 |
-| **Config key** | `velocity_processing.velocity_output_hdf5` |
-
-Same dataset structure and attributes as the preprocess [Initial Velocity Model — HDF5](#initial-velocity-model--hdf5).
+Same columns, datasets and metadata as the preprocess [initial velocity model](#initial-velocity-model--csv), with the updated `vp` and `vs` (km/s).
 
 ---
 
@@ -600,32 +566,32 @@ Same dataset structure and attributes as the preprocess [Initial Velocity Model 
 | **Format** | CSV |
 | **Config key** | `travel_time_processing.synthetic_tt_output_csv` |
 
+The ground truth table plus:
+
 | Column | Description | Units |
 |---|---|---|
-| `event_id` | Event identifier | — |
-| `station_id` | Station identifier | — |
-| `phase` | Phase label (P or S) | — |
-| `shot_id` | Integer shot index | — |
-| `receiver_id` | Integer receiver index | — |
-| `synthetic_travel_time` | Computed synthetic travel time | s |
+| `synthetic_tt` | Synthetic travel time with the origin time removed | s |
+| `corrected_origin_time_s` | Corrected origin time *(only when a source correction was applied)* | s |
+
+The header carries `data_type: "synthetic_traveltime"` and `units.*` entries as in the ground truth table.
 
 ---
 
-#### Source Parameters — CSV
+#### Source Relocation — CSV
 | Property | Value |
 |---|---|
 | **Format** | CSV |
 | **Config key** | `source_processing.output_csv` |
 
+The synthetic travel time table plus:
+
 | Column | Description | Units |
 |---|---|---|
-| `event_id` | Event identifier | — |
-| `sx` | Source x-coordinate (Cartesian) | km |
-| `sy` | Source y-coordinate (Cartesian) | km |
-| `sz` | Source z-coordinate (Cartesian) | km |
-| `st0` | Source origin time correction | s |
-| `grad_sx`, `grad_sy`, `grad_sz`, `grad_st0` | Source gradients *(optional)* | km⁻¹ / s⁻¹ |
-| `srch_sx`, `srch_sy`, `srch_sz`, `srch_st0` | Search directions *(optional)* | — |
+| `corrected_event_x`, `corrected_event_y`, `corrected_event_z` | Updated source coordinates | m |
+| `corrected_origin_time_s` | Updated origin time | s |
+| `grad_*`, `srch_*` | Gradient and search direction columns *(optional)* | — |
+
+Shots that LATTE removed (`filtered_shot_ids`) keep empty corrected columns. Header `data_type: "source_relocation"`.
 
 ---
 
@@ -635,42 +601,37 @@ Same dataset structure and attributes as the preprocess [Initial Velocity Model 
 | **Format** | HDF5 |
 | **Config key** | `ray_path_processing.ray_path_output_file` |
 
-Group hierarchy: `/p_wave/shots/<shot_id>/` and `/s_wave/shots/<shot_id>/`
+Groups: `/p_wave/shots/<shot_id>/` and `/s_wave/shots/<shot_id>/`.
 
 | Dataset | Shape | Description | Units |
 |---|---|---|---|
-| `source` | `(1, 3)` | Source (x, y, z) coordinates | km |
-| `receivers` | `(n_recv, 3)` | Receiver (x, y, z) coordinates | km |
+| `source` | `(1, 3)` | Source `x, y, z` | km |
+| `receivers` | `(n_recv, 3)` | Receiver `x, y, z` | km |
 | `weights` | `(n_recv,)` | Per-ray weights | — |
 | `ray_lengths` | `(n_recv,)` | Number of points per ray | — |
-| `ray_data` | `(total_pts, 3)` | Concatenated ray (x, y, z) coordinates | km |
+| `ray_data` | `(total_points, 3)` | Concatenated ray coordinates | km |
 
-Stored with gzip compression (level configurable via `compression_level`).
+Data is stored with the configured compression. The file also stores the grid of the run and a hash of the grid and binary-directory settings; the cache is rebuilt when they change.
 
 ---
 
-#### Derivative Weight Sum (DWS) — HDF5
+#### Derivative Weight Sum — HDF5
 | Property | Value |
 |---|---|
-| **Format** | HDF5 |
+| **Format** | HDF5 (velocity format) |
 | **Config key** | `ray_path_processing.dws_output_file` |
 
-| Dataset | Shape | Description | Units |
-|---|---|---|---|
-| `dws_vp` | `(nx, ny, nz)` | DWS for P-wave model | km² |
-| `dws_vs` | `(nx, ny, nz)` | DWS for S-wave model | km² |
-| `grid_info` | scalar | Grid dimensions and spacing metadata | — |
+Dataset `velocity` with the columns `lat, lon, depth, x, y, z, dws` and the grid metadata with `data_type: "dws"` (see [Initial Velocity Model — CSV](#initial-velocity-model--csv)). `dws` is the sum of `weight × (ray length in the cell)²` over all rays, in km².
 
 ---
 
 #### Simplified Ray Path Cache — HDF5 *(optional)*
 | Property | Value |
 |---|---|
-| **Required** | No |
 | **Format** | HDF5 |
 | **Config key** | `ray_path_processing.simplification.output_cache_path` |
 
-Identical structure to the [Ray Path Cache — HDF5](#ray-path-cache--hdf5). Ray paths are simplified using the Ramer–Douglas–Peucker algorithm; tolerance is controlled by `ray_path_processing.simplification.epsilon` (km).
+Same structure as the [ray path cache](#ray-path-cache--hdf5); rays are simplified with the Ramer–Douglas–Peucker algorithm with tolerance `simplification.epsilon` (km).
 
 ---
 
@@ -683,93 +644,91 @@ Identical structure to the [Ray Path Cache — HDF5](#ray-path-cache--hdf5). Ray
 #### Travel Time CSVs
 | Property | Value |
 |---|---|
-| **Required** | Yes (one or two depending on mode) |
+| **Required** | Yes (one or two files, by mode) |
 | **Format** | CSV |
-| **Config keys** | `travel_time_analysis.input_csv` (ground_truth mode); `method1_csv`, `method2_csv` (comparison mode) |
+| **Config keys** | `travel_time_analysis.input_csv` (`ground_truth`); `method1_csv`, `method2_csv` (`method_comparison`); `distance_analysis.travel_time_csv`, … |
 
-Same schema as [Ground Truth Travel Times](#ground-truth-travel-times) or [Synthetic Travel Times — CSV](#synthetic-travel-times--csv) depending on analysis mode.
+The postprocess [synthetic travel time table](#synthetic-travel-times--csv).
 
 ---
 
 #### Velocity Model Files
 | Property | Value |
 |---|---|
-| **Required** | Yes (one or two depending on mode) |
+| **Required** | Yes (velocity analysis, one or two files) |
 | **Format** | CSV or HDF5 |
-| **Config keys** | `velocity_analysis.model1_csv`, `velocity_analysis.model2_csv` (or HDF5 equivalents) |
+| **Config keys** | `velocity_analysis.model1_csv`, `model2_csv` (or `*_hdf5`) |
 
-Same schema as [Initial Velocity Model — CSV](#initial-velocity-model--csv) or [HDF5](#initial-velocity-model--hdf5).
+The velocity-format files described in [§1.2](#initial-velocity-model--csv).
 
 ---
 
-#### Events — Cartesian CSV
+#### Cartesian Events and Stations
 | Property | Value |
 |---|---|
-| **Required** | Yes (for distance analysis) |
+| **Required** | Yes (distance and short-distance analysis) |
 | **Format** | CSV |
-| **Config key** | `distance_analysis.events_csv` |
+| **Config keys** | `distance_analysis.events_csv`, `distance_analysis.station_csv` |
 
-Same schema as [Cartesian Events](#cartesian-events).
-
----
-
-#### Stations — Cartesian CSV
-| Property | Value |
-|---|---|
-| **Required** | Yes (for distance analysis) |
-| **Format** | CSV |
-| **Config key** | `distance_analysis.station_csv` |
-
-Same schema as [Cartesian Stations](#cartesian-stations).
+The preprocess [Cartesian events](#cartesian-events) and [Cartesian stations](#cartesian-stations).
 
 ---
 
-#### Source Parameters CSV
+#### Source Relocation CSV
 | Property | Value |
 |---|---|
-| **Required** | Yes (for source analysis) |
+| **Required** | Yes (source and source-gradient analysis) |
 | **Format** | CSV |
 | **Config key** | `source_analysis.input_csv` |
 
-Same schema as the postprocess [Source Parameters — CSV](#source-parameters--csv), optionally including `delta_sx`, `delta_sy`, `delta_sz`, `delta_st0` correction columns.
+The postprocess [source relocation table](#source-relocation--csv).
 
 ---
 
 #### DWS — HDF5
 | Property | Value |
 |---|---|
-| **Required** | Yes (for DWS analysis) |
+| **Required** | Yes (DWS analysis) |
 | **Format** | HDF5 |
 | **Config key** | `dws_analysis.input_hdf5` |
 
-Same structure as the postprocess [Derivative Weight Sum — HDF5](#derivative-weight-sum-dws--hdf5). Units are km² by default; set `use_m2_units: true` to interpret as m².
+The postprocess [DWS file](#derivative-weight-sum--hdf5). Values are km² by default; `use_m2_units: true` shows m².
 
 ---
 
 #### Ray Path Cache — HDF5
 | Property | Value |
 |---|---|
-| **Required** | Yes (for ray path / ray density analysis) |
+| **Required** | Yes (ray path and ray density analysis) |
 | **Format** | HDF5 |
-| **Config key** | `raypath_analysis.input_cache` |
+| **Config keys** | `raypath_analysis.input_cache`, `ray_density_analysis.input_cache` |
 
-Same structure as the postprocess [Ray Path Cache — HDF5](#ray-path-cache--hdf5).
+The postprocess [ray path cache](#ray-path-cache--hdf5).
 
 ---
 
 #### Data Misfit File
 | Property | Value |
 |---|---|
-| **Required** | Yes (for tradeoff analysis) |
-| **Format** | Plain text, tab-separated |
-| **Extension** | `.txt` |
+| **Required** | Yes (tradeoff analysis in `data_misfit` mode) |
+| **Format** | Plain text, whitespace-separated |
 | **Config key** | `tradeoff_analysis.data_misfit_file_path` |
 
 | Column | Description | Units |
 |---|---|---|
-| `iteration` | Inversion iteration index | — |
-| `data_misfit` | Absolute data misfit | s (or dimensionless) |
-| `normalized_data_misfit` | Data misfit normalized by initial value | — |
+| 1 `iteration` | Inversion iteration | — |
+| 2 `data_misfit` | Absolute data misfit | s (or dimensionless) |
+| 3 `normalized_data_misfit` | Misfit normalised by its initial value | — |
+
+---
+
+#### Iteration Directories
+| Property | Value |
+|---|---|
+| **Required** | Yes (tradeoff analysis in `rms` / `data_variance` mode or for the model change) |
+| **Config keys** | `tradeoff_analysis.inversion_base_path`, `inversion_analysis_dir` |
+
+Directories named `iteration_<N>/`, each holding the postprocess travel time CSV and velocity file of that iteration.
 
 ---
 
@@ -780,7 +739,7 @@ Same structure as the postprocess [Ray Path Cache — HDF5](#ray-path-cache--hdf
 | **Format** | CSV |
 | **Config key** | `basin_boundaries.data_dir` |
 
-Same schema as the preprocess [Basin Boundaries — Cartesian](#basin-boundaries--cartesian-optional) (x, y in km).
+The Cartesian [basin boundaries](#basin-boundaries--cartesian-optional) (`x`, `y` in km).
 
 ---
 
@@ -789,154 +748,70 @@ Same schema as the preprocess [Basin Boundaries — Cartesian](#basin-boundaries
 |---|---|
 | **Required** | No |
 | **Format** | CSV or HDF5 |
-| **Config keys** | `gradient_analysis.velocity_input_csv`, `gradient_analysis.source_input_csv` |
+| **Config keys** | `gradient_analysis.velocity_input_csv`, `gradient_analysis.source_input_csv` (or `*_hdf5`) |
 
-Velocity gradient file shares the velocity model CSV schema with additional columns `grad_vp` and `grad_vs`. Source gradient file shares the source parameters CSV schema with `grad_sx`, `grad_sy`, `grad_sz`, `grad_st0` columns.
+The velocity file with `grad_vp`, `grad_vs`, `srch_vp`, `srch_vs`, and the source relocation table with `grad_*` and `srch_*` columns.
 
 ---
 
 ### 3.2 Outputs
 
-All analysis outputs are plots and text reports. No new data files are produced.
+Analysis writes plots, statistics and text reports. The only data table is the optional source-delta CSV. Every module writes into its own `output_dir`, usually with `plots/`, `reports/` and (for some modules) `statistics/` subdirectories. The plot extension follows `analysis.output_format`.
 
----
-
-#### Travel Time Analysis
-| Output | Path | Format |
+| Module | Output | Format |
 |---|---|---|
-| Residual histogram | `travel_time_analysis.output_dir/travel_time_residuals_histogram.png` | PNG |
-| Residual scatter | `travel_time_analysis.output_dir/travel_time_residuals_scatter.png` | PNG |
-| Residuals by phase | `travel_time_analysis.output_dir/travel_time_residuals_by_phase.png` | PNG |
-| Method comparison | `travel_time_analysis.output_dir/travel_time_comparison_method1_vs_method2.png` | PNG |
-| Summary report | `travel_time_analysis.output_dir/travel_time_analysis_report.txt` | Plain text |
+| Travel time | `plots/residual_histograms`, `synthetic_vs_observed`, `synthetic_vs_observed_loglog`, `ln_ratio_analysis`, `ln_ratio_histograms`; `reports/travel_time_analysis_report.txt` | Image / text |
+| Velocity | `plots/basic_velocity_comparison`, `spatial_velocity_projections`, `spatial_geometric_ratio_projections`, `velocity_vertical_profiles`, `depth_slice_heatmaps`, `xy_plane_ratio_*`, `xz_plane_ratio_*`, `yz_plane_ratio_*`, `domain_overview`; `reports/velocity_comparison_report.txt` | Image / text |
+| Distance | `plots/<subdir>/residuals_vs_distance`, `binned_distance_analysis`, `correlation_analysis`, `ratios_vs_distance`; `reports/<subdir>/distance_analysis_report_*.txt` | Image / text |
+| Short distance | `plots/<subdir>/overview_map`, `residual_histograms`, `distance_vs_residual`, `cluster_<name>`; `reports/<subdir>/short_distance_report_*.txt` | Image / text |
+| Source | `plots/hist_*`, `scatter_relationships`, `geographic_corrections_<plane>`, `depth_analysis`, `correction_summary`; `reports/source_correction_report.txt`; `source_corrections_with_deltas.csv` *(optional)* | Image / text / CSV |
+| Gradient | `plots/*_gradient_histograms`, `*_search_histograms`, `*_gradient_search_alignment`, `velocity_gradient_<param>_xy_projection`, `velocity_gradient_depth_profiles`; `reports/velocity_gradient_analysis_report.txt`, `source_gradient_analysis_report.txt` | Image / text |
+| Ray path | `plots/ray_paths_<phase>_wave_<plane>`, `raypath_summary`; `statistics/raypath_statistics.json`; `raypath_analysis_report.txt` | Image / JSON / text |
+| DWS | `plots/dws_horizontal_depth_<d>km_{linear,log}`, `dws_vertical_{xz,yz}_pos_<p>km_{linear,log}`, `dws_coverage_depth_<d>km`, `dws_histogram_{linear,log}`; `statistics/dws_statistics.json`; `reports/dws_analysis_report.txt` | Image / JSON / text |
+| Ray density | `plots/ray_density_<phase>_wave_<plane>`, `ray_density_<phase>_wave_xy_threshold_count`, `ray_density_depth_<d>km`, `ray_density_<phase>_wave_oblique_<label>`, `ray_density_oblique_section_plan_view`; `statistics/ray_density_<phase>_wave_statistics.json` | Image / JSON |
+| Tradeoff | `plots/tradeoff_curve`, `tradeoff_curve_<phase>`, `tradeoff_curve_depth_<d>km`; `statistics/tradeoff_statistics.csv`; `reports/tradeoff_analysis_report.txt` | Image / CSV / text |
 
 ---
 
-#### Velocity Analysis
-| Output | Path | Format |
+## 4. Resolution Tests
+
+The checkerboard and spike tests ([resolution_tests.md](resolution_tests.md)) reuse the formats above. Their own files:
+
+| File | Format | Description |
 |---|---|---|
-| Comparison (basic) | `velocity_analysis.output_dir/velocity_comparison_basic.png` | PNG |
-| Spatial projections | `velocity_analysis.output_dir/velocity_spatial_projection_xy/xz/yz.png` | PNG |
-| Profile analysis | `velocity_analysis.output_dir/velocity_profile_analysis.png` | PNG |
-| Slice heatmap | `velocity_analysis.output_dir/velocity_slice_heatmap.png` | PNG |
-| Velocity ratio | `velocity_analysis.output_dir/velocity_ratio_analysis.png` | PNG |
-| Domain overview | `velocity_analysis.output_dir/velocity_domain_overview.png` | PNG |
-| Summary report | `velocity_analysis.output_dir/velocity_comparison_report.txt` | Plain text |
+| `checkerboard_model/velocity_model_checkerboard.{csv,h5}`, `spike_model/velocity_model_spike.{csv,h5}` | CSV / HDF5 | Perturbed model in the velocity format (km/s) |
+| `checkerboard_model/vp_checkerboard.bin`, `vs_checkerboard.bin`; `spike_model/vp_spike.bin`, `vs_spike.bin` | float32 | Perturbed Vp and Vs binaries (m/s) for LATTE |
+| `noisy_traveltimes/shot_<N>_traveltime_{p,s}.bin` | float32 | Synthetic travel times with noise added, same layout as the synthetic binaries |
+| `noisy_traveltimes/noisy_traveltimes.csv` | CSV | Noisy travel times with the ground truth metadata, `data_type: "noisy_traveltime"`; `observed_tt` holds the noisy value |
+| `inverted_model/velocity_model_final.{csv,h5}` | CSV / HDF5 | Inverted model converted by the same code as the postprocess velocity stage |
+| `visualizations/` | Image | Slice plots (model, difference, pattern) |
 
 ---
 
-#### Distance Analysis
-| Output | Path | Format |
-|---|---|---|
-| Residual vs distance | `distance_analysis.output_dir/residual_vs_distance_scatter.png` | PNG |
-| Binned residuals | `distance_analysis.output_dir/residual_vs_distance_binned.png` | PNG |
-| Correlation plot | `distance_analysis.output_dir/residual_vs_distance_correlation.png` | PNG |
-| Ratio analysis | `distance_analysis.output_dir/residual_distance_ratio.png` | PNG |
-| Summary report | `distance_analysis.output_dir/distance_analysis_report.txt` | Plain text |
+## 5. Configuration Files
 
----
+All pipelines use [Hydra](https://hydra.cc/) for configuration.
 
-#### Short-Distance Analysis
-| Output | Path | Format |
-|---|---|---|
-| Short-distance map | `short_distance_analysis.output_dir/short_distance_map.png` | PNG |
-| Residual histogram | `short_distance_analysis.output_dir/short_distance_residual_histogram.png` | PNG |
-| Cluster zoom plots | `short_distance_analysis.output_dir/short_distance_zoom_clusters.png` | PNG |
-| Coverage plot | `short_distance_analysis.output_dir/short_distance_event_station_coverage.png` | PNG |
-| Summary report | `short_distance_analysis.output_dir/short_distance_analysis_report.txt` | Plain text |
-
----
-
-#### Source Analysis
-| Output | Path | Format |
-|---|---|---|
-| Source correction map | `source_analysis.output_dir/source_corrections_map.png` | PNG |
-| Correction histograms | `source_analysis.output_dir/source_corrections_histograms.png` | PNG |
-| Depth analysis | `source_analysis.output_dir/source_corrections_depth_analysis.png` | PNG |
-| Spatial distribution | `source_analysis.output_dir/source_corrections_spatial_distribution.png` | PNG |
-| Summary report | `source_analysis.output_dir/source_correction_analysis_report.txt` | Plain text |
-| Corrected source CSV *(optional)* | `source_analysis.output_dir/source_corrections_with_deltas.csv` | CSV |
-
-The optional CSV has the same schema as the input source parameters file plus `depth_bin` and `zone` grouping columns.
-
----
-
-#### Gradient Analysis
-| Output | Path | Format |
-|---|---|---|
-| Gradient histograms | `gradient_analysis.velocity_output_dir/gradient_histograms.png` | PNG |
-| Alignment scatter | `gradient_analysis.velocity_output_dir/gradient_alignment_scatter.png` | PNG |
-| Spatial distribution | `gradient_analysis.velocity_output_dir/gradient_spatial_distribution.png` | PNG |
-| Depth profiles | `gradient_analysis.velocity_output_dir/gradient_depth_profiles.png` | PNG |
-| Summary report | `gradient_analysis.velocity_output_dir/gradient_analysis_report.txt` | Plain text |
-
----
-
-#### DWS Analysis
-| Output | Path | Format |
-|---|---|---|
-| Horizontal depth slices | `dws_analysis.output_dir/dws_horizontal_depth_<depth>km_linear/log.png` | PNG |
-| Vertical XZ slices | `dws_analysis.output_dir/dws_vertical_xz_position_<y>km.png` | PNG |
-| Vertical YZ slices | `dws_analysis.output_dir/dws_vertical_yz_position_<x>km.png` | PNG |
-| Histogram (linear/log) | `dws_analysis.output_dir/dws_histogram_linear/log.png` | PNG |
-| Coverage map | `dws_analysis.output_dir/dws_coverage_map.png` | PNG |
-| Summary report | `dws_analysis.output_dir/dws_analysis_report.txt` | Plain text |
-
----
-
-#### Ray Path Analysis
-| Output | Path | Format |
-|---|---|---|
-| XY projection | `raypath_analysis.output_dir/ray_paths_xy_projection.png` | PNG |
-| XZ projection | `raypath_analysis.output_dir/ray_paths_xz_projection.png` | PNG |
-| YZ projection | `raypath_analysis.output_dir/ray_paths_yz_projection.png` | PNG |
-| Summary report | `raypath_analysis.output_dir/ray_path_analysis_report.txt` | Plain text |
-
----
-
-#### Ray Density Analysis
-| Output | Path | Format |
-|---|---|---|
-| XY projection | `ray_density_analysis.output_dir/ray_density_xy_projection.png` | PNG |
-| XZ projection | `ray_density_analysis.output_dir/ray_density_xz_projection.png` | PNG |
-| YZ projection | `ray_density_analysis.output_dir/ray_density_yz_projection.png` | PNG |
-| Depth layer count | `ray_density_analysis.output_dir/ray_density_xy_threshold_count.png` | PNG |
-| Horizontal depth slices | `ray_density_analysis.output_dir/ray_density_horizontal_depth_<depth>km.png` | PNG |
-| Summary report | `ray_density_analysis.output_dir/ray_density_analysis_report.txt` | Plain text |
-
----
-
-#### Tradeoff Analysis
-| Output | Path | Format |
-|---|---|---|
-| Tradeoff curve | `tradeoff_analysis.output_dir/tradeoff_curve.png` | PNG |
-| Tradeoff with iterations | `tradeoff_analysis.output_dir/tradeoff_curve_with_iterations.png` | PNG |
-| Summary report | `tradeoff_analysis.output_dir/tradeoff_analysis_report.txt` | Plain text |
-
----
-
-## 4. Configuration Files
-
-All pipelines use [Hydra](https://hydra.cc/) for configuration management.
-
-| Pipeline | Default config path |
+| Pipeline | Default configuration |
 |---|---|
 | Preprocess | `configs/preprocess/default.yaml` |
 | Postprocess | `configs/postprocess/default.yaml` |
 | Analysis | `configs/analysis/default.yaml` |
+| Checkerboard test | `configs/checkerboard_test/default.yaml` |
+| Spike test | `configs/spike_test/default.yaml` |
 
-Each YAML file is structured into named sections corresponding to pipeline sub-modules (e.g., `data`, `coordinate_transform`, `geometry_traveltime`, `velocity_processing`, `travel_time_analysis`). All file paths in these configs accept absolute or relative paths; relative paths are resolved from the working directory at runtime.
+Each YAML file is organised in named sections for the pipeline modules (for example `data`, `coordinate_transform`, `geometry_traveltime`, `velocity_processing`, `travel_time_analysis`). File paths may be absolute or relative to the working directory.
 
 ---
 
-## 5. File Format Summary
+## 6. File Format Summary
 
 | Format | Extensions | Pipelines | Role |
 |---|---|---|---|
-| CSV | `.csv` | All | Tabular event, station, velocity, travel time, and source data |
-| HDF5 | `.h5`, `.hdf5` | All | Seismic catalog input, velocity models, ray path cache, DWS |
-| Binary (float32) | `.bin` | Preprocess, Postprocess | Velocity fields, source parameters, synthetic travel times, ray paths |
-| Plain text | `.txt` | All | Station inventory, shot maps, geometry/traveltime files, reports |
-| QuakeML (XML) | `.qml` | Preprocess | ObsPy seismic event catalog |
-| YAML | `.yaml` | All | Hydra pipeline configuration |
-| PNG / PDF / SVG | `.png`, `.pdf`, `.svg` | All | Visualization outputs (format configurable) |
+| CSV | `.csv` | All | Events, stations, velocity models, travel times, source tables |
+| HDF5 | `.h5`, `.hdf5` | All | Seismic catalog, velocity models, ray path cache, DWS |
+| Binary (float32) | `.bin` | Preprocess, Postprocess, Resolution tests | Velocity models, source parameters, travel times, ray paths |
+| Plain text | `.txt` | All | Station inventory, geometry files, shot map, reports |
+| QuakeML (XML) | `.qml` | Preprocess | Seismic event catalog |
+| YAML | `.yaml` | All | Hydra configuration |
+| PNG / PDF / SVG | `.png`, `.pdf`, `.svg` | All | Plots |
