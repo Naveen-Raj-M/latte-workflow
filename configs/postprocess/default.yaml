@@ -26,7 +26,7 @@ velocity_processing:
   enabled: false
   phase_type: "both"                     # both | p | s
   # Input velocity file; format auto-detected from extension (.csv, .h5, .hdf5)
-  reference_velocity_file: "/full/path/to/velocity_cartesian_init.csv"
+  reference_velocity_file: "/full/path/to/velocity_model_init.csv"
   vp_binary: "${data.base_dir}/model/updated_vp.bin"
   vs_binary: "${data.base_dir}/model/updated_vs.bin"
 
