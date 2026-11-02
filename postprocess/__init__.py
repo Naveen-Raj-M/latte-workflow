@@ -30,7 +30,7 @@ Usage:
             travel_time_processing.enabled=true
 """
 
-__version__ = "3.0.0"
+__version__ = "4.0.0"
 __author__ = "Naveen Raj Manoharan"
 
 from postprocess.postprocess_velocity import create_velocity_csv_from_binaries

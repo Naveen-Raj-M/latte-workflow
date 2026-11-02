@@ -28,7 +28,7 @@ Usage:
     from spike_test import create_spike_model
 """
 
-__version__ = "1.0.0"
+__version__ = "4.0.0"
 __author__ = "Naveen Raj Manoharan"
 
 from .create_spike_model import (

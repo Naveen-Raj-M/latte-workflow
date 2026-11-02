@@ -36,7 +36,7 @@ Usage:
             filters.magnitude_min=2.0
 """
 
-__version__ = "3.0.0"
+__version__ = "4.0.0"
 __author__ = "Naveen Raj Manoharan"
 
 from preprocess.data_loader import load_seismic_data

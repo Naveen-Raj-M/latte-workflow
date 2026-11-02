@@ -10,7 +10,7 @@ Modules:
     utils       — Shared I/O, logging, distance, and plot utilities
 """
 
-__version__ = "3.0.0"
+__version__ = "4.0.0"
 __author__ = "Naveen Raj Manoharan"
 __email__ = "nm35335@my.utexas.edu"
 

@@ -26,7 +26,7 @@ Usage:
             velocity_analysis.enabled=true
 """
 
-__version__ = "3.0.0"
+__version__ = "4.0.0"
 __author__ = "Naveen Raj Manoharan"
 
 __all__ = [

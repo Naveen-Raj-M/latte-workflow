@@ -22,7 +22,7 @@ Usage:
     from checkerboard_test import create_checkerboard_model
 """
 
-__version__ = "3.0.0"
+__version__ = "4.0.0"
 __author__ = "Naveen Raj Manoharan"
 
 from .create_checkerboard_model import (

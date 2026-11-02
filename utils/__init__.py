@@ -3,7 +3,7 @@ LATTE Utilities Module
 Common utilities used across preprocessing, postprocessing, and analysis.
 """
 
-__version__ = "3.0.0"
+__version__ = "4.0.0"
 __author__ = "Naveen Raj Manoharan"
 
 from .io_utils import *
