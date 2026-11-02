@@ -7,13 +7,27 @@ defaults:
 
 preprocessing:
   output_dir: "/path/to/output"
+  run_pipeline: true                      # false = only raw visualization / HDF5 conversion
 
 data:
   use_hdf5: true
   hdf5_file: "/path/to/seismic_data.h5"
-  quakeml_dir: "/path/to/quakeml"        # used when use_hdf5 is false
+  quakeml_dir: "/path/to/quakeml"        # parsed once for raw visualization / HDF5 conversion / pipeline (use_hdf5: false)
   station_file: "/path/to/station_list.txt"
   output_base_dir: "/path/to/output"
+
+# Filters of the preprocessing pipeline; raw_data_visualization.filters and
+# hdf5_conversion.filters default to these values
+filters:
+  magnitude_min: 2.0
+
+# Plot the raw QuakeML catalog (own filters; here magnitude_min is overridden)
+raw_data_visualization:
+  enabled: false
+
+# Convert QuakeML to the HDF5 file read when data.use_hdf5 is true
+hdf5_conversion:
+  enabled: false
 
 coordinate_transform:
   origin_lon: 0.0

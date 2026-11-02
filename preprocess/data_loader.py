@@ -4,21 +4,16 @@ This module provides functions to load seismic data from either QuakeML files
 or pre-processed HDF5 files, with support for parallel processing and filtering.
 """
 
-import glob
 import logging
 import os
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import h5py
 import numpy as np
 import pandas as pd
-from multiprocessing import Pool, cpu_count
-from functools import partial
-from obspy import read_events
 from obspy.geodetics import gps2dist_azimuth
 from omegaconf import DictConfig
-from tqdm import tqdm
 
 
 def load_station_inventory(station_file: str) -> Dict[str, Dict[str, float]]:
@@ -435,389 +430,54 @@ def passes_distance_filters(epi_dist: float, hypo_dist: float,
     return True
 
 
-def process_single_qml_file(qml_file: str, station_inventory: Dict,
-                            config: DictConfig) -> Tuple[List, List, List, Set]:
-    """Process a single QuakeML file and extract data.
+def load_from_quakeml(config: DictConfig, raw=None) -> Tuple[pd.DataFrame, pd.DataFrame,
+                                                             pd.DataFrame, pd.DataFrame]:
+    """Load seismic data from QuakeML files and apply the global filters.
 
-    This function is called by multiprocessing workers.
-
-    Args:
-        qml_file: Path to QuakeML file.
-        station_inventory: Dictionary of station information.
-        config: Configuration settings.
-
-    Returns:
-        Tuple of (events, picks, arrivals, stations_used).
-    """
-    try:
-        catalog = read_events(qml_file)
-        return extract_event_data(catalog, station_inventory, config)
-    except Exception as e:
-        # Return empty results on error
-        return [], [], [], set()
-
-
-def extract_event_data(catalog, station_inventory: Dict,
-                      config: DictConfig) -> Tuple[List, List, List, Set]:
-    """Extract event data from catalog with filtering.
-
-    Args:
-        catalog: ObsPy catalog object.
-        station_inventory: Dictionary of station information.
-        config: Configuration settings.
-
-    Returns:
-        Tuple of (events, picks, arrivals, stations_used).
-        - events: list of dicts with event info
-        - picks: list of dicts with pick info
-        - arrivals: list of dicts with arrival info
-        - stations_used: set of station IDs used
-    """
-    events = []
-    picks = []
-    arrivals = []
-    stations_used = set()
-
-    # Check if we need distance filtering
-    has_distance_filter = any([
-        config.filters.hypocentral_distance_min is not None,
-        config.filters.hypocentral_distance_max is not None,
-        config.filters.epicentral_distance_min is not None,
-        config.filters.epicentral_distance_max is not None,
-    ])
-
-    has_station_coords = len(station_inventory) > 0
-
-    for event in catalog:
-        # Select origin
-        if config.data.use_preferred_origin:
-            origin = (event.preferred_origin() or
-                     (event.origins[0] if event.origins else None))
-        else:
-            origin = event.origins[0] if event.origins else None
-
-        if origin is None:
-            continue
-
-        # Select magnitude
-        if config.data.use_preferred_magnitude:
-            magnitude = (event.preferred_magnitude() or
-                        (event.magnitudes[0] if event.magnitudes else None))
-        else:
-            magnitude = (event.magnitudes[0] if event.magnitudes else None)
-
-        source_lat = origin.latitude
-        source_lon = origin.longitude
-        source_depth = (origin.depth / 1000.0 if origin.depth is not None
-                       else 0.0)  # Convert to km
-        source_time = origin.time
-        mag_value = magnitude.mag if magnitude else None
-
-        # Apply filters to source
-        if not passes_filters(source_lat, source_lon, source_depth,
-                             mag_value, config):
-            continue
-
-        # Build pick dictionary
-        pick_dict = {pick.resource_id.id: pick for pick in event.picks}
-
-        # Determine which picks to save
-        if config.data.save_all_picks:
-            picks_to_process = list(pick_dict.values())
-            pick_ids_in_origin = set()
-        else:
-            # Only picks associated with selected origin
-            arrivals_list = (origin.arrivals if hasattr(origin, 'arrivals')
-                           else [])
-            pick_ids_in_origin = {arr.pick_id.id for arr in arrivals_list}
-            picks_to_process = [pick_dict[pid] for pid in pick_ids_in_origin
-                              if pid in pick_dict]
-
-        # Get arrivals for this origin
-        arrivals_list = origin.arrivals if hasattr(origin, 'arrivals') else []
-
-        # Track if event has valid data after filtering
-        event_picks = []
-        event_arrivals = []
-        event_stations = set()
-
-        # Process arrivals (which reference picks)
-        for arrival in arrivals_list:
-            pick_id = arrival.pick_id.id
-            if pick_id not in pick_dict:
-                continue
-
-            pick = pick_dict[pick_id]
-
-            # Extract station ID - prioritize waveform_id.station_code
-            station_id = None
-            if (hasattr(pick, 'waveform_id') and
-                hasattr(pick.waveform_id, 'station_code')):
-                station_id = pick.waveform_id.station_code
-
-            if station_id is None:
-                continue
-
-            # Check if we have station coordinates
-            if has_station_coords and station_id in station_inventory:
-                sta_info = station_inventory[station_id]
-                sta_lat = sta_info['lat']
-                sta_lon = sta_info['lon']
-                sta_elev = sta_info['elevation']  # meters, positive = above MSL
-
-                # Apply geographic filter to receiver
-                if not passes_filters(sta_lat, sta_lon, 0.0, None, config):
-                    continue
-
-                # Calculate distances
-                epi_dist, hypo_dist, azimuth = calculate_distances(
-                    source_lat, source_lon, source_depth,
-                    sta_lat, sta_lon, sta_elev
-                )
-
-                # Apply distance filters
-                if has_distance_filter:
-                    if not passes_distance_filters(epi_dist, hypo_dist, config):
-                        continue
-            else:
-                # No coordinates available
-                if has_distance_filter:
-                    # Can't apply distance filter without coordinates, skip
-                    continue
-                epi_dist = None
-                hypo_dist = None
-                azimuth = None
-
-            # Arrival passed all filters
-            event_stations.add(station_id)
-
-            # Extract arrival data
-            arrival_data = {
-                'arrival_id': (str(arrival.resource_id.id) if
-                             hasattr(arrival, 'resource_id') else
-                             f"{event.resource_id.id}_{pick_id}"),
-                'event_id': str(event.resource_id.id),
-                'pick_id': pick_id,
-                'station_id': station_id,
-                'phase': arrival.phase if hasattr(arrival, 'phase') else '',
-                'azimuth': (arrival.azimuth if hasattr(arrival, 'azimuth')
-                          else azimuth),
-                'distance': (arrival.distance if hasattr(arrival, 'distance')
-                           else None),
-                'time_residual': (arrival.time_residual if
-                                hasattr(arrival, 'time_residual') else None),
-                'time_weight': (arrival.time_weight if
-                              hasattr(arrival, 'time_weight') else None),
-                'epicentral_distance': epi_dist,
-                'hypocentral_distance': hypo_dist,
-            }
-            event_arrivals.append(arrival_data)
-
-            # Extract pick data
-            if pick_id in pick_ids_in_origin or config.data.save_all_picks:
-                pick_data = {
-                    'pick_id': pick_id,
-                    'event_id': str(event.resource_id.id),
-                    'station_id': station_id,
-                    'pick_time': str(pick.time),
-                    'phase_hint': (pick.phase_hint if
-                                 hasattr(pick, 'phase_hint') else ''),
-                }
-                # Only add if not already added
-                if pick_id not in {p['pick_id'] for p in event_picks}:
-                    event_picks.append(pick_data)
-
-        # If saving all picks, process picks not associated with arrivals
-        if config.data.save_all_picks:
-            for pick in picks_to_process:
-                pick_id = str(pick.resource_id.id)
-                if pick_id not in {p['pick_id'] for p in event_picks}:
-                    # Extract station ID
-                    station_id = None
-                    if (hasattr(pick, 'waveform_id') and
-                        hasattr(pick.waveform_id, 'station_code')):
-                        station_id = pick.waveform_id.station_code
-
-                    if station_id:
-                        pick_data = {
-                            'pick_id': pick_id,
-                            'event_id': str(event.resource_id.id),
-                            'station_id': station_id,
-                            'pick_time': str(pick.time),
-                            'phase_hint': (pick.phase_hint if
-                                         hasattr(pick, 'phase_hint') else ''),
-                        }
-                        event_picks.append(pick_data)
-                        event_stations.add(station_id)
-
-        # Only add event if it has arrivals (or picks if save_all_picks)
-        if (len(event_arrivals) > 0 or
-            (config.data.save_all_picks and len(event_picks) > 0)):
-            # Extract event data
-            event_data = {
-                'event_id': str(event.resource_id.id),
-                'origin_time': str(source_time),
-                'latitude': source_lat,
-                'longitude': source_lon,
-                'depth': source_depth,  # km, positive = below MSL
-                'magnitude': mag_value,
-                'magnitude_type': (magnitude.magnitude_type if magnitude
-                                 else ''),
-                'num_picks': len(event_picks),
-                'num_arrivals': len(event_arrivals),
-            }
-
-            events.append(event_data)
-            picks.extend(event_picks)
-            arrivals.extend(event_arrivals)
-            stations_used.update(event_stations)
-
-    return events, picks, arrivals, stations_used
-
-
-def load_from_quakeml(config: DictConfig) -> Tuple[pd.DataFrame, pd.DataFrame,
-                                                   pd.DataFrame, pd.DataFrame]:
-    """Load seismic data from QuakeML files with parallel processing.
+    The QuakeML files are parsed once, unfiltered (quakeml_loader); pass the
+    already parsed catalog as ``raw`` to reuse it for several consumers.
 
     Args:
         config: Configuration settings.
+        raw: Optional CatalogData from load_quakeml_catalog().
 
     Returns:
         Tuple of (events_df, stations_df, arrivals_df, picks_df).
     """
-    print("\nLoading data from QuakeML files...")
+    from preprocess.catalog_filters import apply_catalog_filters, restrict_picks_to_arrivals
+    from preprocess.quakeml_loader import load_quakeml_catalog
 
-    # Load station inventory
-    print(f"Loading station inventory from: {config.data.station_file}")
-    station_inventory = load_station_inventory(config.data.station_file)
-    print(f"Loaded {len(set((v['lat'], v['lon'], v['elevation']) for v in station_inventory.values()))} stations (unique positions)")
+    if raw is None:
+        raw = load_quakeml_catalog(config)
+    if raw.events.empty:
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
-    # Get QML files
-    logger = logging.getLogger(__name__)
-    print(f"\nSearching for QML files in: {config.data.quakeml_dir}")
-    if config.data.years:
-        print(f"Year filter: {config.data.years}")
-    else:
-        print("Year filter: none — auto-detecting year directories and direct files")
-    if config.data.max_files:
-        print(f"Processing max {config.data.max_files} files")
+    data = raw if config.data.save_all_picks else restrict_picks_to_arrivals(raw)
+    data = apply_catalog_filters(data, config.filters, label='preprocessing')
 
-    qml_files, detection_info = get_qml_files(
-        config.data.quakeml_dir,
-        config.data.years,
-        config.data.max_files
-    )
-
-    if detection_info['mode'] == 'auto':
-        years_found = detection_info['years_found']
-        files_per_year = detection_info['files_per_year']
-        direct_count = detection_info['direct_files_count']
-
-        if years_found:
-            print(f"Detected {len(years_found)} year director{'y' if len(years_found) == 1 else 'ies'}: {', '.join(years_found)}")
-            logger.info(f"Auto-detected year directories: {years_found}")
-            for yr, cnt in files_per_year.items():
-                print(f"  {yr}/: {cnt} QML file(s)")
-                logger.info(f"  Year {yr}: {cnt} QML file(s)")
-        else:
-            print("No year-named subdirectories detected.")
-            logger.info("No year-named subdirectories found in quakeml_dir")
-
-        if direct_count > 0:
-            print(f"Direct files in quakeml_dir: {direct_count} QML file(s)")
-            logger.info(f"Direct QML files in quakeml_dir: {direct_count}")
-        else:
-            print("No QML files found directly in quakeml_dir.")
-            logger.info("No QML files found directly in quakeml_dir")
-    else:
-        for yr, cnt in detection_info['files_per_year'].items():
-            print(f"  {yr}/: {cnt} QML file(s)")
-
-    print(f"Total: {len(qml_files)} QML file(s) to process")
-    logger.info(f"Total QML files to process: {len(qml_files)}")
-
-    if len(qml_files) == 0:
-        print("No QML files found.")
-        return (pd.DataFrame(), pd.DataFrame(),
-                pd.DataFrame(), pd.DataFrame())
-
-    # Process all QML files in parallel
-    all_events = []
-    all_picks = []
-    all_arrivals = []
-    all_stations = set()
-
-    # Determine number of workers
-    num_workers = (config.parallel.num_workers if
-                  config.parallel.num_workers else cpu_count())
-    print(f"\nProcessing QML files using {num_workers} workers...")
-
-    # Create partial function with fixed arguments
-    worker_func = partial(
-        process_single_qml_file,
-        station_inventory=station_inventory,
-        config=config
-    )
-
-    # Process files in parallel with progress bar
-    with Pool(processes=num_workers) as pool:
-        results = list(tqdm(
-            pool.imap(worker_func, qml_files),
-            total=len(qml_files),
-            desc="Converting"
-        ))
-
-    # Combine results from all workers
-    print("\nCombining results...")
-    for events, picks, arrivals, stations in results:
-        all_events.extend(events)
-        all_picks.extend(picks)
-        all_arrivals.extend(arrivals)
-        all_stations.update(stations)
-
+    # Pick-level distances are only used for filtering
+    picks_df = data.picks.drop(columns=['epicentral_distance', 'hypocentral_distance'],
+                               errors='ignore')
     print(f"\nData Summary:")
-    print(f"  Total events: {len(all_events)}")
-    print(f"  Total picks: {len(all_picks)}")
-    print(f"  Total arrivals: {len(all_arrivals)}")
-    n_unique_station_pos = len(set(
-        (station_inventory[sid]['lat'], station_inventory[sid]['lon'], station_inventory[sid]['elevation'])
-        for sid in all_stations if sid in station_inventory
-    ))
-    print(f"  Total unique station positions: {n_unique_station_pos}")
-
-    # Convert to DataFrames
-    events_df = pd.DataFrame(all_events)
-    picks_df = pd.DataFrame(all_picks) if all_picks else pd.DataFrame()
-    arrivals_df = (pd.DataFrame(all_arrivals) if all_arrivals
-                  else pd.DataFrame())
-
-    # Create stations DataFrame
-    stations_data = []
-    for station_id in all_stations:
-        if station_id in station_inventory:
-            sta_info = station_inventory[station_id]
-            stations_data.append({
-                'station_id': station_id,
-                'latitude': sta_info['lat'],
-                'longitude': sta_info['lon'],
-                'depth': -sta_info['elevation'] / 1000.0,  # km, negative = above MSL
-            })
-    stations_df = pd.DataFrame(stations_data)
-
-    return events_df, stations_df, arrivals_df, picks_df
+    print(f"  Total events: {len(data.events)}")
+    print(f"  Total picks: {len(picks_df)}")
+    print(f"  Total arrivals: {len(data.arrivals)}")
+    print(f"  Total unique station positions: "
+          f"{len(data.stations.drop_duplicates(subset=['longitude', 'latitude', 'depth']))}")
+    return data.events, data.stations, data.arrivals, picks_df
 
 
-def load_seismic_data(config: DictConfig) -> Tuple[pd.DataFrame, pd.DataFrame,
-                                                   pd.DataFrame, pd.DataFrame]:
+def load_seismic_data(config: DictConfig, raw=None) -> Tuple[pd.DataFrame, pd.DataFrame,
+                                                             pd.DataFrame, pd.DataFrame]:
     """Load seismic data from either HDF5 or QuakeML based on config.
 
     Args:
         config: Configuration settings.
+        raw: Optional already parsed QuakeML catalog (used when data.use_hdf5 is false).
 
     Returns:
         Tuple of (events_df, stations_df, arrivals_df, picks_df).
     """
     if config.data.use_hdf5:
         return load_from_hdf5(config.data.hdf5_file, config)
-    else:
-        return load_from_quakeml(config)
+    return load_from_quakeml(config, raw)

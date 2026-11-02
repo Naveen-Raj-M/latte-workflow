@@ -11,6 +11,9 @@ hydra:
 preprocessing:
   output_dir: "/path/to/output/files"
   log_level: INFO                         # DEBUG | INFO | WARNING | ERROR | CRITICAL
+  # false = skip coordinate transform, geometry/travel time, velocity model and final
+  # visualization; use with raw_data_visualization / hdf5_conversion only
+  run_pipeline: true
 
 data:
   use_hdf5: true                          # true = load from HDF5, false = load from QuakeML
@@ -22,9 +25,32 @@ data:
   max_files: null                         # null = all files; positive int limits (for testing)
   # null = auto-detect year subdirectories and files directly in quakeml_dir; or eg: [2020, 2021, 2022]
   years: null                             # directory structure: path/to/quakeml_dir/<year>/<filename>.qml 
+  catalog_label: "catalog_1"              # value written to the 'catalog' column
   use_preferred_origin: true
+  origin_index: 0                         # origin used when use_preferred_origin is false
   use_preferred_magnitude: true
-  save_all_picks: false                   # false = only picks from the selected origin
+  magnitude_index: 0                      # magnitude used when use_preferred_magnitude is false
+  save_all_picks: false                   # false = only picks from the selected origin (pipeline)
+
+  # Optional additional QuakeML catalogs
+  # Rules to merge the same station code in multiple catalogs:
+  #   same location (<= identical_tolerance_m)  -> shared station, never renamed
+  #   closer than match_tolerance_m             -> renamed only if suffix_near_duplicate_stations
+  #   farther than match_tolerance_m            -> renamed if suffix_conflicting_stations
+  # Only the station IDs of additional catalogs are ever renamed (by appending station_suffix).
+  secondary_catalogs:
+    enabled: false
+    quakeml_dir: ["/path/to/secondary/quakeml/files"]
+    station_file: ["/path/to/secondary/station_list.txt"]
+    catalog_label: ["catalog_2"]
+    station_suffix: ["_catalog_2"]
+    # Shared by all additional catalogs
+    years: null                           # null = auto-detect year subdirectories
+    max_files: null
+    identical_tolerance_m: 1.0
+    match_tolerance_m: 200.0
+    suffix_near_duplicate_stations: false
+    suffix_conflicting_stations: true
 
 # Parallel processing
 parallel:
@@ -48,6 +74,100 @@ filters:
   hypocentral_distance_max: null          # km, null = no filter
   epicentral_distance_min: null           # km, null = no filter
   epicentral_distance_max: null           # km, null = no filter
+
+# Raw data visualization of the QuakeML catalog (parsed once and shared with hdf5_conversion
+# and the pipeline). Always reads QuakeML (data.quakeml_dir), independent of data.use_hdf5.
+raw_data_visualization:
+  enabled: false
+  output_dir: "${data.output_base_dir}/raw_data_visualization"
+
+  # Filters of this module only. Every key defaults to the global filter of the same name,
+  # e.g. magnitude_min: ${filters.magnitude_min}; override a key to decouple it.
+  filters:
+    manual_picks_only: ${filters.manual_picks_only}
+    magnitude_min: ${filters.magnitude_min}
+    magnitude_max: ${filters.magnitude_max}
+    lat_min: ${filters.lat_min}
+    lat_max: ${filters.lat_max}
+    lon_min: ${filters.lon_min}
+    lon_max: ${filters.lon_max}
+    depth_min: ${filters.depth_min}
+    depth_max: ${filters.depth_max}
+    hypocentral_distance_min: ${filters.hypocentral_distance_min}
+    hypocentral_distance_max: ${filters.hypocentral_distance_max}
+    epicentral_distance_min: ${filters.epicentral_distance_min}
+    epicentral_distance_max: ${filters.epicentral_distance_max}
+    # Additional filters available for raw data analysis
+    require_both_p_and_s: false           # true = keep only event-station pairs with both P and S arrivals
+    azimuthal_gap_max: null               # degrees, null = no filter
+    min_picks_per_event: null             # null = no filter
+    max_picks_per_event: null             # null = no filter
+
+  plots_to_generate:
+    source_receiver_maps: true            # map view + latitude/longitude depth cross-sections
+    histogram_source_receivers: false     # latitude/longitude/depth of sources and receivers
+    histogram_temporal: false
+    histogram_magnitude: false
+    histogram_epicentral_distance: false
+    histogram_hypocentral_distance: false
+    histogram_picks_per_event: false
+    cumulative_azimuthal_gap: false
+    histogram_magnitude_picks: false
+
+  source_receiver_maps:
+    plot_picks: true                      # true = also show receivers that only have picks (orange)
+
+  histogram_temporal:
+    time_binning: "monthly"               # daily | weekly | monthly | yearly
+
+  distance_histograms:                    # epicentral and hypocentral distance
+    plot_type: "both"                     # histogram | cumulative | both
+    enable_magnitude_bin: false           # true = one histogram per magnitude bin
+    magnitude_bin_size: 0.2               # bins start at filters.magnitude_min (0 if null)
+
+  histogram_magnitude_picks:
+    plot_type: "both"                     # histogram | cumulative | both
+
+  # Overrides of the global 'plots' section for this module only
+  plots:
+    pick_lines:
+      enabled: false                      # one line per event-station pair is heavy for full catalogs
+
+# QuakeML to HDF5 conversion. Writes the tables read by data.use_hdf5 (events, stations,
+# picks, arrivals). Runs before the pipeline, so with data.use_hdf5: true the pipeline
+# reads the freshly written file.
+hdf5_conversion:
+  enabled: false
+  output_file: "${data.hdf5_file}"
+
+  # Filters of this module only; every key defaults to the global filter of the same name
+  filters:
+    manual_picks_only: ${filters.manual_picks_only}
+    magnitude_min: ${filters.magnitude_min}
+    magnitude_max: ${filters.magnitude_max}
+    lat_min: ${filters.lat_min}
+    lat_max: ${filters.lat_max}
+    lon_min: ${filters.lon_min}
+    lon_max: ${filters.lon_max}
+    depth_min: ${filters.depth_min}
+    depth_max: ${filters.depth_max}
+    hypocentral_distance_min: ${filters.hypocentral_distance_min}
+    hypocentral_distance_max: ${filters.hypocentral_distance_max}
+    epicentral_distance_min: ${filters.epicentral_distance_min}
+    epicentral_distance_max: ${filters.epicentral_distance_max}
+
+  save_all_picks: true                    # false = only picks referenced by an arrival
+  single_pick_per_phase: true             # keep one P-type and one S-type pick per event-station pair
+                                          # (exact P/S over Pg/Pn/...; manual over automatic)
+  phase_hint_from_arrival: true           # use the arrival's phase when a pick has no phase_hint
+  require_station_coordinates: true       # drop picks/arrivals of stations missing from the station list
+
+  # Columns written per table; an empty list writes all columns
+  event_fields: [event_id, catalog, origin_time, latitude, longitude, depth, magnitude,
+                 magnitude_type, num_picks, num_arrivals]   # azimuthal_gap is also available
+  station_fields: [station_id, latitude, longitude, depth]
+  pick_fields: [pick_id, event_id, catalog, station_id, pick_time, phase_hint, evaluation_mode]
+  arrival_fields: []
 
 origin_time:
   mode: "fixed"                           # fixed | unix_epoch
@@ -166,52 +286,15 @@ initial_velocity_model:
   neighbor_threshold: 5
   phase_type: "both"                      # both | p | s
 
-visualization:
+# Final data visualization: station/event plots of the data written by the pipeline and
+# velocity model plots. Styling comes from 'plots'; add a 'plots' node here to override.
+final_data_visualization:
   enabled: true
 
   # Station and event map view and cross-section plots
   station_event_vis:
     enabled: true
     output_dir: "${data.output_base_dir}/visualizations"
-    figure_dpi: 150
-    figure_size: [12, 10]                 # [width, height] in inches
-    source_marker: "*"
-    source_size: 100
-    source_color: "red"
-    receiver_marker: "^"
-    receiver_size: 30
-    receiver_color: "blue"
-    plot_pick_lines: true
-    pick_alpha: 0.3                       # transparency of pick lines (0=transparent, 1=opaque)
-
-    # Basin boundary overlays shown on map view only
-    basin_boundaries:
-      enabled: false
-      show_labels: true                   # false = boundary lines only, no text labels
-      data_dir: "/path/to/basin_boundaries"
-      basins:
-        - file: "CentralBasin_Verticies_WGS84.csv"
-          label: "Central Basin"
-        - file: "DelawareBasin_Verticies_WGS84.csv"
-          label: "Delaware Basin"
-        - file: "MidlandBasin_Verticies_WGS84.csv"
-          label: "Midland Basin"
-      line_color: "darkgreen"
-      line_width: 2
-      line_style: "-"                     # - | -- | : | -.
-      line_alpha: 0.8                     # transparency (0=transparent, 1=opaque)
-      label_fontsize: 12
-      label_fontweight: "bold"            # normal | bold
-      label_offset_x: 0.0                 # degrees offset from basin centroid
-      label_offset_y: 0.0                 # degrees offset from basin centroid
-
-    fontsize:
-      title: 16
-      axis_label: 16
-      axis_ticks: 14
-      legend: 12
-      colorbar_label: 14
-      colorbar_ticks: 14
 
   # Velocity model depth slice and 1D profile plots
   velocity_model_vis:
@@ -222,3 +305,91 @@ visualization:
     depth_slices: [5, 10, 20, 30, 40, 50]
     plot_profiles: true
     profile_type: "both"                  # lat | lon | both
+
+  plots: {}
+
+# Unified plotting controls, inherited by raw_data_visualization and final_data_visualization.
+# Each of them may override any key through its own 'plots' node.
+plots:
+  figure:
+    dpi: 300
+    format: "png"                         # png | pdf | svg
+    size: [12, 10]                        # maps and cross-sections [width, height] in inches
+    histogram_size: [12, 7]               # histograms; two-panel plots are 1.5x wider
+  fontsize:
+    title: 16
+    axis_label: 16
+    axis_ticks: 14
+    legend: 12
+    colorbar_label: 14
+    colorbar_ticks: 14
+    statistics: 12                        # statistics text boxes
+  fontweight:
+    title: "bold"                         # normal | bold
+    axis_label: "normal"
+
+  # Sources (events): sized by magnitude, coloured by depth (map) or magnitude (cross-sections)
+  events:
+    marker: "*"
+    size: 100
+    color: "red"                          # used when show_colorbar is false
+    alpha: 0.7
+    show_colorbar: true                   # false = single colour, no colorbar
+  receivers:
+    marker: "^"
+    size: 30
+    color: "blue"
+    picks_only_color: "orange"            # receivers with picks but no arrivals (raw data plots)
+  # One line per event-station pair with a pick
+  pick_lines:
+    enabled: true
+    color: "gray"
+    alpha: 0.3                            # 0 = transparent, 1 = opaque
+    linewidth: 0.5
+
+  equal_aspect: false                     # true = equal physical scale in km on both axes
+  max_depth: null                         # km, deepest depth shown in cross-sections; null = auto
+
+  # Basin boundary overlays, shown on map views only
+  basin_boundaries:
+    enabled: false
+    show_labels: true                     # false = boundary lines only
+    data_dir: "/path/to/basin_boundaries"
+    # Each basin may override any style key below (e.g. line_color); label: null hides its label
+    basins:
+      - file: "CentralBasin_Verticies_WGS84.csv"
+        label: "Central Basin"
+      - file: "DelawareBasin_Verticies_WGS84.csv"
+        label: "Delaware Basin"
+      - file: "MidlandBasin_Verticies_WGS84.csv"
+        label: "Midland Basin"
+    line_color: "darkgreen"
+    line_width: 2
+    line_style: "-"                       # - | -- | : | -.
+    line_alpha: 0.8
+    label_color: null                     # null = line_color
+    label_fontsize: 12
+    label_fontweight: "bold"              # normal | bold
+    label_offset_x: 0.0                   # degrees offset from basin centroid
+    label_offset_y: 0.0
+
+  # Raw data analysis plots (histograms, cumulative distributions)
+  histograms:
+    bins: 50
+    alpha: 0.7
+    show_statistics: true
+    rotate_time_labels: 45                # degrees, temporal histogram
+    colors:
+      sources: "red"
+      receivers: "blue"
+      temporal: "steelblue"
+      magnitude: "green"
+      picks_per_event: "blue"
+      epicentral_distance: {histogram: "darkgreen", cumulative: "crimson"}
+      hypocentral_distance: {histogram: "darkblue", cumulative: "red"}
+      magnitude_picks: {histogram: "purple", cumulative: "darkorange"}
+    azimuthal_gap:
+      line_width: 2.5
+      line_color: "darkred"
+      line_style: "-"
+      show_percentiles: true

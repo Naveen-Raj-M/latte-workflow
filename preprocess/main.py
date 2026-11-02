@@ -4,11 +4,13 @@ This module orchestrates all preprocessing tasks for seismic data from
 QuakeML files or HDF5 format, using Hydra configuration.
 
 Workflow order:
-1. Load data (QuakeML or HDF5)
-2. Transform coordinates (flattening)
-3. Create geometry and travel time files
-4. Create velocity model and binaries
-5. Create visualizations
+0. Parse the QuakeML files ONCE when any enabled step needs them
+   (raw data visualization, HDF5 conversion, or preprocessing from QuakeML)
+1. Raw data visualization (optional, own filters)
+2. QuakeML to HDF5 conversion (optional, own filters)
+3. Preprocessing pipeline (global filters), if preprocessing.run_pipeline:
+   load data (QuakeML or HDF5), transform coordinates, create geometry and
+   travel time files, create velocity model and binaries, final data visualization
 """
 
 import logging
@@ -24,6 +26,9 @@ from preprocess.data_loader import load_seismic_data
 from preprocess.coordinate_transformation import transform_coordinates
 from preprocess.geometry_traveltime import create_geometry_and_traveltime_files
 from preprocess.initial_velocity_model import create_velocity_model
+from preprocess.hdf5_conversion import convert_to_hdf5
+from preprocess.quakeml_loader import CatalogData, load_quakeml_catalog
+from preprocess.raw_data_visualization import PLOT_FUNCTIONS, create_raw_data_visualization
 from preprocess.visualization import (
     create_station_event_visualization,
     create_velocity_model_visualization
@@ -35,11 +40,12 @@ from utils.io_utils import ensure_directory_exists
 from utils.column_utils import normalize_coordinate_columns
 
 
-def run_data_loading(cfg: DictConfig):
+def run_data_loading(cfg: DictConfig, raw: Optional[CatalogData] = None):
     """Load seismic data from QuakeML or HDF5.
 
     Args:
         cfg: Configuration settings.
+        raw: Already parsed QuakeML catalog, reused when data.use_hdf5 is false.
 
     Returns:
         Tuple of (events_df, stations_df, arrivals_df, picks_df).
@@ -49,7 +55,7 @@ def run_data_loading(cfg: DictConfig):
     print("="*60)
 
     with ProcessTimer("Data Loading"):
-        events_df, stations_df, arrivals_df, picks_df = load_seismic_data(cfg)
+        events_df, stations_df, arrivals_df, picks_df = load_seismic_data(cfg, raw)
 
         print(f"\nLoaded data summary:")
         print(f"  Events: {len(events_df)}")
@@ -249,7 +255,7 @@ def run_visualization(cfg: DictConfig, events_df=None, stations_df=None,
         stations_cart: DataFrame with stations (Cartesian coordinates). If None and load_from_files=True, will try to load.
         load_from_files: If True, attempt to load data from existing CSV files when data is None.
     """
-    if not cfg.visualization.enabled:
+    if not cfg.final_data_visualization.enabled:
         return
 
     logger = logging.getLogger(__name__)
@@ -265,12 +271,13 @@ def run_visualization(cfg: DictConfig, events_df=None, stations_df=None,
             return
 
     print("\n" + "="*60)
-    print("CREATING VISUALIZATIONS")
+    print("CREATING FINAL DATA VISUALIZATIONS")
     print("="*60)
 
     # Station and event visualization
-    if ('station_event_vis' in cfg.visualization and
-        cfg.visualization.station_event_vis.get('enabled', True)):
+    final_vis = cfg.final_data_visualization
+    if ('station_event_vis' in final_vis and
+        final_vis.station_event_vis.get('enabled', True)):
         if events_df is not None and stations_df is not None:
             print("\nCreating station and event visualization...")
             with ProcessTimer("Station/Event Visualization"):
@@ -278,13 +285,13 @@ def run_visualization(cfg: DictConfig, events_df=None, stations_df=None,
                     cfg, events_df, stations_df, picks_df
                 )
                 print(f"  Station/event visualizations saved to: "
-                      f"{cfg.visualization.station_event_vis.output_dir}")
+                      f"{final_vis.station_event_vis.output_dir}")
         else:
             logger.warning("Station/event visualization enabled but geodetic coordinate data not available")
 
     # Velocity model visualization
-    if ('velocity_model_vis' in cfg.visualization and
-        cfg.visualization.velocity_model_vis.enabled and
+    if ('velocity_model_vis' in final_vis and
+        final_vis.velocity_model_vis.enabled and
         cfg.initial_velocity_model.enabled):
         print("\nCreating velocity model visualization...")
         with ProcessTimer("Velocity Model Visualization"):
@@ -299,7 +306,7 @@ def run_visualization(cfg: DictConfig, events_df=None, stations_df=None,
 
             create_velocity_model_visualization(cfg, velocity_file)
             print(f"  Velocity model visualizations saved to: "
-                  f"{cfg.visualization.velocity_model_vis.output_dir}")
+                  f"{final_vis.velocity_model_vis.output_dir}")
 
 
 def setup_output_directories(config: DictConfig) -> None:
@@ -330,6 +337,17 @@ def print_configuration_summary(config: DictConfig) -> None:
     print(f"\nOutput directory: {config.preprocessing.output_dir}")
 
     # Data source
+    needs_quakeml = quakeml_required(config)
+    if config.raw_data_visualization.enabled:
+        print(f"Raw data visualization: enabled -> {config.raw_data_visualization.output_dir}")
+    if config.hdf5_conversion.enabled:
+        print(f"HDF5 conversion: enabled -> {config.hdf5_conversion.output_file}")
+    if not config.preprocessing.run_pipeline:
+        print("Preprocessing pipeline: skipped (preprocessing.run_pipeline=false)")
+    if needs_quakeml:
+        print("QuakeML files are parsed once and shared by all enabled steps")
+    if not config.preprocessing.run_pipeline:
+        return
     if config.data.use_hdf5:
         print(f"Data source: HDF5 file")
         print(f"  HDF5 file: {config.data.hdf5_file}")
@@ -385,8 +403,8 @@ def print_configuration_summary(config: DictConfig) -> None:
         print(f"     Max depth: {config.initial_velocity_model.max_depth_km} km")
         phase_type = config.initial_velocity_model.get('phase_type', 'both')
         print(f"     Phase type: {phase_type}")
-    if config.visualization.enabled:
-        print(f"  4. Visualization generation")
+    if config.final_data_visualization.enabled:
+        print(f"  4. Final data visualization")
 
     # Parallel processing
     num_workers = (config.parallel.num_workers if config.parallel.num_workers
@@ -394,8 +412,14 @@ def print_configuration_summary(config: DictConfig) -> None:
     print(f"\nParallel processing: {num_workers}")
 
 
+def quakeml_required(config: DictConfig) -> bool:
+    """True when any enabled step reads the QuakeML files."""
+    return bool(config.raw_data_visualization.enabled or config.hdf5_conversion.enabled or
+                (config.preprocessing.run_pipeline and not config.data.use_hdf5))
+
+
 def run_preprocessing_pipeline(config: DictConfig) -> None:
-    """Run the complete preprocessing pipeline.
+    """Run the enabled workflow steps.
 
     Args:
         config: Configuration settings.
@@ -409,11 +433,43 @@ def run_preprocessing_pipeline(config: DictConfig) -> None:
     # Setup output directories
     setup_output_directories(config)
 
-    # Run processing steps in order
     try:
+        # Parse the QuakeML files once for every step that needs them
+        raw = None
+        if quakeml_required(config):
+            print("\n" + "="*60)
+            print("QUAKEML LOADING")
+            print("="*60)
+            with ProcessTimer("QuakeML Loading"):
+                raw = load_quakeml_catalog(config)
+            if raw.events.empty:
+                logger.error("No events parsed from QuakeML. Cannot proceed.")
+                print("\nNo events parsed. Please check data.quakeml_dir and data.years.")
+                return
+
+        if config.raw_data_visualization.enabled:
+            print("\n" + "="*60)
+            print("RAW DATA VISUALIZATION")
+            print("="*60)
+            with ProcessTimer("Raw Data Visualization"):
+                out_dir = create_raw_data_visualization(config, raw)
+            if out_dir is not None:
+                print(f"\nRaw data visualizations saved to: {out_dir}")
+
+        if config.hdf5_conversion.enabled:
+            print("\n" + "="*60)
+            print("QUAKEML TO HDF5 CONVERSION")
+            print("="*60)
+            with ProcessTimer("HDF5 Conversion"):
+                convert_to_hdf5(config, raw)
+
+        if not config.preprocessing.run_pipeline:
+            print("\nPreprocessing pipeline skipped (preprocessing.run_pipeline=false).")
+            return
+
         # Step 1: Load data
         events_df, stations_df, arrivals_df, picks_df = run_data_loading(
-            config
+            config, raw
         )
 
         if len(events_df) == 0:
@@ -542,6 +598,13 @@ def validate_preprocessing_config(cfg: DictConfig) -> None:
                         "mode is 'fixed'")
             raise ValueError("origin_time.fixed_value is required when "
                            "mode is 'fixed'")
+
+    # Validate raw data visualization plot selection
+    valid_plots = set(PLOT_FUNCTIONS)
+    unknown = set(cfg.raw_data_visualization.plots_to_generate) - valid_plots
+    if unknown:
+        raise ValueError(f"Unknown raw_data_visualization.plots_to_generate entries: "
+                         f"{sorted(unknown)}. Valid: {sorted(valid_plots)}")
 
     # Validate phase_type in geometry_traveltime
     if cfg.geometry_traveltime.enabled:
