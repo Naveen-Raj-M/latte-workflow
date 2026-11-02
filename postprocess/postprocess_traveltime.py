@@ -43,16 +43,7 @@ def read_travel_time_binary(bin_path: str) -> np.ndarray:
         return None
     
     try:
-        # Try different data types
-        for dtype in [np.float32, np.float64, np.int32]:
-            try:
-                data = np.fromfile(bin_path, dtype=dtype)
-                # Check if data looks reasonable
-                if len(data) > 0 and not np.any(np.isnan(data)):
-                    return data
-            except:
-                continue
-        # Fallback to float32
+        # LATTE writes float32 only
         return np.fromfile(bin_path, dtype=np.float32)
     except Exception as e:
         print(f"Error reading {bin_path}: {e}")

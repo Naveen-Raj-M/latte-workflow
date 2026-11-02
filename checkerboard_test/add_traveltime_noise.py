@@ -269,9 +269,8 @@ def process_traveltime_directory(
     combinations = df.groupby(["shot_id", "phase"]).size().reset_index(name="count")
     logger.info(f"Found {len(combinations)} unique shot/phase combinations")
 
-    # Determine output precision
-    output_precision = noise_config.get("output_precision", "single")
-    output_dtype = np.float32 if output_precision == "single" else np.float64
+    # LATTE reads single precision only
+    output_dtype = np.float32
 
     # ------------------------------------------------------------------ #
     # Magnitude-distance (SNR-based) noise setup                          #
@@ -629,8 +628,7 @@ def process_traveltime_directory_with_exchange(
     random_state = np.random.RandomState(random_seed)
     removed_set = set(int(x) for x in (filtered_shot_ids or []))
 
-    output_precision = noise_config.get("output_precision", "single")
-    output_dtype = np.float32 if output_precision == "single" else np.float64
+    output_dtype = np.float32  # LATTE reads single precision only
 
     # ------------------------------------------------------------------ #
     # 1. Ground-truth CSV                                                  #

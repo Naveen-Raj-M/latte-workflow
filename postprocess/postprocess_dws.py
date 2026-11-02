@@ -114,7 +114,6 @@ def process_single_ray_dws(
     weight: float,
     gradient_dir: str,
     phase: str,
-    precision: str,
     tracing_params: Dict,
     interpolation_method: str,
     grid_dims: Dict[str, int]
@@ -129,7 +128,6 @@ def process_single_ray_dws(
         weight: Observation weight from traveltime data
         gradient_dir: Directory containing gradient files
         phase: Wave phase ('p' or 's')
-        precision: Numerical precision ('single' or 'double')
         tracing_params: Ray tracing parameters dictionary
         interpolation_method: 'nearest' or 'trilinear' interpolation method
         grid_dims: Global grid dimensions (for validation)
@@ -156,7 +154,7 @@ def process_single_ray_dws(
 
         # Read gradient files
         grad_x, grad_y, grad_z = read_gradient_binaries(
-            gradient_dir, shot_id, phase, precision
+            gradient_dir, shot_id, phase
         )
 
         # Reshape gradients using the local grid dimensions
@@ -330,7 +328,6 @@ def compute_dws_from_ray_paths(config: DictConfig) -> np.ndarray:
                 weight,
                 config.gradient_dir,
                 phase,
-                config.precision,
                 tracing_params,
                 interpolation_method,
                 grid_dims

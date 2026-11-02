@@ -128,8 +128,8 @@ def read_gradient_metadata(gradient_dir: str, shot_id: int) -> Dict[str, float]:
     return metadata
 
 
-def read_gradient_binaries(gradient_dir: str, shot_id: int, phase: str = 'p',
-                           precision: str = 'single') -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+def read_gradient_binaries(gradient_dir: str, shot_id: int,
+                           phase: str = 'p') -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Read gradient binary files for a specific shot.
 
@@ -137,12 +137,11 @@ def read_gradient_binaries(gradient_dir: str, shot_id: int, phase: str = 'p',
         gradient_dir: Directory containing gradient files
         shot_id: Shot ID
         phase: 'p' or 's' wave
-        precision: 'single' or 'double'
 
     Returns:
-        Tuple of (grad_x, grad_y, grad_z) arrays
+        Tuple of (grad_x, grad_y, grad_z) float32 arrays
     """
-    dtype = np.float64 if precision == 'double' else np.float32
+    dtype = np.float32  # LATTE writes single precision only
 
     # File paths
     grad_px_file = f"{gradient_dir}/shot_{shot_id}_gradient_{phase}x.bin"
@@ -771,7 +770,6 @@ def process_single_ray(shot_id: int,
                        receiver_pos: Tuple[float, float, float],
                        gradient_dir: str,
                        phase: str,
-                       precision: str,
                        tracing_params: Dict,
                        interpolation_method: str = 'nearest',
                        advanced_params: Optional[Dict] = None) -> Optional[np.ndarray]:
@@ -786,7 +784,6 @@ def process_single_ray(shot_id: int,
         receiver_pos: Receiver position (x, y, z) in km
         gradient_dir: Directory containing gradient files
         phase: Wave phase ('p' or 's')
-        precision: Numerical precision ('single' or 'double')
         tracing_params: Ray tracing parameters dictionary
         interpolation_method: 'nearest' or 'trilinear' interpolation method
         advanced_params: Optional dictionary with advanced ray tracing parameters
@@ -817,7 +814,7 @@ def process_single_ray(shot_id: int,
 
         # Read gradient files
         grad_x, grad_y, grad_z = read_gradient_binaries(
-            gradient_dir, shot_id, phase, precision
+            gradient_dir, shot_id, phase
         )
 
         # Reshape gradients using the local grid dimensions
@@ -848,8 +845,7 @@ def process_single_shot(shot_id: int,
                         df_gt: pd.DataFrame,
                         gradient_dir: str,
                         phase: str,
-                        precision: str,
-                        grid_dims: Dict,  # Not used - kept for backward compatibility
+                         grid_dims: Dict,  # Not used - kept for backward compatibility
                         tracing_params: Dict,
                         verbose: bool,
                         interpolation_method: str = 'nearest',
@@ -862,7 +858,6 @@ def process_single_shot(shot_id: int,
         df_gt: Ground truth dataframe
         gradient_dir: Directory containing gradient files
         phase: Wave phase ('p' or 's')
-        precision: Numerical precision ('single' or 'double')
         grid_dims: Grid dimension dictionary (will be overridden by metadata)
         tracing_params: Ray tracing parameters dictionary
         verbose: Whether to print warnings
@@ -898,7 +893,7 @@ def process_single_shot(shot_id: int,
 
         # Read gradient files
         grad_x, grad_y, grad_z = read_gradient_binaries(
-            gradient_dir, shot_id, phase, precision
+            gradient_dir, shot_id, phase
         )
 
         # Reshape gradients using the local grid dimensions

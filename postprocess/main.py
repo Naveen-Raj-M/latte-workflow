@@ -141,7 +141,7 @@ def postprocess_latte_outputs(config: DictConfig) -> None:
                         source_cfg_dict[srch_key] = getattr(config.source_processing, srch_key)
             
             source_cfg = OmegaConf.create(source_cfg_dict)
-            # Set parent to allow access to general.precision settings
+            # Set parent to allow access to the parent configuration
             OmegaConf.set_struct(source_cfg, False)
             source_cfg._parent = config
             OmegaConf.set_struct(source_cfg, True)
