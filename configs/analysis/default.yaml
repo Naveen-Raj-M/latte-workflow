@@ -93,7 +93,6 @@ travel_time_analysis:
 
   enable_log_log_plots: true
   enable_ln_ratio_analysis: true
-  enable_corrected_format: true           # true = parse picks in LATTE corrected-residual format
 
   outlier_threshold_sigma: 3.0            # residuals beyond N·σ are flagged as outliers
   min_residual_threshold: -50.0           # s; residuals below this are treated as unrealistic

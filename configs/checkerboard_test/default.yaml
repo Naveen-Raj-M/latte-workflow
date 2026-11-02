@@ -148,8 +148,6 @@ traveltime_noise:
     mean: 0.0
     std: 0.02
 
-  output_precision: "single"  # "single" (float32) or "double" (float64)
-
   # SNR-based per-pick noise derived from event magnitude and hypocentral distance.
   magnitude_distance_noise:
     enabled: false            # Set to true to activate

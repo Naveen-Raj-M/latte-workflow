@@ -22,13 +22,13 @@ travel_time_analysis:
 
 velocity_analysis:
   enabled: true
-  model1_csv: "/path/to/velocity_cartesian_initial.csv"
-  model2_csv: "/path/to/velocity_cartesian_latte_output.csv"
+  model1_csv: "/path/to/velocity_model_init.csv"
+  model2_csv: "/path/to/velocity_model_final.csv"
   output_dir: "/path/to/analysis/output/velocity_comparison"
 
 gradient_analysis:
   enabled: true
-  velocity_input_csv: "/path/to/velocity_cartesian_latte_output.csv"
+  velocity_input_csv: "/path/to/velocity_model_final.csv"
   velocity_output_dir: "/path/to/analysis/output/gradient_velocity"
   source_input_csv: "/path/to/source_relocation.csv"
   source_output_dir: "/path/to/analysis/output/gradient_source"
