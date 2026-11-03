@@ -19,3 +19,6 @@ configs/**/*.yaml
 __pycache__/
 *.pyc
 *.whl
+__pycache__/
+*.pyc
+*.whl
