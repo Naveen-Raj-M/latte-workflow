@@ -324,7 +324,7 @@ When contributing to this repository:
 
 ## License
 
-Released under the MIT License (see [LICENSE](LICENSE)). Please cite the relevant papers when using this code in publications.
+Released under the BSD 3-Clause License (see [LICENSE](LICENSE)). Please cite the relevant papers when using this code in publications.
 
 ## Acknowledgments
 
