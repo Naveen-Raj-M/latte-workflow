@@ -1,0 +1,21 @@
+# Python bytecode
+__pycache__/
+*.pyc
+
+illustrative_example/
+outputs/
+preprocess_quakeml/
+seismic_data_analysis/
+short_distance_anamoly/
+texnet_review/
+results/
+utils/__pycache__/
+
+# Ignore all yaml files under configs
+configs/**/*.yaml
+
+# But track default.yaml in each subdirectory
+!configs/**/default.yaml
+__pycache__/
+*.pyc
+*.whl
