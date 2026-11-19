@@ -3,11 +3,14 @@ Velocity model comparison plotting module.
 
 This module creates all visualization plots for velocity model comparisons including:
 - Basic scatter and histogram comparisons
-- Spatial RMS projections (XY, XZ, YZ)
+- Spatial RMS projections (map, longitude-depth, latitude-depth)
 - Vertical profile comparisons
 - Horizontal slice heatmaps
 - Ratio analysis and geometric mean projections
 - Domain overview plots
+
+Positions are longitude and WGS84 geodetic latitude (degrees) and depth below mean sea level
+(km). Map views are drawn at true distance (see ``map_aspect``); depth sections fill their panel.
 """
 
 import numpy as np
@@ -21,11 +24,32 @@ from scipy.interpolate import griddata
 import logging
 
 from utils.plot_utils import save_figure, get_color_scheme
+from utils.spherical import km_per_degree
 from utils.velocity_io import read_velocity_file
 from .velocity_spatial import find_max_min_ratio_change_depths, find_extreme_ratio_change_profiles
 from .basin_boundaries import plot_basin_boundaries
 
 logger = logging.getLogger(__name__)
+
+LON_LABEL = 'Longitude (°)'
+LAT_LABEL = 'Latitude (°)'
+DEPTH_LABEL = 'Depth (km)'
+
+# Plane types of plane_ratio_plots: the fixed coordinate of the plane
+PLANE_TYPES = ('depth', 'lat', 'lon')
+
+
+def map_aspect(lat_values) -> float:
+    """Aspect (latitude units per longitude unit) that draws a lon/lat map at true distance:
+    km per degree of latitude over km per degree of longitude at the mean latitude. The ratio
+    does not depend on the Earth radius or the depth."""
+    km_lon, km_lat = km_per_degree(float(np.nanmean(lat_values)))
+    return float(km_lat / km_lon)
+
+
+def format_lonlat(coords) -> str:
+    """'(lon, lat)' of a profile location, in degrees."""
+    return f"({coords[0]:.4f}°, {coords[1]:.4f}°)"
 
 
 def get_model_names(config: Dict[str, Any]) -> Tuple[str, str, str]:
@@ -157,7 +181,8 @@ def create_spatial_projection_plots(df: pd.DataFrame, differences: Dict[str, np.
                                    plots_dir: Path, output_format: str,
                                    config: Dict[str, Any]) -> None:
     """
-    Create spatial distribution plots of velocity differences with XY, XZ, YZ projections.
+    Create spatial distribution plots of velocity differences: map, longitude-depth and
+    latitude-depth projections.
     
     Args:
         df: Velocity dataframe
@@ -169,10 +194,6 @@ def create_spatial_projection_plots(df: pd.DataFrame, differences: Dict[str, np.
     model1_name, model2_name, difference_label = get_model_names(config)
     grid_resolution = config['velocity_analysis'].get('grid_resolution', 100)
     interpolation_method = config['velocity_analysis'].get('interpolation_method', 'cubic')
-    
-    x_coords = df['x'].values
-    y_coords = df['y'].values
-    z_coords = df['z'].values
     
     # Create RMS spatial projections
     df_temp = df.copy()
@@ -218,72 +239,72 @@ def _create_velocity_spatial_projection(df_temp: pd.DataFrame, diff_col: str,
         interpolation_method: Interpolation method
         difference_label: Label for difference
     """
-    # XY plane: RMS along Z (depth)
-    xy_rms = df_temp.groupby(['x', 'y']).agg({
+    # Map: RMS along depth (each node counts once)
+    map_rms = df_temp.groupby(['lon', 'lat']).agg({
         diff_col: lambda x: np.sqrt(np.mean(x**2))
     }).reset_index()
-    
-    # XZ plane: RMS along Y  
-    xz_rms = df_temp.groupby(['x', 'z']).agg({
+
+    # Longitude-depth: RMS along latitude
+    lon_depth_rms = df_temp.groupby(['lon', 'depth']).agg({
         diff_col: lambda x: np.sqrt(np.mean(x**2))
     }).reset_index()
-    
-    # YZ plane: RMS along X
-    yz_rms = df_temp.groupby(['y', 'z']).agg({
+
+    # Latitude-depth: RMS along longitude
+    lat_depth_rms = df_temp.groupby(['lat', 'depth']).agg({
         diff_col: lambda x: np.sqrt(np.mean(x**2))
     }).reset_index()
-    
+
     # Create grids and interpolate
-    x_coords = df_temp['x'].values
-    y_coords = df_temp['y'].values
-    z_coords = df_temp['z'].values
-    
-    xi = np.linspace(x_coords.min(), x_coords.max(), grid_resolution)
-    yi = np.linspace(y_coords.min(), y_coords.max(), grid_resolution)
-    zi = np.linspace(z_coords.min(), z_coords.max(), grid_resolution)
-    
-    # XY projection
-    Xi, Yi = np.meshgrid(xi, yi)
-    xy_interp = griddata((xy_rms['x'], xy_rms['y']), 
-                        xy_rms[diff_col], (Xi, Yi), method=interpolation_method)
-    
-    vmax = max(xy_rms[diff_col].max(), xz_rms[diff_col].max(), yz_rms[diff_col].max())
-    
-    im1 = axes[0].imshow(xy_interp, extent=[xi.min(), xi.max(), yi.min(), yi.max()],
-                        cmap='Reds', vmin=0, vmax=vmax, origin='lower', aspect='auto')
-    axes[0].set_xlabel('X (km)')
-    axes[0].set_ylabel('Y (km)')
-    axes[0].set_title(f'{velocity_type} RMS Changes - XY Projection')
+    lon = df_temp['lon'].values
+    lat = df_temp['lat'].values
+    depth = df_temp['depth'].values
+
+    loni = np.linspace(lon.min(), lon.max(), grid_resolution)
+    lati = np.linspace(lat.min(), lat.max(), grid_resolution)
+    depthi = np.linspace(depth.min(), depth.max(), grid_resolution)
+
+    # Map projection
+    LONi, LATi = np.meshgrid(loni, lati)
+    map_interp = griddata((map_rms['lon'], map_rms['lat']),
+                          map_rms[diff_col], (LONi, LATi), method=interpolation_method)
+
+    vmax = max(map_rms[diff_col].max(), lon_depth_rms[diff_col].max(), lat_depth_rms[diff_col].max())
+
+    im1 = axes[0].imshow(map_interp, extent=[loni.min(), loni.max(), lati.min(), lati.max()],
+                         cmap='Reds', vmin=0, vmax=vmax, origin='lower', aspect=map_aspect(lat))
+    axes[0].set_xlabel(LON_LABEL)
+    axes[0].set_ylabel(LAT_LABEL)
+    axes[0].set_title(f'{velocity_type} RMS Changes - Map Projection')
     plt.colorbar(im1, ax=axes[0], label=f'{velocity_type} RMS (km/s)')
     if basin_data:
         plot_basin_boundaries(axes[0], basin_data, basin_config or {})
-    
-    # XZ projection
-    Xi_xz, Zi = np.meshgrid(xi, zi)
-    xz_interp = griddata((xz_rms['x'], xz_rms['z']), 
-                        xz_rms[diff_col], (Xi_xz, Zi), method=interpolation_method)
-    
-    im2 = axes[1].imshow(xz_interp, extent=[xi.min(), xi.max(), zi.max(), zi.min()], 
-                        cmap='Reds', vmin=0, vmax=vmax, origin='upper', aspect='auto')
-    axes[1].set_xlabel('X (km)')
-    axes[1].set_ylabel('Z (km)')
-    axes[1].set_title(f'{velocity_type} RMS Changes - XZ Projection')
+
+    # Longitude-depth projection
+    LONi_d, DEPTHi = np.meshgrid(loni, depthi)
+    lon_depth_interp = griddata((lon_depth_rms['lon'], lon_depth_rms['depth']),
+                                lon_depth_rms[diff_col], (LONi_d, DEPTHi), method=interpolation_method)
+
+    im2 = axes[1].imshow(lon_depth_interp, extent=[loni.min(), loni.max(), depthi.max(), depthi.min()],
+                         cmap='Reds', vmin=0, vmax=vmax, origin='upper', aspect='auto')
+    axes[1].set_xlabel(LON_LABEL)
+    axes[1].set_ylabel(DEPTH_LABEL)
+    axes[1].set_title(f'{velocity_type} RMS Changes - Longitude-Depth Projection')
     plt.colorbar(im2, ax=axes[1], label=f'{velocity_type} RMS (km/s)')
-    
-    # YZ projection
-    Yi_yz, Zi_yz = np.meshgrid(yi, zi)
-    yz_interp = griddata((yz_rms['y'], yz_rms['z']), 
-                        yz_rms[diff_col], (Yi_yz, Zi_yz), method=interpolation_method)
-    
-    im3 = axes[2].imshow(yz_interp, extent=[yi.min(), yi.max(), zi.max(), zi.min()], 
-                        cmap='Reds', vmin=0, vmax=vmax, origin='upper', aspect='auto')
-    axes[2].set_xlabel('Y (km)')
-    axes[2].set_ylabel('Z (km)')
-    axes[2].set_title(f'{velocity_type} RMS Changes - YZ Projection')
+
+    # Latitude-depth projection
+    LATi_d, DEPTHi_lat = np.meshgrid(lati, depthi)
+    lat_depth_interp = griddata((lat_depth_rms['lat'], lat_depth_rms['depth']),
+                                lat_depth_rms[diff_col], (LATi_d, DEPTHi_lat), method=interpolation_method)
+
+    im3 = axes[2].imshow(lat_depth_interp, extent=[lati.min(), lati.max(), depthi.max(), depthi.min()],
+                         cmap='Reds', vmin=0, vmax=vmax, origin='upper', aspect='auto')
+    axes[2].set_xlabel(LAT_LABEL)
+    axes[2].set_ylabel(DEPTH_LABEL)
+    axes[2].set_title(f'{velocity_type} RMS Changes - Latitude-Depth Projection')
     plt.colorbar(im3, ax=axes[2], label=f'{velocity_type} RMS (km/s)')
-    
+
     # Depth profile
-    axes[3].scatter(df_temp[diff_col], z_coords, alpha=0.6, s=2)
+    axes[3].scatter(df_temp[diff_col], depth, alpha=0.6, s=2)
     axes[3].axvline(0, color='red', linestyle='--', linewidth=2)
     axes[3].set_xlabel(f'{velocity_type} Difference (km/s)')
     axes[3].set_ylabel('Depth (km)')
@@ -338,91 +359,91 @@ def create_profile_comparison_plots(df1: pd.DataFrame, df2: pd.DataFrame,
     axes = axes.flatten()
 
     # Get profile data for max ratio change location
-    max_profile_data1 = df1[extremes['max_positive_mask']].sort_values('z')
-    max_profile_data2 = df2[extremes['max_positive_mask']].sort_values('z')
+    max_profile_data1 = df1[extremes['max_positive_mask']].sort_values('depth')
+    max_profile_data2 = df2[extremes['max_positive_mask']].sort_values('depth')
 
     # Get profile data for min ratio change location
-    min_profile_data1 = df1[extremes['min_ratio_mask']].sort_values('z')
-    min_profile_data2 = df2[extremes['min_ratio_mask']].sort_values('z')
+    min_profile_data1 = df1[extremes['min_ratio_mask']].sort_values('depth')
+    min_profile_data2 = df2[extremes['min_ratio_mask']].sort_values('depth')
 
     # max ratio change location - Vp profile
-    axes[0].plot(max_profile_data1['vp'], max_profile_data1['z'], 'b-',
+    axes[0].plot(max_profile_data1['vp'], max_profile_data1['depth'], 'b-',
                 label=model1_name, linewidth=3, alpha=0.7)
-    axes[0].plot(max_profile_data2['vp'], max_profile_data2['z'], 'r-',
+    axes[0].plot(max_profile_data2['vp'], max_profile_data2['depth'], 'r-',
                 label=model2_name, linewidth=3, alpha=0.7)
 
     # Add initial model if available
     if df_initial is not None:
-        max_initial_mask = ((df_initial['x'] == extremes['max_positive_coords'][0]) &
-                           (df_initial['y'] == extremes['max_positive_coords'][1]))
-        max_initial_data = df_initial[max_initial_mask].sort_values('z')
+        max_initial_mask = (np.isclose(df_initial['lon'], extremes['max_positive_coords'][0], rtol=0, atol=1e-9) &
+                            np.isclose(df_initial['lat'], extremes['max_positive_coords'][1], rtol=0, atol=1e-9))
+        max_initial_data = df_initial[max_initial_mask].sort_values('depth')
         if len(max_initial_data) > 0:
-            axes[0].plot(max_initial_data['vp'], max_initial_data['z'], 'gray',
+            axes[0].plot(max_initial_data['vp'], max_initial_data['depth'], 'gray',
                         label='Initial Model', linewidth=2, alpha=1, linestyle='--')
 
     axes[0].set_xlabel('Vp (km/s)')
     axes[0].set_ylabel('Depth (km)')
-    axes[0].set_title(f'Vp Profile at Max Ratio Change\n({extremes["max_positive_coords"][0]:.1f}, {extremes["max_positive_coords"][1]:.1f}) km\nAvg change: {extremes["max_positive_avg_change"]:.4f}')
+    axes[0].set_title(f'Vp Profile at Max Ratio Change\n{format_lonlat(extremes["max_positive_coords"])}\nAvg change: {extremes["max_positive_avg_change"]:.4f}')
     axes[0].legend(loc='upper right')
     axes[0].grid(True, alpha=0.3)
     axes[0].invert_yaxis()
 
     # max ratio change location - Vs profile
-    axes[1].plot(max_profile_data1['vs'], max_profile_data1['z'], 'b-',
+    axes[1].plot(max_profile_data1['vs'], max_profile_data1['depth'], 'b-',
                 label=model1_name, linewidth=3, alpha=0.7)
-    axes[1].plot(max_profile_data2['vs'], max_profile_data2['z'], 'r-',
+    axes[1].plot(max_profile_data2['vs'], max_profile_data2['depth'], 'r-',
                 label=model2_name, linewidth=3, alpha=0.7)
 
     # Add initial model if available
     if df_initial is not None:
         if len(max_initial_data) > 0:
-            axes[1].plot(max_initial_data['vs'], max_initial_data['z'], 'gray',
+            axes[1].plot(max_initial_data['vs'], max_initial_data['depth'], 'gray',
                         label='Initial Model', linewidth=2, alpha=1, linestyle='--')
 
     axes[1].set_xlabel('Vs (km/s)')
     axes[1].set_ylabel('Depth (km)')
-    axes[1].set_title(f'Vs Profile at Max Ratio Change\n({extremes["max_positive_coords"][0]:.1f}, {extremes["max_positive_coords"][1]:.1f}) km\nAvg change: {extremes["max_positive_avg_change"]:.4f}')
+    axes[1].set_title(f'Vs Profile at Max Ratio Change\n{format_lonlat(extremes["max_positive_coords"])}\nAvg change: {extremes["max_positive_avg_change"]:.4f}')
     axes[1].legend(loc='upper right')
     axes[1].grid(True, alpha=0.3)
     axes[1].invert_yaxis()
 
     # Min ratio change location - Vp profile
-    axes[2].plot(min_profile_data1['vp'], min_profile_data1['z'], 'b-',
+    axes[2].plot(min_profile_data1['vp'], min_profile_data1['depth'], 'b-',
                 label=model1_name, linewidth=3, alpha=0.7)
-    axes[2].plot(min_profile_data2['vp'], min_profile_data2['z'], 'r-',
+    axes[2].plot(min_profile_data2['vp'], min_profile_data2['depth'], 'r-',
                 label=model2_name, linewidth=3, alpha=0.7)
 
     # Add initial model if available
     if df_initial is not None:
-        min_initial_mask = ((df_initial['x'] == extremes['min_ratio_coords'][0]) &
-                           (df_initial['y'] == extremes['min_ratio_coords'][1]))
-        min_initial_data = df_initial[min_initial_mask].sort_values('z')
+        min_initial_mask = (np.isclose(df_initial['lon'], extremes['min_ratio_coords'][0], rtol=0, atol=1e-9) &
+                            np.isclose(df_initial['lat'], extremes['min_ratio_coords'][1], rtol=0, atol=1e-9))
+        min_initial_data = df_initial[min_initial_mask].sort_values('depth')
         if len(min_initial_data) > 0:
-            axes[2].plot(min_initial_data['vp'], min_initial_data['z'], 'gray',
+            axes[2].plot(min_initial_data['vp'], min_initial_data['depth'], 'gray',
                         label='Initial Model', linewidth=2, alpha=1, linestyle='--')
 
     axes[2].set_xlabel('Vp (km/s)')
     axes[2].set_ylabel('Depth (km)')
-    axes[2].set_title(f'Vp Profile at Min Ratio Change\n({extremes["min_ratio_coords"][0]:.1f}, {extremes["min_ratio_coords"][1]:.1f}) km\nAvg change: {extremes["min_ratio_avg_change"]:.4f}')
+    axes[2].set_title(f'Vp Profile at Min Ratio Change\n{format_lonlat(extremes["min_ratio_coords"])}\nAvg change: {extremes["min_ratio_avg_change"]:.4f}')
     axes[2].legend(loc='upper right')
     axes[2].grid(True, alpha=0.3)
     axes[2].invert_yaxis()
 
     # Min ratio change location - Vs profile
-    axes[3].plot(min_profile_data1['vs'], min_profile_data1['z'], 'b-',
+    axes[3].plot(min_profile_data1['vs'], min_profile_data1['depth'], 'b-',
                 label=model1_name, linewidth=3, alpha=0.7)
-    axes[3].plot(min_profile_data2['vs'], min_profile_data2['z'], 'r-',
+    axes[3].plot(min_profile_data2['vs'], min_profile_data2['depth'], 'r-',
                 label=model2_name, linewidth=3, alpha=0.7)
 
     # Add initial model if available
     if df_initial is not None:
         if len(min_initial_data) > 0:
-            axes[3].plot(min_initial_data['vs'], min_initial_data['z'], 'gray',
+            axes[3].plot(min_initial_data['vs'], min_initial_data['depth'], 'gray',
                         label='Initial Model', linewidth=2, alpha=1, linestyle='--')
 
     axes[3].set_xlabel('Vs (km/s)')
     axes[3].set_ylabel('Depth (km)')
-    axes[3].set_title(f'Vs Profile at Min Ratio Change\n({extremes["min_ratio_coords"][0]:.1f}, {extremes["min_ratio_coords"][1]:.1f}) km\nAvg change: {extremes["min_ratio_avg_change"]:.4f}')
+    axes[3].set_title(f'Vs Profile at Min Ratio Change\n{format_lonlat(extremes["min_ratio_coords"])}\nAvg change: {extremes["min_ratio_avg_change"]:.4f}')
     axes[3].legend(loc='upper right')
     axes[3].grid(True, alpha=0.3)
     axes[3].invert_yaxis()
@@ -453,15 +474,15 @@ def create_slice_heatmap_plots(df1: pd.DataFrame, df2: pd.DataFrame,
     model1_name, model2_name, difference_label = get_model_names(config)
     
     # Get data for max and min difference depth slices
-    max_depth_data1 = df1[df1['z'] == extremes['max_diff_depth']]
-    max_depth_data2 = df2[df2['z'] == extremes['max_diff_depth']]
-    min_depth_data1 = df1[df1['z'] == extremes['min_diff_depth']]
-    min_depth_data2 = df2[df2['z'] == extremes['min_diff_depth']]
-    
+    max_depth_data1 = df1[df1['depth'] == extremes['max_diff_depth']]
+    max_depth_data2 = df2[df2['depth'] == extremes['max_diff_depth']]
+    min_depth_data1 = df1[df1['depth'] == extremes['min_diff_depth']]
+    min_depth_data2 = df2[df2['depth'] == extremes['min_diff_depth']]
+
     # Create grids for interpolation
-    x_unique = np.sort(df1['x'].unique())
-    y_unique = np.sort(df1['y'].unique())
-    X, Y = np.meshgrid(x_unique, y_unique)
+    lon_unique = np.sort(df1['lon'].unique())
+    lat_unique = np.sort(df1['lat'].unique())
+    X, Y = np.meshgrid(lon_unique, lat_unique)
     
     basin_data = config.get('_basin_data_cache', {})
     basin_config = config.get('_basin_config_cache', config.get('basin_boundaries', {}))
@@ -497,7 +518,7 @@ def _plot_depth_slice_row(axes: np.ndarray, depth_data1: pd.DataFrame,
         axes: Array of 4 axes
         depth_data1: First model depth slice data
         depth_data2: Second model depth slice data
-        X, Y: Meshgrid coordinates
+        X, Y: Meshgrid of longitude, latitude
         depth: Depth value
         model1_name: First model name
         model2_name: Second model name
@@ -508,15 +529,15 @@ def _plot_depth_slice_row(axes: np.ndarray, depth_data1: pd.DataFrame,
         return
     
     # Interpolate Vp
-    Z1_vp = griddata((depth_data1['x'], depth_data1['y']), 
+    Z1_vp = griddata((depth_data1['lon'], depth_data1['lat']), 
                     depth_data1['vp'], (X, Y), method='linear')
-    Z2_vp = griddata((depth_data2['x'], depth_data2['y']), 
+    Z2_vp = griddata((depth_data2['lon'], depth_data2['lat']), 
                     depth_data2['vp'], (X, Y), method='linear')
     
     # Interpolate Vs
-    Z1_vs = griddata((depth_data1['x'], depth_data1['y']), 
+    Z1_vs = griddata((depth_data1['lon'], depth_data1['lat']), 
                     depth_data1['vs'], (X, Y), method='linear')
-    Z2_vs = griddata((depth_data2['x'], depth_data2['y']), 
+    Z2_vs = griddata((depth_data2['lon'], depth_data2['lat']), 
                     depth_data2['vs'], (X, Y), method='linear')
     
     # Find common velocity ranges
@@ -529,15 +550,15 @@ def _plot_depth_slice_row(axes: np.ndarray, depth_data1: pd.DataFrame,
     # Plot Vp Model 1
     im1 = axes[0].contourf(X, Y, Z1_vp, levels=20, cmap='viridis', vmin=vp_min, vmax=vp_max)
     axes[0].set_title(f'{model1_name} Vp at {depth:.1f} km\n({slice_label} Slice)')
-    axes[0].set_xlabel('X (km)')
-    axes[0].set_ylabel('Y (km)')
+    axes[0].set_xlabel(LON_LABEL)
+    axes[0].set_ylabel(LAT_LABEL)
     plt.colorbar(plt.cm.ScalarMappable(norm=norm_vp, cmap='viridis'), ax=axes[0], label='Vp (km/s)')
     
     # Plot Vp Model 2
     im2 = axes[1].contourf(X, Y, Z2_vp, levels=20, cmap='viridis', vmin=vp_min, vmax=vp_max)
     axes[1].set_title(f'{model2_name} Vp at {depth:.1f} km\n({slice_label} Slice)')
-    axes[1].set_xlabel('X (km)')
-    axes[1].set_ylabel('Y (km)')
+    axes[1].set_xlabel(LON_LABEL)
+    axes[1].set_ylabel(LAT_LABEL)
     plt.colorbar(plt.cm.ScalarMappable(norm=norm_vp, cmap='viridis'), ax=axes[1], label='Vp (km/s)')
     
     # Plot Vp Difference
@@ -547,8 +568,8 @@ def _plot_depth_slice_row(axes: np.ndarray, depth_data1: pd.DataFrame,
         vmax_vp = 0.1
     im3 = axes[2].contourf(X, Y, Z_diff_vp, levels=20, cmap='RdBu_r', vmin=-vmax_vp, vmax=vmax_vp)
     axes[2].set_title(f'Vp Difference at {depth:.1f} km\n{difference_label}')
-    axes[2].set_xlabel('X (km)')
-    axes[2].set_ylabel('Y (km)')
+    axes[2].set_xlabel(LON_LABEL)
+    axes[2].set_ylabel(LAT_LABEL)
     plt.colorbar(im3, ax=axes[2], label='Vp Diff (km/s)')
 
     # Plot Vs Difference
@@ -558,10 +579,13 @@ def _plot_depth_slice_row(axes: np.ndarray, depth_data1: pd.DataFrame,
         vmax_vs = 0.1
     im4 = axes[3].contourf(X, Y, Z_diff_vs, levels=20, cmap='RdBu_r', vmin=-vmax_vs, vmax=vmax_vs)
     axes[3].set_title(f'Vs Difference at {depth:.1f} km\n{difference_label}')
-    axes[3].set_xlabel('X (km)')
-    axes[3].set_ylabel('Y (km)')
+    axes[3].set_xlabel(LON_LABEL)
+    axes[3].set_ylabel(LAT_LABEL)
     plt.colorbar(im4, ax=axes[3], label='Vs Diff (km/s)')
 
+    aspect = map_aspect(Y)
+    for ax in axes:
+        ax.set_aspect(aspect)
     if basin_data:
         for ax in axes:
             plot_basin_boundaries(ax, basin_data, basin_config or {})
@@ -582,12 +606,12 @@ def create_domain_overview_plot(df: pd.DataFrame, extremes: Dict[str, Any],
     """
     fig, axes = plt.subplots(1, 2, figsize=(16, 7))
     
-    x_coords = df['x'].values
-    y_coords = df['y'].values
-    z_coords = df['z'].values
-    
+    lon = df['lon'].values
+    lat = df['lat'].values
+    depth = df['depth'].values
+
     # Map view
-    axes[0].scatter(x_coords, y_coords, c='lightgray', s=2, alpha=0.5, label='All points')
+    axes[0].scatter(lon, lat, c='lightgray', s=2, alpha=0.5, label='All points')
     axes[0].scatter(extremes['max_profile_coords'][0], extremes['max_profile_coords'][1],
                    c='red', s=150, marker='*', label='Max difference profile', 
                    edgecolor='black', linewidth=2)
@@ -595,8 +619,9 @@ def create_domain_overview_plot(df: pd.DataFrame, extremes: Dict[str, Any],
                    c='blue', s=150, marker='*', label='Min difference profile', 
                    edgecolor='black', linewidth=2)
     
-    axes[0].set_xlabel('X (km)')
-    axes[0].set_ylabel('Y (km)')
+    axes[0].set_xlabel(LON_LABEL)
+    axes[0].set_ylabel(LAT_LABEL)
+    axes[0].set_aspect(map_aspect(lat))
     axes[0].set_title('Domain Overview - Map View')
     axes[0].legend(loc='upper right')
     axes[0].grid(True, alpha=0.3)
@@ -606,19 +631,19 @@ def create_domain_overview_plot(df: pd.DataFrame, extremes: Dict[str, Any],
     if basin_data:
         plot_basin_boundaries(axes[0], basin_data, basin_config)
     
-    # Cross section view (X-Z)
-    axes[1].scatter(x_coords, z_coords, c='lightgray', s=2, alpha=0.5)
+    # Cross section view (longitude-depth)
+    axes[1].scatter(lon, depth, c='lightgray', s=2, alpha=0.5)
     
     # Show all points from the max and min profiles as vertical lines
     max_profile_data = extremes['max_profile_data']
     min_profile_data = extremes['min_profile_data']
     
-    axes[1].scatter(max_profile_data['x'], max_profile_data['z'],
-                   c='red', s=30, marker='|', 
-                   label=f'Max diff profile ({extremes["max_profile_coords"][0]:.1f}, {extremes["max_profile_coords"][1]:.1f})')
-    axes[1].scatter(min_profile_data['x'], min_profile_data['z'],
-                   c='blue', s=30, marker='|', 
-                   label=f'Min diff profile ({extremes["min_profile_coords"][0]:.1f}, {extremes["min_profile_coords"][1]:.1f})')
+    axes[1].scatter(max_profile_data['lon'], max_profile_data['depth'],
+                   c='red', s=30, marker='|',
+                   label=f'Max diff profile {format_lonlat(extremes["max_profile_coords"])}')
+    axes[1].scatter(min_profile_data['lon'], min_profile_data['depth'],
+                   c='blue', s=30, marker='|',
+                   label=f'Min diff profile {format_lonlat(extremes["min_profile_coords"])}')
     
     # Mark slice planes
     axes[1].axhline(extremes['max_diff_depth'], color='red', linestyle='--', 
@@ -626,8 +651,8 @@ def create_domain_overview_plot(df: pd.DataFrame, extremes: Dict[str, Any],
     axes[1].axhline(extremes['min_diff_depth'], color='blue', linestyle='--', 
                    alpha=0.7, linewidth=2, label=f'Min diff slice ({extremes["min_diff_depth"]:.1f} km)')
     
-    axes[1].set_xlabel('X (km)')
-    axes[1].set_ylabel('Z (km)')
+    axes[1].set_xlabel(LON_LABEL)
+    axes[1].set_ylabel(DEPTH_LABEL)
     axes[1].set_title('Domain Overview - Cross Section')
     axes[1].legend(loc='upper right')
     axes[1].grid(True, alpha=0.3)
@@ -674,7 +699,8 @@ def _create_geometric_ratio_projections(df1: pd.DataFrame, df2: pd.DataFrame,
                                        basin_data: Optional[Dict] = None,
                                        basin_config: Optional[Dict] = None) -> None:
     """
-    Create spatial distribution plots of geometric mean ratios with XY, XZ, YZ projections.
+    Create spatial distribution plots of geometric mean ratios: map, longitude-depth and
+    latitude-depth projections.
     
     Args:
         df1: First velocity model dataframe
@@ -689,10 +715,10 @@ def _create_geometric_ratio_projections(df1: pd.DataFrame, df2: pd.DataFrame,
     grid_resolution = config['velocity_analysis'].get('grid_resolution', 100)
     interpolation_method = config['velocity_analysis'].get('interpolation_method', 'cubic')
     
-    x_coords = df1['x'].values
-    y_coords = df1['y'].values
-    z_coords = df1['z'].values
-    
+    lon = df1['lon'].values
+    lat = df1['lat'].values
+    depth = df1['depth'].values
+
     # Calculate ratios
     vp_ratios = df2['vp'].values / df1['vp'].values
     vs_ratios = df2['vs'].values / df1['vs'].values
@@ -707,13 +733,13 @@ def _create_geometric_ratio_projections(df1: pd.DataFrame, df2: pd.DataFrame,
     
     # Vp ratio projections
     _create_ratio_spatial_projection(df_temp, 'vp_ratio', 'Vp', axes[0:4],
-                                    x_coords, y_coords, z_coords,
+                                    lon, lat, depth,
                                     grid_resolution, interpolation_method,
                                     basin_data=basin_data, basin_config=basin_config)
 
     # Vs ratio projections
     _create_ratio_spatial_projection(df_temp, 'vs_ratio', 'Vs', axes[4:8],
-                                    x_coords, y_coords, z_coords,
+                                    lon, lat, depth,
                                     grid_resolution, interpolation_method,
                                     basin_data=basin_data, basin_config=basin_config)
     
@@ -724,8 +750,8 @@ def _create_geometric_ratio_projections(df1: pd.DataFrame, df2: pd.DataFrame,
 
 def _create_ratio_spatial_projection(df_temp: pd.DataFrame, ratio_col: str,
                                     velocity_type: str, axes: list,
-                                    x_coords: np.ndarray, y_coords: np.ndarray,
-                                    z_coords: np.ndarray,
+                                    lon: np.ndarray, lat: np.ndarray,
+                                    depth: np.ndarray,
                                     grid_resolution: int, interpolation_method: str,
                                     basin_data: Optional[Dict] = None,
                                     basin_config: Optional[Dict] = None) -> None:
@@ -737,81 +763,81 @@ def _create_ratio_spatial_projection(df_temp: pd.DataFrame, ratio_col: str,
         ratio_col: Ratio column name
         velocity_type: Type of velocity (Vp or Vs)
         axes: List of 4 axes to plot on
-        x_coords, y_coords, z_coords: Coordinate arrays
+        lon, lat, depth: Coordinate arrays (degrees, degrees, km)
         grid_resolution: Grid resolution for interpolation
         interpolation_method: Interpolation method
     """
-    # XY plane: Geometric mean along Z (depth)
-    xy_geomean = df_temp.groupby(['x', 'y']).agg({
+    # Map: geometric mean along depth (each node counts once)
+    map_geomean = df_temp.groupby(['lon', 'lat']).agg({
         ratio_col: lambda x: np.exp(np.mean(np.log(x)))
     }).reset_index()
-    
-    # XZ plane: Geometric mean along Y
-    xz_geomean = df_temp.groupby(['x', 'z']).agg({
+
+    # Longitude-depth: geometric mean along latitude
+    lon_depth_geomean = df_temp.groupby(['lon', 'depth']).agg({
         ratio_col: lambda x: np.exp(np.mean(np.log(x)))
     }).reset_index()
-    
-    # YZ plane: Geometric mean along X
-    yz_geomean = df_temp.groupby(['y', 'z']).agg({
+
+    # Latitude-depth: geometric mean along longitude
+    lat_depth_geomean = df_temp.groupby(['lat', 'depth']).agg({
         ratio_col: lambda x: np.exp(np.mean(np.log(x)))
     }).reset_index()
-    
+
     # Find min/max for consistent color scaling (centered around 1.0)
-    all_ratios = np.concatenate([xy_geomean[ratio_col].values, 
-                                 xz_geomean[ratio_col].values, 
-                                 yz_geomean[ratio_col].values])
+    all_ratios = np.concatenate([map_geomean[ratio_col].values,
+                                 lon_depth_geomean[ratio_col].values,
+                                 lat_depth_geomean[ratio_col].values])
     ratio_range = max(abs(all_ratios.max() - 1), abs(all_ratios.min() - 1))
     vmin = 1 - ratio_range
     vmax = 1 + ratio_range
     
     # Create grids
-    xi = np.linspace(x_coords.min(), x_coords.max(), grid_resolution)
-    yi = np.linspace(y_coords.min(), y_coords.max(), grid_resolution)
-    zi = np.linspace(z_coords.min(), z_coords.max(), grid_resolution)
-    
-    # XY projection
-    Xi, Yi = np.meshgrid(xi, yi)
-    geomean_xy_interp = griddata((xy_geomean['x'], xy_geomean['y']), 
-                                 xy_geomean[ratio_col], (Xi, Yi), method=interpolation_method)
-    
-    im1 = axes[0].imshow(geomean_xy_interp, extent=[xi.min(), xi.max(), yi.min(), yi.max()],
-                        cmap='RdBu_r', vmin=vmin, vmax=vmax, origin='lower', aspect='auto')
-    axes[0].set_xlabel('X (km)')
-    axes[0].set_ylabel('Y (km)')
-    axes[0].set_title(f'{velocity_type} Geometric Mean Ratio - XY Projection')
+    loni = np.linspace(lon.min(), lon.max(), grid_resolution)
+    lati = np.linspace(lat.min(), lat.max(), grid_resolution)
+    depthi = np.linspace(depth.min(), depth.max(), grid_resolution)
+
+    # Map projection
+    LONi, LATi = np.meshgrid(loni, lati)
+    geomean_map_interp = griddata((map_geomean['lon'], map_geomean['lat']),
+                                  map_geomean[ratio_col], (LONi, LATi), method=interpolation_method)
+
+    im1 = axes[0].imshow(geomean_map_interp, extent=[loni.min(), loni.max(), lati.min(), lati.max()],
+                         cmap='RdBu_r', vmin=vmin, vmax=vmax, origin='lower', aspect=map_aspect(lat))
+    axes[0].set_xlabel(LON_LABEL)
+    axes[0].set_ylabel(LAT_LABEL)
+    axes[0].set_title(f'{velocity_type} Geometric Mean Ratio - Map Projection')
     cbar1 = plt.colorbar(im1, ax=axes[0], label=f'{velocity_type} Ratio')
     cbar1.ax.axhline(y=1.0, color='black', linestyle='-', linewidth=1)
     if basin_data:
         plot_basin_boundaries(axes[0], basin_data, basin_config or {})
     
-    # XZ projection
-    Xi_xz, Zi = np.meshgrid(xi, zi)
-    geomean_xz_interp = griddata((xz_geomean['x'], xz_geomean['z']), 
-                                 xz_geomean[ratio_col], (Xi_xz, Zi), method=interpolation_method)
-    
-    im2 = axes[1].imshow(geomean_xz_interp, extent=[xi.min(), xi.max(), zi.max(), zi.min()], 
-                        cmap='RdBu_r', vmin=vmin, vmax=vmax, origin='upper', aspect='auto')
-    axes[1].set_xlabel('X (km)')
-    axes[1].set_ylabel('Z (km)')
-    axes[1].set_title(f'{velocity_type} Geometric Mean Ratio - XZ Projection')
+    # Longitude-depth projection
+    LONi_d, DEPTHi = np.meshgrid(loni, depthi)
+    geomean_lon_depth_interp = griddata((lon_depth_geomean['lon'], lon_depth_geomean['depth']),
+                                        lon_depth_geomean[ratio_col], (LONi_d, DEPTHi), method=interpolation_method)
+
+    im2 = axes[1].imshow(geomean_lon_depth_interp, extent=[loni.min(), loni.max(), depthi.max(), depthi.min()],
+                         cmap='RdBu_r', vmin=vmin, vmax=vmax, origin='upper', aspect='auto')
+    axes[1].set_xlabel(LON_LABEL)
+    axes[1].set_ylabel(DEPTH_LABEL)
+    axes[1].set_title(f'{velocity_type} Geometric Mean Ratio - Longitude-Depth Projection')
     cbar2 = plt.colorbar(im2, ax=axes[1], label=f'{velocity_type} Ratio')
     cbar2.ax.axhline(y=1.0, color='black', linestyle='-', linewidth=1)
     
-    # YZ projection
-    Yi_yz, Zi_yz = np.meshgrid(yi, zi)
-    geomean_yz_interp = griddata((yz_geomean['y'], yz_geomean['z']), 
-                                 yz_geomean[ratio_col], (Yi_yz, Zi_yz), method=interpolation_method)
-    
-    im3 = axes[2].imshow(geomean_yz_interp, extent=[yi.min(), yi.max(), zi.max(), zi.min()], 
-                        cmap='RdBu_r', vmin=vmin, vmax=vmax, origin='upper', aspect='auto')
-    axes[2].set_xlabel('Y (km)')
-    axes[2].set_ylabel('Z (km)')
-    axes[2].set_title(f'{velocity_type} Geometric Mean Ratio - YZ Projection')
+    # Latitude-depth projection
+    LATi_d, DEPTHi_lat = np.meshgrid(lati, depthi)
+    geomean_lat_depth_interp = griddata((lat_depth_geomean['lat'], lat_depth_geomean['depth']),
+                                        lat_depth_geomean[ratio_col], (LATi_d, DEPTHi_lat), method=interpolation_method)
+
+    im3 = axes[2].imshow(geomean_lat_depth_interp, extent=[lati.min(), lati.max(), depthi.max(), depthi.min()],
+                         cmap='RdBu_r', vmin=vmin, vmax=vmax, origin='upper', aspect='auto')
+    axes[2].set_xlabel(LAT_LABEL)
+    axes[2].set_ylabel(DEPTH_LABEL)
+    axes[2].set_title(f'{velocity_type} Geometric Mean Ratio - Latitude-Depth Projection')
     cbar3 = plt.colorbar(im3, ax=axes[2], label=f'{velocity_type} Ratio')
     cbar3.ax.axhline(y=1.0, color='black', linestyle='-', linewidth=1)
     
     # Depth profile
-    axes[3].scatter(df_temp[ratio_col], z_coords, alpha=0.6, s=2)
+    axes[3].scatter(df_temp[ratio_col], depth, alpha=0.6, s=2)
     axes[3].axvline(1.0, color='red', linestyle='--', linewidth=2)
     axes[3].set_xlabel(f'{velocity_type} Ratio')
     axes[3].set_ylabel('Depth (km)')
@@ -842,15 +868,15 @@ def _create_ratio_heatmaps(df1: pd.DataFrame, df2: pd.DataFrame,
     ratio_info = find_max_min_ratio_change_depths(df1, df2)
     
     # Get data for maximum and minimum average ratio change depths
-    max_ratio_depth_data1 = df1[df1['z'] == ratio_info['max_change_depth']]
-    max_ratio_depth_data2 = df2[df2['z'] == ratio_info['max_change_depth']]
-    min_ratio_depth_data1 = df1[df1['z'] == ratio_info['min_change_depth']]
-    min_ratio_depth_data2 = df2[df2['z'] == ratio_info['min_change_depth']]
-    
+    max_ratio_depth_data1 = df1[df1['depth'] == ratio_info['max_change_depth']]
+    max_ratio_depth_data2 = df2[df2['depth'] == ratio_info['max_change_depth']]
+    min_ratio_depth_data1 = df1[df1['depth'] == ratio_info['min_change_depth']]
+    min_ratio_depth_data2 = df2[df2['depth'] == ratio_info['min_change_depth']]
+
     # Create grids
-    x_unique = np.sort(df1['x'].unique())
-    y_unique = np.sort(df1['y'].unique())
-    X, Y = np.meshgrid(x_unique, y_unique)
+    lon_unique = np.sort(df1['lon'].unique())
+    lat_unique = np.sort(df1['lat'].unique())
+    X, Y = np.meshgrid(lon_unique, lat_unique)
     
     # Create Vp ratio analysis figure
     _create_single_velocity_ratio_figure(max_ratio_depth_data1, max_ratio_depth_data2,
@@ -939,9 +965,9 @@ def _plot_ratio_row(axes: np.ndarray, depth_data1: pd.DataFrame, depth_data2: pd
         return
 
     # Interpolate velocities
-    Z1 = griddata((depth_data1['x'], depth_data1['y']),
+    Z1 = griddata((depth_data1['lon'], depth_data1['lat']),
                  depth_data1[vel_col], (X, Y), method='linear')
-    Z2 = griddata((depth_data2['x'], depth_data2['y']),
+    Z2 = griddata((depth_data2['lon'], depth_data2['lat']),
                  depth_data2[vel_col], (X, Y), method='linear')
 
     # Find common velocity ranges
@@ -954,15 +980,15 @@ def _plot_ratio_row(axes: np.ndarray, depth_data1: pd.DataFrame, depth_data2: pd
     # Model 1
     im1 = axes[0].contourf(X, Y, Z1, levels=20, cmap=vel_cmap, vmin=v_min, vmax=v_max)
     axes[0].set_title(f'{model1_name} {vel_label}\nat {depth:.1f} km ({slice_label})')
-    axes[0].set_xlabel('X (km)')
-    axes[0].set_ylabel('Y (km)')
+    axes[0].set_xlabel(LON_LABEL)
+    axes[0].set_ylabel(LAT_LABEL)
     plt.colorbar(plt.cm.ScalarMappable(norm=norm_v, cmap=vel_cmap), ax=axes[0], label=f'{vel_label} (km/s)')
 
     # Model 2
     im2 = axes[1].contourf(X, Y, Z2, levels=20, cmap=vel_cmap, vmin=v_min, vmax=v_max)
     axes[1].set_title(f'{model2_name} {vel_label}\nat {depth:.1f} km ({slice_label})')
-    axes[1].set_xlabel('X (km)')
-    axes[1].set_ylabel('Y (km)')
+    axes[1].set_xlabel(LON_LABEL)
+    axes[1].set_ylabel(LAT_LABEL)
     plt.colorbar(plt.cm.ScalarMappable(norm=norm_v, cmap=vel_cmap), ax=axes[1], label=f'{vel_label} (km/s)')
 
     # Difference
@@ -972,8 +998,8 @@ def _plot_ratio_row(axes: np.ndarray, depth_data1: pd.DataFrame, depth_data2: pd
         vmax_diff = 0.1
     im3 = axes[2].contourf(X, Y, Z_diff, levels=20, cmap='RdBu_r', vmin=-vmax_diff, vmax=vmax_diff)
     axes[2].set_title(f'{vel_label} Difference\nat {depth:.1f} km\n{difference_label}')
-    axes[2].set_xlabel('X (km)')
-    axes[2].set_ylabel('Y (km)')
+    axes[2].set_xlabel(LON_LABEL)
+    axes[2].set_ylabel(LAT_LABEL)
     plt.colorbar(im3, ax=axes[2], label=f'{vel_label} Diff (km/s)')
 
     # Ratio - centered at 1.0
@@ -987,11 +1013,14 @@ def _plot_ratio_row(axes: np.ndarray, depth_data1: pd.DataFrame, depth_data2: pd
 
     im4 = axes[3].contourf(X, Y, Z_ratio, levels=20, cmap='RdBu_r', vmin=vmin_ratio, vmax=vmax_ratio)
     axes[3].set_title(f'{vel_label} Ratio ({model2_name}/{model1_name})\nat {depth:.1f} km\n{avg_change_text}')
-    axes[3].set_xlabel('X (km)')
-    axes[3].set_ylabel('Y (km)')
+    axes[3].set_xlabel(LON_LABEL)
+    axes[3].set_ylabel(LAT_LABEL)
     plt.colorbar(im4, ax=axes[3], label=f'{vel_label} Ratio')
     axes[3].contour(X, Y, Z_ratio, levels=[1.0], colors='black', linewidths=2, linestyles='--')
 
+    aspect = map_aspect(Y)
+    for ax in axes:
+        ax.set_aspect(aspect)
     if basin_data:
         for ax in axes:
             plot_basin_boundaries(ax, basin_data, basin_config or {})
@@ -1001,8 +1030,10 @@ def create_plane_specific_ratio_plots(df1: pd.DataFrame, df2: pd.DataFrame,
                                       plots_dir: Path, output_format: str,
                                       config: Dict[str, Any]) -> None:
     """
-    Create plane-specific ratio plots for user-specified XY, XZ, or YZ planes.
-    Similar to depth_slice_heatmaps but uses ratios instead of differences.
+    Create ratio plots on user-specified planes. ``plane_type`` names the fixed coordinate:
+    'depth' (map slice at a depth, km), 'lat' (longitude-depth section at a latitude, degrees)
+    or 'lon' (latitude-depth section at a longitude, degrees). Each requested value is moved to
+    the nearest grid node. Similar to depth_slice_heatmaps but uses ratios instead of differences.
 
     Args:
         df1: First velocity model dataframe
@@ -1020,11 +1051,6 @@ def create_plane_specific_ratio_plots(df1: pd.DataFrame, df2: pd.DataFrame,
     basin_data = config.get('_basin_data_cache', {})
     basin_config = config.get('_basin_config_cache', config.get('basin_boundaries', {}))
 
-    # Get unique coordinates for validation
-    x_unique = np.sort(df1['x'].unique())
-    y_unique = np.sort(df1['y'].unique())
-    z_unique = np.sort(df1['z'].unique())
-
     for plane_spec in planes:
         plane_type = plane_spec.get('plane_type')
         coordinates = plane_spec.get('coordinates')
@@ -1033,6 +1059,11 @@ def create_plane_specific_ratio_plots(df1: pd.DataFrame, df2: pd.DataFrame,
         # Skip if coordinates is null, empty, or not specified
         if not coordinates:
             logger.debug(f"Skipping {plane_type} plane (no coordinates specified)")
+            continue
+
+        if plane_type not in PLANE_TYPES:
+            logger.warning(f"Unknown plane type '{plane_type}' (valid: {', '.join(PLANE_TYPES)}, the "
+                           f"fixed coordinate of the plane); skipping")
             continue
 
         # Ensure coordinates is a list
@@ -1044,170 +1075,90 @@ def create_plane_specific_ratio_plots(df1: pd.DataFrame, df2: pd.DataFrame,
         for coord in coordinates:
             if coord is None:
                 continue
-
-            logger.info(f"  - {plane_type} plane at coordinate {coord} km")
-
-            if plane_type == 'xy':
-                # Horizontal slice at specified Z depth
-                _create_xy_plane_ratio_plot(df1, df2, coord, z_unique,
-                                           model1_name, model2_name, label,
-                                           plots_dir, output_format,
-                                           basin_data=basin_data, basin_config=basin_config)
-            elif plane_type == 'xz':
-                # Vertical slice at specified Y coordinate
-                _create_xz_plane_ratio_plot(df1, df2, coord, y_unique,
-                                           model1_name, model2_name, label,
-                                           plots_dir, output_format)
-            elif plane_type == 'yz':
-                # Vertical slice at specified X coordinate
-                _create_yz_plane_ratio_plot(df1, df2, coord, x_unique,
-                                           model1_name, model2_name, label,
-                                           plots_dir, output_format)
-            else:
-                logger.warning(f"Unknown plane type: {plane_type}")
+            logger.info(f"  - {plane_type} plane at {coord} {'km' if plane_type == 'depth' else 'deg'}")
+            _create_plane_ratio_plot(df1, df2, plane_type, float(coord),
+                                     model1_name, model2_name, label, plots_dir, output_format,
+                                     basin_data=basin_data if plane_type == 'depth' else None,
+                                     basin_config=basin_config)
 
 
-def _create_xy_plane_ratio_plot(df1: pd.DataFrame, df2: pd.DataFrame,
-                                z_coord: float, z_unique: np.ndarray,
-                                model1_name: str, model2_name: str, label: str,
-                                plots_dir: Path, output_format: str,
-                                basin_data: Optional[Dict] = None,
-                                basin_config: Optional[Dict] = None) -> None:
-    """Create XY plane (horizontal slice) ratio plot at specified Z coordinate."""
-    # Find nearest Z coordinate
-    nearest_z = z_unique[np.argmin(np.abs(z_unique - z_coord))]
+def _file_tag(value: str) -> str:
+    """A coordinate in a file name: the decimal point is written as 'p' (31.6000 -> 31p6000)
+    so that it is not taken for the file extension."""
+    return value.replace('.', 'p')
 
-    if abs(nearest_z - z_coord) > 0.1:
-        logger.warning(f"Requested Z={z_coord} km, using nearest available Z={nearest_z} km")
 
-    # Get data at this depth
-    data1 = df1[df1['z'] == nearest_z]
-    data2 = df2[df2['z'] == nearest_z]
+def _nearest_node(values: np.ndarray, requested: float, name: str, unit: str) -> float:
+    """Grid node nearest to ``requested``; a warning is logged when it is not a node."""
+    nodes = np.sort(np.unique(values))
+    nearest = float(nodes[np.argmin(np.abs(nodes - requested))])
+    if not np.isclose(nearest, requested, rtol=0, atol=1e-6):
+        logger.warning(f"Requested {name}={requested} {unit}, using the nearest grid node {name}={nearest} {unit}")
+    return nearest
 
+
+def _create_plane_ratio_plot(df1: pd.DataFrame, df2: pd.DataFrame, plane_type: str, coord: float,
+                             model1_name: str, model2_name: str, label: str,
+                             plots_dir: Path, output_format: str,
+                             basin_data: Optional[Dict] = None,
+                             basin_config: Optional[Dict] = None) -> None:
+    """Ratio plot on the plane where ``plane_type`` (depth, lat or lon) equals ``coord``."""
+    unit = 'km' if plane_type == 'depth' else 'deg'
+    nearest = _nearest_node(df1[plane_type].values, coord, plane_type, unit)
+
+    data1 = df1[df1[plane_type] == nearest]
+    data2 = df2[df2[plane_type] == nearest]
     if len(data1) == 0 or len(data2) == 0:
-        logger.warning(f"No data found at Z={nearest_z} km")
+        logger.warning(f"No data found at {plane_type}={nearest} {unit}")
         return
 
-    # Create meshgrid
-    x_unique = np.sort(data1['x'].unique())
-    y_unique = np.sort(data1['y'].unique())
-    X, Y = np.meshgrid(x_unique, y_unique)
+    # Horizontal and vertical axes of the plane
+    if plane_type == 'depth':
+        coord1, coord2, xlabel, ylabel, invert_y = 'lon', 'lat', LON_LABEL, LAT_LABEL, False
+        title = f'Map Slice at Depth {nearest:g} km'
+        stem = f'depth_plane_ratio_{_file_tag(f"{nearest:g}")}km'
+    elif plane_type == 'lat':
+        coord1, coord2, xlabel, ylabel, invert_y = 'lon', 'depth', LON_LABEL, DEPTH_LABEL, True
+        title = f'Longitude-Depth Section at Latitude {nearest:.4f}°'
+        stem = f'lat_plane_ratio_{_file_tag(f"{nearest:.4f}")}deg'
+    else:
+        coord1, coord2, xlabel, ylabel, invert_y = 'lat', 'depth', LAT_LABEL, DEPTH_LABEL, True
+        title = f'Latitude-Depth Section at Longitude {nearest:.4f}°'
+        stem = f'lon_plane_ratio_{_file_tag(f"{nearest:.4f}")}deg'
+
+    X, Y = np.meshgrid(np.sort(data1[coord1].unique()), np.sort(data1[coord2].unique()))
 
     # Create 2x4 figure
     fig, axes = plt.subplots(2, 4, figsize=(24, 12))
 
     # TOP ROW: Vp
     _plot_plane_full_comparison_row(axes[0, :], data1, data2, X, Y, 'vp', 'Vp', 'viridis',
-                                    model1_name, model2_name, nearest_z, label,
-                                    'X (km)', 'Y (km)')
+                                    model1_name, model2_name, nearest, label,
+                                    xlabel, ylabel, coord1=coord1, coord2=coord2, invert_y=invert_y)
 
     # BOTTOM ROW: Vs
     _plot_plane_full_comparison_row(axes[1, :], data1, data2, X, Y, 'vs', 'Vs', 'plasma',
-                                    model1_name, model2_name, nearest_z, label,
-                                    'X (km)', 'Y (km)')
+                                    model1_name, model2_name, nearest, label,
+                                    xlabel, ylabel, coord1=coord1, coord2=coord2, invert_y=invert_y)
 
-    if basin_data:
+    if plane_type == 'depth':
+        aspect = map_aspect(Y)
         for ax in axes.flatten():
-            plot_basin_boundaries(ax, basin_data, basin_config or {})
+            ax.set_aspect(aspect)
+        if basin_data:
+            for ax in axes.flatten():
+                plot_basin_boundaries(ax, basin_data, basin_config or {})
 
-    plt.suptitle(f'XY Plane Analysis at Z={int(nearest_z)} km: {label}', fontsize=20)
+    plt.suptitle(f'{title}: {label}', fontsize=20)
     plt.subplots_adjust(left=0.05, right=0.92, top=0.85, bottom=0.08, wspace=0.3, hspace=0.35)
-    save_figure(fig, plots_dir / f'xy_plane_ratio_z{int(nearest_z)}_km', output_format)
-
-
-def _create_xz_plane_ratio_plot(df1: pd.DataFrame, df2: pd.DataFrame,
-                                y_coord: float, y_unique: np.ndarray,
-                                model1_name: str, model2_name: str, label: str,
-                                plots_dir: Path, output_format: str) -> None:
-    """Create XZ plane (vertical slice) ratio plot at specified Y coordinate."""
-    # Find nearest Y coordinate
-    nearest_y = y_unique[np.argmin(np.abs(y_unique - y_coord))]
-
-    if abs(nearest_y - y_coord) > 0.1:
-        logger.warning(f"Requested Y={y_coord} km, using nearest available Y={nearest_y} km")
-
-    # Get data at this Y
-    data1 = df1[df1['y'] == nearest_y]
-    data2 = df2[df2['y'] == nearest_y]
-
-    if len(data1) == 0 or len(data2) == 0:
-        logger.warning(f"No data found at Y={nearest_y} km")
-        return
-
-    # Create meshgrid
-    x_unique = np.sort(data1['x'].unique())
-    z_unique = np.sort(data1['z'].unique())
-    X, Z = np.meshgrid(x_unique, z_unique)
-
-    # Create 2x4 figure
-    fig, axes = plt.subplots(2, 4, figsize=(24, 12))
-
-    # TOP ROW: Vp
-    _plot_plane_full_comparison_row(axes[0, :], data1, data2, X, Z, 'vp', 'Vp', 'viridis',
-                                    model1_name, model2_name, nearest_y, label,
-                                    'X (km)', 'Z (km)', coord1='x',
-                                    coord2='z', invert_y=True)
-
-    # BOTTOM ROW: Vs
-    _plot_plane_full_comparison_row(axes[1, :], data1, data2, X, Z, 'vs', 'Vs', 'plasma',
-                                    model1_name, model2_name, nearest_y, label,
-                                    'X (km)', 'Z (km)', coord1='x',
-                                    coord2='z', invert_y=True)
-
-    plt.suptitle(f'XZ Plane Analysis at Y={int(nearest_y)} km: {label}', fontsize=20)
-    plt.subplots_adjust(left=0.05, right=0.92, top=0.85, bottom=0.08, wspace=0.3, hspace=0.35)
-    save_figure(fig, plots_dir / f'xz_plane_ratio_y{int(nearest_y)}_km', output_format)
-
-
-def _create_yz_plane_ratio_plot(df1: pd.DataFrame, df2: pd.DataFrame,
-                                x_coord: float, x_unique: np.ndarray,
-                                model1_name: str, model2_name: str, label: str,
-                                plots_dir: Path, output_format: str) -> None:
-    """Create YZ plane (vertical slice) ratio plot at specified X coordinate."""
-    # Find nearest X coordinate
-    nearest_x = x_unique[np.argmin(np.abs(x_unique - x_coord))]
-
-    if abs(nearest_x - x_coord) > 0.1:
-        logger.warning(f"Requested X={x_coord} km, using nearest available X={nearest_x} km")
-
-    # Get data at this X
-    data1 = df1[df1['x'] == nearest_x]
-    data2 = df2[df2['x'] == nearest_x]
-
-    if len(data1) == 0 or len(data2) == 0:
-        logger.warning(f"No data found at X={nearest_x} km")
-        return
-
-    # Create meshgrid
-    y_unique = np.sort(data1['y'].unique())
-    z_unique = np.sort(data1['z'].unique())
-    Y, Z = np.meshgrid(y_unique, z_unique)
-
-    # Create 2x4 figure
-    fig, axes = plt.subplots(2, 4, figsize=(24, 12))
-
-    # TOP ROW: Vp
-    _plot_plane_full_comparison_row(axes[0, :], data1, data2, Y, Z, 'vp', 'Vp', 'viridis',
-                                    model1_name, model2_name, nearest_x, label,
-                                    'Y (km)', 'Z (km)', coord1='y',
-                                    coord2='z', invert_y=True)
-
-    # BOTTOM ROW: Vs
-    _plot_plane_full_comparison_row(axes[1, :], data1, data2, Y, Z, 'vs', 'Vs', 'plasma',
-                                    model1_name, model2_name, nearest_x, label,
-                                    'Y (km)', 'Z (km)', coord1='y',
-                                    coord2='z', invert_y=True)
-
-    plt.suptitle(f'YZ Plane Analysis at X={int(nearest_x)} km: {label}', fontsize=20)
-    plt.subplots_adjust(left=0.05, right=0.92, top=0.85, bottom=0.08, wspace=0.3, hspace=0.35)
-    save_figure(fig, plots_dir / f'yz_plane_ratio_x{int(nearest_x)}_km', output_format)
+    save_figure(fig, plots_dir / stem, output_format)
 
 
 def _plot_plane_full_comparison_row(axes: np.ndarray, data1: pd.DataFrame, data2: pd.DataFrame,
                                    X: np.ndarray, Y: np.ndarray, vel_col: str, vel_label: str,
                                    vel_cmap: str, model1_name: str, model2_name: str,
                                    coord_value: float, label: str, xlabel: str, ylabel: str,
-                                   coord1: str = 'x', coord2: str = 'y',
+                                   coord1: str = 'lon', coord2: str = 'lat',
                                    invert_y: bool = False) -> None:
     """
     Plot a full comparison row (Model 1, Model 2, Difference, Ratio) for a single velocity type.

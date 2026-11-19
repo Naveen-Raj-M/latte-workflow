@@ -13,7 +13,7 @@ analysis:
   phase_type: "both"                      # both | p | s
 
 basin_boundaries:
-  data_dir: "/path/to/preprocessed/coordinate_transform/basin_boundaries"
+  data_dir: "/path/to/basin_boundaries"   # WGS84 vertex files (POINT_X = lon, POINT_Y = lat)
 
 travel_time_analysis:
   enabled: true

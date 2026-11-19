@@ -55,10 +55,10 @@ analysis:
       negative_residual: "#4444ff"
       zero_line: "#000000"
 
-# Basin boundary overlays for XY plane plots across all analysis modules
-# Provide the Cartesian-transformed boundary files produced by the preprocess module
+# Basin boundary overlays for map views (longitude, latitude) across all analysis modules
+# WGS84 vertex files: whitespace-delimited, POINT_X = longitude, POINT_Y = latitude (degrees)
 basin_boundaries:
-  data_dir: "/path/to/preprocessed/coordinate_transform/basin_boundaries"
+  data_dir: "/path/to/basin_boundaries"
   basins:
     - file: "CentralBasin_Verticies_WGS84.csv"
       label: "Central Basin"
@@ -73,8 +73,8 @@ basin_boundaries:
   show_labels: true
   label_fontsize: 12
   label_fontweight: "bold"             # normal | bold
-  label_offset_x: 0.0                 # km offset from basin centroid
-  label_offset_y: 0.0                 # km offset from basin centroid
+  label_offset_lon: 0.0               # degrees of longitude from the mean of the vertices
+  label_offset_lat: 0.0               # degrees of latitude from the mean of the vertices
 
 # Travel time residual analysis
 travel_time_analysis:
@@ -139,7 +139,7 @@ velocity_analysis:
   enable_slice_analysis: true
   enable_plane_ratio_plots: true
   enable_domain_overview: true
-  plot_basin_boundaries: false            # true = overlay basin boundaries on all XY plane plots
+  plot_basin_boundaries: false            # true = overlay basin boundaries on all map views
 
   interpolation_method: "cubic"           # linear | cubic | nearest
   grid_resolution: 100
@@ -148,18 +148,19 @@ velocity_analysis:
   difference_colormap: "RdBu_r"
   ratio_colormap: "RdBu_r"
 
-  # Per-plane ratio slice configuration
+  # Per-plane ratio slice configuration. plane_type is the fixed coordinate of the plane; each
+  # coordinate is moved to the nearest grid node
   plane_ratio_plots:
     planes:
-      - plane_type: "xy"                  # xy | xz | yz
-        coordinates: []
-        label: "Horizontal Plane (xy)"
-      - plane_type: "xz"
-        coordinates: []
-        label: "Vertical Plane (xz)"
-      - plane_type: "yz"
-        coordinates: []
-        label: "Vertical Plane (yz)"
+      - plane_type: "depth"               # depth | lat | lon
+        coordinates: []                   # km below mean sea level: map slices
+        label: "Map Slice"
+      - plane_type: "lat"
+        coordinates: []                   # degrees: longitude-depth sections
+        label: "Longitude-Depth Section"
+      - plane_type: "lon"
+        coordinates: []                   # degrees: latitude-depth sections
+        label: "Latitude-Depth Section"
 
 # Velocity gradient and search direction analysis
 # Not available for the spherical coordinate system (still Cartesian); enabled: true raises an error

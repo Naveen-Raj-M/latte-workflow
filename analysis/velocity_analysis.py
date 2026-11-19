@@ -2,7 +2,9 @@
 Velocity model comparison analysis module.
 
 This module provides comprehensive comparison analysis between velocity models
-including spatial projections, profile analysis, and statistical comparisons.
+including spatial projections, profile analysis, and statistical comparisons. The models are
+on the grid of the spherical LATTE branch: columns lon, lat (degrees, WGS84 geodetic) and depth
+(km below mean sea level).
 """
 
 import numpy as np
@@ -80,19 +82,19 @@ def analyze_velocity_models(config: Dict[str, Any]) -> Dict[str, Any]:
     logger.info(f"Model 1: {len(df1)} rows, {len(df1.columns)} columns")
     logger.info(f"Model 2: {len(df2)} rows, {len(df2.columns)} columns")
 
-    # Validate structure
+    # Validate structure: the models must be on the lon/lat/depth grid of the spherical branch
+    required_cols = ['vp', 'vs', 'lon', 'lat', 'depth']
+    for col in required_cols:
+        if col not in df1.columns:
+            raise ValueError(f"Required column '{col}' missing from Model 1 (columns lon, lat, depth, vp, vs)")
+        if col not in df2.columns:
+            raise ValueError(f"Required column '{col}' missing from Model 2 (columns lon, lat, depth, vp, vs)")
+
     if len(df1) != len(df2):
         raise ValueError(f"Row count mismatch: Model 1 has {len(df1)}, Model 2 has {len(df2)}")
 
-    required_cols = ['vp', 'vs', 'x', 'y', 'z']
-    for col in required_cols:
-        if col not in df1.columns:
-            raise ValueError(f"Required column '{col}' missing from Model 1")
-        if col not in df2.columns:
-            raise ValueError(f"Required column '{col}' missing from Model 2")
-
     # Check coordinate consistency
-    coord_cols = ['x', 'y', 'z']
+    coord_cols = ['lon', 'lat', 'depth']
     for col in coord_cols:
         if not np.allclose(df1[col].values, df2[col].values, rtol=1e-6):
             logger.warning(f"Coordinate column '{col}' differs between models")
@@ -169,7 +171,7 @@ def load_and_validate_velocity_models(model1_csv: str, model2_csv: str,
     if len(df1) != len(df2):
         raise ValueError(f"Row count mismatch: Model 1 has {len(df1)}, Model 2 has {len(df2)}")
     
-    required_cols = ['vp', 'vs', 'x', 'y', 'z']
+    required_cols = ['vp', 'vs', 'lon', 'lat', 'depth']
     for col in required_cols:
         if col not in df1.columns:
             raise ValueError(f"Required column '{col}' missing from Model 1")
@@ -177,7 +179,7 @@ def load_and_validate_velocity_models(model1_csv: str, model2_csv: str,
             raise ValueError(f"Required column '{col}' missing from Model 2")
     
     # Check coordinate consistency
-    coord_cols = ['x', 'y', 'z']
+    coord_cols = ['lon', 'lat', 'depth']
     for col in coord_cols:
         if not np.allclose(df1[col].values, df2[col].values, rtol=1e-6):
             logger.warning(f"Coordinate column '{col}' differs between models")
@@ -239,7 +241,7 @@ def create_all_velocity_plots(df1: pd.DataFrame, df2: pd.DataFrame,
         basin_config = config.get('basin_boundaries', {})
         _basin_data = load_basin_boundaries(basin_config)
         if _basin_data:
-            logger.info(f"Loaded {len(_basin_data)} basin boundaries for XY plane overlays")
+            logger.info(f"Loaded {len(_basin_data)} basin boundaries for map-view overlays")
             config['_basin_data_cache'] = _basin_data
             config['_basin_config_cache'] = basin_config
         else:

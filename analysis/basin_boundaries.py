@@ -1,8 +1,10 @@
 """
 Basin boundary loading and plotting for LATTE analysis module.
 
-This module provides functions for loading and plotting basin boundaries
-in Cartesian (transformed) coordinates for ray density and ray path plots.
+This module provides functions for loading and plotting basin boundaries on map views
+(longitude on the horizontal axis, latitude on the vertical axis). The boundary files are the
+WGS84 vertex files: whitespace-delimited, ``POINT_X`` = longitude and ``POINT_Y`` = geodetic
+latitude, in degrees.
 """
 
 import logging
@@ -16,15 +18,15 @@ logger = logging.getLogger(__name__)
 
 
 def load_basin_boundaries(config: Dict) -> Dict:
-    """Load basin boundary data from CSV files in Cartesian coordinates.
+    """Load basin boundary vertices (WGS84 longitude and latitude, degrees).
 
     Args:
         config: Basin boundaries configuration dictionary with keys:
-            - data_dir: str - Directory containing basin boundary CSV files
+            - data_dir: str - Directory containing the WGS84 basin boundary files
             - basins: list - List of basin configs with 'file' and 'label' keys
 
     Returns:
-        Dictionary with basin name -> {'x': array, 'y': array, 'label': str}
+        Dictionary with basin name -> {'lon': array, 'lat': array, 'label': str}
         Returns empty dict if no basins configured or data directory not found.
     """
     basin_data = {}
@@ -47,23 +49,23 @@ def load_basin_boundaries(config: Dict) -> Dict:
             continue
 
         try:
-            # Read space-delimited file (same format as preprocessing output)
-            df = pd.read_csv(csv_file, sep='\s+')
+            # Whitespace-delimited file (despite the .csv extension)
+            df = pd.read_csv(csv_file, sep=r'\s+')
 
-            # Extract X and Y coordinates (Cartesian, in km)
-            x_coords = df['POINT_X'].values
-            y_coords = df['POINT_Y'].values
+            # POINT_X is the longitude, POINT_Y the geodetic latitude (degrees)
+            lon = df['POINT_X'].to_numpy(dtype=float)
+            lat = df['POINT_Y'].to_numpy(dtype=float)
 
             # Extract basin name from file or label
             basin_name = basin.get('label', basin['file'].replace('.csv', ''))
 
             basin_data[basin_name] = {
-                'x': x_coords,
-                'y': y_coords,
+                'lon': lon,
+                'lat': lat,
                 'label': basin.get('label', basin_name)
             }
 
-            logger.debug(f"Loaded basin boundary '{basin_name}' with {len(x_coords)} vertices")
+            logger.debug(f"Loaded basin boundary '{basin_name}' with {len(lon)} vertices")
 
         except Exception as e:
             logger.warning(f"Error loading basin boundary {csv_file}: {e}")
@@ -78,7 +80,7 @@ def load_basin_boundaries(config: Dict) -> Dict:
 def plot_basin_boundaries(ax, basin_data: Dict, config: Dict,
                           xlim: Optional[tuple] = None,
                           ylim: Optional[tuple] = None) -> None:
-    """Plot basin boundaries on an axis.
+    """Plot basin boundaries on a map-view axis (longitude on x, latitude on y).
 
     Args:
         ax: Matplotlib axis to plot on.
@@ -91,10 +93,10 @@ def plot_basin_boundaries(ax, basin_data: Dict, config: Dict,
             - show_labels: bool - Whether to show basin labels (default: True)
             - label_fontsize: int - Label font size (default: 12)
             - label_fontweight: str - Label font weight (default: 'bold')
-            - label_offset_x: float - X offset for labels in km (default: 0)
-            - label_offset_y: float - Y offset for labels in km (default: 0)
-        xlim: Optional X-axis limits for label visibility check.
-        ylim: Optional Y-axis limits for label visibility check.
+            - label_offset_lon: float - Longitude offset of labels in degrees (default: 0)
+            - label_offset_lat: float - Latitude offset of labels in degrees (default: 0)
+        xlim: Optional longitude limits for label visibility check.
+        ylim: Optional latitude limits for label visibility check.
     """
     if not basin_data:
         return
@@ -107,16 +109,16 @@ def plot_basin_boundaries(ax, basin_data: Dict, config: Dict,
     show_labels = config.get('show_labels', True)
     label_fontsize = config.get('label_fontsize', 12)
     label_fontweight = config.get('label_fontweight', 'bold')
-    label_offset_x = config.get('label_offset_x', 0.0)
-    label_offset_y = config.get('label_offset_y', 0.0)
+    label_offset_lon = config.get('label_offset_lon', 0.0)
+    label_offset_lat = config.get('label_offset_lat', 0.0)
 
     for basin_name, data in basin_data.items():
-        x_coords = data['x']
-        y_coords = data['y']
+        lon = data['lon']
+        lat = data['lat']
         label = data['label']
 
         # Plot boundary polygon
-        ax.plot(x_coords, y_coords,
+        ax.plot(lon, lat,
                 color=line_color,
                 linewidth=line_width,
                 linestyle=line_style,
@@ -125,13 +127,9 @@ def plot_basin_boundaries(ax, basin_data: Dict, config: Dict,
 
         # Plot labels if enabled
         if show_labels:
-            # Calculate centroid for label placement
-            centroid_x = np.mean(x_coords)
-            centroid_y = np.mean(y_coords)
-
-            # Apply offsets (in km for Cartesian coordinates)
-            label_x = centroid_x + label_offset_x
-            label_y = centroid_y + label_offset_y
+            # Mean of the vertices for label placement, plus the offsets (degrees)
+            label_x = np.mean(lon) + label_offset_lon
+            label_y = np.mean(lat) + label_offset_lat
 
             # Only plot label if within bounds
             plot_label = True
