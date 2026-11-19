@@ -27,21 +27,21 @@ velocity_analysis:
   output_dir: "/path/to/analysis/output/velocity_comparison"
 
 gradient_analysis:
-  enabled: true
+  enabled: false                          # not available for the spherical coordinate system
   velocity_input_csv: "/path/to/velocity_model_final.csv"
   velocity_output_dir: "/path/to/analysis/output/gradient_velocity"
   source_input_csv: "/path/to/source_relocation.csv"
   source_output_dir: "/path/to/analysis/output/gradient_source"
 
 distance_analysis:
-  enabled: true
+  enabled: false                          # not available for the spherical coordinate system
   travel_time_csv: "/path/to/synthetic_traveltimes.csv"
   station_csv: "/path/to/preprocessed/coordinate_transform/stations_cartesian.csv"
   events_csv: "/path/to/preprocessed/coordinate_transform/events_cartesian.csv"
   output_dir: "/path/to/analysis/output/distance_analysis"
 
 short_distance_analysis:
-  enabled: true
+  enabled: false                          # not available for the spherical coordinate system
   travel_time_csv: "/path/to/synthetic_traveltimes.csv"
   station_csv: "/path/to/preprocessed/coordinate_transform/stations_cartesian.csv"
   events_csv: "/path/to/preprocessed/coordinate_transform/events_cartesian.csv"

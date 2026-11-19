@@ -25,6 +25,10 @@ from .distance_reports import generate_distance_analysis_report
 
 logger = logging.getLogger(__name__)
 
+# Not converted to the spherical coordinate system: every entry point raises
+SPHERICAL_UNSUPPORTED = ("Distance analysis is not available for the spherical coordinate system; this "
+                         "branch is spherical only and the module still uses Cartesian coordinates")
+
 
 def analyze_distance_dependent_residuals(config: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -38,6 +42,7 @@ def analyze_distance_dependent_residuals(config: Dict[str, Any]) -> Dict[str, An
     Returns:
         Dictionary containing analysis results
     """
+    raise NotImplementedError(SPHERICAL_UNSUPPORTED)
     logger.info("Starting distance-dependent travel time analysis")
     
     # Setup plot style

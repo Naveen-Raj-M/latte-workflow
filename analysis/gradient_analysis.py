@@ -19,6 +19,10 @@ from utils.plot_utils import setup_plot_style, get_color_scheme
 
 logger = logging.getLogger(__name__)
 
+# Not converted to the spherical coordinate system: every entry point raises
+SPHERICAL_UNSUPPORTED = ("Gradient analysis is not available for the spherical coordinate system; this "
+                         "branch is spherical only and the module still uses Cartesian coordinates")
+
 
 def analyze_gradients_and_search(config: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -30,6 +34,7 @@ def analyze_gradients_and_search(config: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         Dictionary containing analysis results
     """
+    raise NotImplementedError(SPHERICAL_UNSUPPORTED)
     gradient_cfg = config.get('gradient_analysis', {})
     if not gradient_cfg.get('enabled', False):
         logger.info("Gradient and search direction analysis is disabled.")
@@ -79,6 +84,7 @@ def analyze_velocity_gradients(config: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         Dictionary of statistics and results
     """
+    raise NotImplementedError(SPHERICAL_UNSUPPORTED)
     logger.info("Analyzing velocity gradients and search directions")
 
     # Check for HDF5 file first, then fall back to CSV
@@ -140,6 +146,7 @@ def analyze_source_gradients(config: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         Dictionary of statistics and results
     """
+    raise NotImplementedError(SPHERICAL_UNSUPPORTED)
     logger.info("Analyzing source parameter gradients and search directions")
 
     # Check for HDF5 file first, then fall back to CSV

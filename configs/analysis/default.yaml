@@ -162,6 +162,7 @@ velocity_analysis:
         label: "Vertical Plane (yz)"
 
 # Velocity gradient and search direction analysis
+# Not available for the spherical coordinate system (still Cartesian); enabled: true raises an error
 gradient_analysis:
   enabled: false
   analysis_type: ["velocity", "source"]   # subset of: velocity, source
@@ -186,6 +187,7 @@ gradient_analysis:
   plot_basin_boundaries: false            # true = overlay basin boundaries on XY spatial plots
 
 # Residual vs epicentral/hypocentral distance analysis
+# Not available for the spherical coordinate system (still Cartesian); enabled: true raises an error
 distance_analysis:
   enabled: false
   comparison_mode: "ground_truth"         # ground_truth | method_comparison
@@ -217,6 +219,7 @@ distance_analysis:
   fit_polynomial_degree: 1
 
 # Residual analysis restricted to short source–receiver distances
+# Not available for the spherical coordinate system (still Cartesian); enabled: true raises an error
 short_distance_analysis:
   enabled: false
   comparison_mode: "ground_truth"         # ground_truth | method_comparison
@@ -296,166 +299,6 @@ source_analysis:
   generate_summary_report: true
   save_corrected_data: true               # true = write source_corrections_with_deltas.csv
   plot_basin_boundaries: false            # true = overlay basin boundaries on XY geographic map
-
-# Derivative weight sum (DWS) model coverage analysis
-dws_analysis:
-  enabled: false
-
-  input_hdf5: "${paths.input_dir}/dws_values.h5"
-  output_dir: "${paths.output_base_dir}/dws_analysis"
-
-  # Plot type toggles
-  enable_log_scale: true                  # true = produce both linear and log-scale plots
-  enable_coverage_maps: true              # true = produce binary covered/uncovered maps
-  enable_histograms: true
-  enable_vertical_slices: true
-
-  use_m2_units: false                     # true = display in m² instead of km² (1 km² = 1 000 000 m²)
-
-  # Cells with DWS > coverage_threshold are considered covered; applies to coverage maps
-  coverage_threshold: 0.0
-
-  # Depth levels for horizontal slice plots (km)
-  horizontal_slice_depths: [5.0, 10.0, 15.0, 20.0, 30.0, 40.0, 50.0]
-
-  # Vertical slice positions (km)
-  vertical_slices:
-    xz_positions:                         # constant Y values for XZ slices
-      - 120.0
-    yz_positions:                         # constant X values for YZ slices
-      - 100.0
-
-  # DWS-specific plot settings (font sizes and dpi inherited from analysis.plot_style)
-  plot_config:
-    figure_width: 12
-    figure_height: 10
-    colormap: "viridis"                   # linear-scale colormap: viridis | plasma | inferno | jet
-    colormap_log: "viridis"               # log-scale colormap
-    equal_aspect: false
-    grid: true
-    depth_tolerance: 0.01                 # km; tolerance for horizontal slice depth matching
-    position_tolerance: 0.01             # km; tolerance for vertical slice position matching
-
-  generate_report: true
-  plot_basin_boundaries: false            # true = overlay basin boundaries on horizontal slice and coverage map plots
-
-# Ray path projection visualization
-raypath_analysis:
-  enabled: false
-
-  # Input ray path cache (HDF5) produced by the postprocess module
-  input_cache: "${paths.input_dir}/ray_paths/ray_paths.h5"
-  output_dir: "${paths.output_base_dir}/raypaths/"
-
-  phase_type: "both"                      # both | p | s
-
-  # Event filtering — priority order: event_id_list_file > max_rays > subsample_fraction
-  event_id_list_file: null               # null = no filter; or path to a text file of event IDs (one per line)
-  shot_map_file: null                    # required when event_id_list_file is set; or null to use paths.shot_map_file
-  max_rays: null                         # null = load all rays
-  subsample_fraction: 1.0               # fraction of loaded rays to actually plot (0.0–1.0)
-
-  # Receiver-level filter from a CSV (e.g. anomalous-pick export)
-  filter_csv: null                       # null = disabled
-  filter_match_tolerance_km: 0.5        # km; receiver coordinate match tolerance
-
-  generate_report: true
-  plot_basin_boundaries: false            # true = overlay basin boundaries on XY projection plot
-
-  # Ray path plot settings (font sizes and dpi inherited from analysis.plot_style)
-  plot:
-    planes: ["xy", "xz", "yz"]          # projection planes to generate
-
-    figure_width: 12
-    figure_height: 10
-
-    # Ray path rendering
-    ray_color: "blue"
-    ray_alpha: 0.3                       # transparency (0 = transparent, 1 = opaque)
-    ray_linewidth: 0.5
-
-    # Source marker
-    source_color: "red"
-    source_marker: "*"                   # *, o, ^, v, s, D
-    source_size: 100
-
-    # Receiver marker
-    receiver_color: "green"
-    receiver_marker: "^"                 # *, o, ^, v, s, D
-    receiver_size: 50
-
-    grid: true
-    equal_aspect: true
-
-# Ray density computation and grid coverage visualization
-ray_density_analysis:
-  enabled: false
-
-  # Input ray path cache (HDF5) produced by the postprocess module
-  input_cache: "${paths.input_dir}/ray_paths/ray_paths.h5"
-  output_dir: "${paths.output_base_dir}/ray_density/"
-
-  # Model grid. The grid stored in the ray path cache metadata (written by postprocess) is the
-  # truth and is used when present; on a mismatch with the values below a warning is logged and the
-  # metadata wins. These values are used only for keys the cache metadata lacks (older caches).
-  grid:
-    nx: 401
-    ny: 361
-    nz: 43
-    dx: 0.5                              # km
-    dy: 0.5                              # km
-    dz: 0.5                              # km
-    origin_x: 0.0                        # km
-    origin_y: 0.0                        # km
-    origin_z: 0.0                        # km
-
-  phase_type: "both"                     # both | p | s
-
-  # Computation settings
-  threshold: 0                           # cells with ray count < threshold are masked in plots
-  num_samples_per_ray: 1000             # sample points per ray used for grid intersection
-  n_jobs: -1                            # -1 = all cores, 1 = serial, N = N cores
-  batch_size: 1000                      # rays per parallel batch
-
-  # Event filtering — priority order: event_id_list_file > max_rays > subsample_fraction
-  event_id_list_file: null              # null = no filter; or path to a text file of event IDs (one per line)
-  shot_map_file: null                   # required when event_id_list_file is set; or null to use paths.shot_map_file
-  max_rays: null                        # null = load all rays
-  subsample_fraction: 1.0              # fraction of loaded rays to use (0.0–1.0)
-
-  # Plot type toggles
-  planes: ["xy", "xz", "yz"]           # projection planes to generate
-  enable_xy_threshold_count: true       # true = map showing count of depth layers >= threshold
-  enable_depth_slices: true             # true = horizontal slice plots at specified depths
-
-  # Depth levels for horizontal slice plots (km)
-  depth_slices: [5.0, 10.0, 15.0, 20.0, 30.0, 40.0, 50.0]
-
-  plot_basin_boundaries: false            # true = overlay basin boundaries on XY projection, depth slice, and oblique section plots
-
-  # Oblique section plots — vertical planes defined by two XY endpoint pairs
-  enable_oblique_sections: false         # true = plot ray density along user-defined oblique vertical planes
-  enable_oblique_section_plan_view: false # true = plot plan view map showing all oblique section traces
-
-  # List of oblique sections; each plane passes vertically through all depths.
-  # Coordinates are in Cartesian km (same system as the model grid).
-  # Multiple pairs of (x1,y1)→(x2,y2) can be provided.
-  oblique_sections:
-    - label: "A"                         # identifier used in filenames and on-plot labels
-      x1: 0.0                            # km; start X coordinate
-      y1: 0.0                            # km; start Y coordinate
-      x2: 100.0                          # km; end X coordinate
-      y2: 100.0                          # km; end Y coordinate
-    # - label: "B"
-    #   x1: 50.0
-    #   y1: 0.0
-    #   x2: 50.0
-    #   y2: 200.0
-
-  # Plot settings (font sizes and dpi inherited from analysis.plot_style)
-  figure_width: 12
-  figure_height: 10
-  colormap: "hot"                       # density colormap: hot | viridis | plasma | inferno | jet
 
 # Inversion tradeoff curve (data misfit vs. model variance)
 tradeoff_analysis:
@@ -542,8 +385,3 @@ tradeoff_analysis:
     highlight_optimal: false            # true = annotate the elbow/optimal point with a gold star
     vp_color: null                      # null = use analysis.plot_style.colors.p_wave_dark
     vs_color: null                      # null = use analysis.plot_style.colors.s_wave_dark
-
-# Parallel processing (currently used by dws_analysis only)
-performance:
-  parallel_processing: false
-  n_jobs: 1                             # number of parallel jobs; 1 = serial

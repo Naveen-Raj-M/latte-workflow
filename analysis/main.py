@@ -4,7 +4,8 @@ Main entry point for LATTE analysis module.
 This script provides the main interface for running different analysis modules
 with Hydra configuration management.
 
-Updated to support method comparison mode for distance and short distance analysis.
+Gradient, distance and short distance analysis are not available for the spherical
+coordinate system; enabling one of them raises NotImplementedError.
 """
 
 import logging
@@ -23,12 +24,23 @@ from .distance_analysis import analyze_distance_dependent_residuals
 from .short_distance_analysis import analyze_short_distance_residuals
 from .source_analysis import analyze_source_corrections
 from .gradient_analysis import analyze_gradients_and_search
-from .dws_analysis import analyze_dws
-from .raypath_analysis import analyze_ray_paths
-from .ray_density_analysis import analyze_ray_density
 from .tradeoff_analysis import analyze_tradeoff
 
 logger = logging.getLogger(__name__)
+
+# Analyses that still use Cartesian coordinates: not available in the spherical coordinate system
+SPHERICAL_UNSUPPORTED = ('gradient_analysis', 'distance_analysis', 'short_distance_analysis')
+
+
+def check_spherical_support(cfg: DictConfig) -> None:
+    """Raise ``NotImplementedError`` if an analysis that is not available for the spherical
+    coordinate system is enabled."""
+    enabled = [name for name in SPHERICAL_UNSUPPORTED if cfg.get(name, {}).get('enabled', False)]
+    if enabled:
+        raise NotImplementedError(
+            f"{', '.join(enabled)} {'is' if len(enabled) == 1 else 'are'} not available for the spherical "
+            f"coordinate system (the modules still use Cartesian coordinates); disable "
+            f"{'it' if len(enabled) == 1 else 'them'} in the configuration")
 
 
 def run_travel_time_analysis(cfg: DictConfig) -> None:
@@ -78,6 +90,7 @@ def run_distance_analysis(cfg: DictConfig) -> None:
     if not cfg.distance_analysis.enabled:
         logger.info("Distance analysis disabled, skipping")
         return
+    check_spherical_support(cfg)
     
     logger.info("=" * 60)
     logger.info("STARTING DISTANCE ANALYSIS")
@@ -120,6 +133,7 @@ def run_short_distance_analysis(cfg: DictConfig) -> None:
     if not cfg.short_distance_analysis.enabled:
         logger.info("Short distance analysis disabled, skipping")
         return
+    check_spherical_support(cfg)
     
     logger.info("=" * 60)
     logger.info("STARTING SHORT DISTANCE ANALYSIS")
@@ -186,6 +200,7 @@ def run_gradient_analysis(cfg: DictConfig) -> None:
     if not cfg.gradient_analysis.get('enabled', False):
         logger.info("Gradient and search direction analysis disabled, skipping")
         return
+    check_spherical_support(cfg)
 
     logger.info("=" * 60)
     logger.info("STARTING GRADIENT AND SEARCH DIRECTION ANALYSIS")
@@ -201,96 +216,6 @@ def run_gradient_analysis(cfg: DictConfig) -> None:
             logger.info(f"Source Gradient Results saved to: {cfg.gradient_analysis.source_output_dir}")
         except Exception as e:
             logger.error(f"Gradient analysis failed: {e}")
-            raise
-
-
-def run_dws_analysis(cfg: DictConfig) -> None:
-    """Run DWS (Derivative Weight Sum) analysis."""
-    if not cfg.dws_analysis.get('enabled', False):
-        logger.info("DWS analysis disabled, skipping")
-        return
-
-    logger.info("=" * 60)
-    logger.info("STARTING DWS ANALYSIS")
-    logger.info("=" * 60)
-
-    with ProcessTimer("DWS analysis"):
-        try:
-            ensure_directory_exists(cfg.dws_analysis.output_dir)
-            results = analyze_dws(OmegaConf.to_container(cfg, resolve=True))
-            logger.info("DWS analysis completed successfully")
-            logger.info(f"Results saved to: {cfg.dws_analysis.output_dir}")
-
-            # Log summary
-            if 'statistics' in results:
-                stats = results['statistics']
-                logger.info(f"DWS summary:")
-                logger.info(f"  Coverage: {stats['coverage_percentage']:.2f}%")
-                logger.info(f"  DWS range: [{stats['dws_min']:.6e}, {stats['dws_max']:.6e}] km²")
-                logger.info(f"  Mean DWS: {stats['dws_mean']:.6e} km²")
-
-        except Exception as e:
-            logger.error(f"DWS analysis failed: {e}")
-            raise
-
-
-def run_raypath_analysis(cfg: DictConfig) -> None:
-    """Run ray path visualization analysis."""
-    if not cfg.raypath_analysis.get('enabled', False):
-        logger.info("Ray path analysis disabled, skipping")
-        return
-
-    logger.info("=" * 60)
-    logger.info("STARTING RAY PATH ANALYSIS")
-    logger.info("=" * 60)
-
-    with ProcessTimer("Ray path analysis"):
-        try:
-            ensure_directory_exists(cfg.raypath_analysis.output_dir)
-            results = analyze_ray_paths(OmegaConf.to_container(cfg, resolve=True))
-            logger.info("Ray path analysis completed successfully")
-            logger.info(f"Results saved to: {cfg.raypath_analysis.output_dir}")
-
-            # Log summary
-            if 'statistics' in results:
-                stats = results['statistics']
-                logger.info(f"Ray path summary:")
-                logger.info(f"  P-wave: {stats.get('p_wave_shots', 0)} shots, {stats.get('p_wave_rays', 0)} rays")
-                logger.info(f"  S-wave: {stats.get('s_wave_shots', 0)} shots, {stats.get('s_wave_rays', 0)} rays")
-                logger.info(f"  Cache size: {stats.get('file_size_mb', 0):.2f} MB")
-
-        except Exception as e:
-            logger.error(f"Ray path analysis failed: {e}")
-            raise
-
-
-def run_ray_density_analysis(cfg: DictConfig) -> None:
-    """Run ray density analysis using actual traced ray paths."""
-    if not cfg.ray_density_analysis.get('enabled', False):
-        logger.info("Ray density analysis disabled, skipping")
-        return
-
-    logger.info("=" * 60)
-    logger.info("STARTING RAY DENSITY ANALYSIS")
-    logger.info("=" * 60)
-
-    with ProcessTimer("Ray density analysis"):
-        try:
-            ensure_directory_exists(cfg.ray_density_analysis.output_dir)
-            results = analyze_ray_density(OmegaConf.to_container(cfg, resolve=True))
-            logger.info("Ray density analysis completed successfully")
-            logger.info(f"Results saved to: {cfg.ray_density_analysis.output_dir}")
-
-            # Log summary
-            if 'statistics' in results:
-                for phase, stats in results['statistics'].items():
-                    logger.info(f"{phase.upper()}-wave density summary:")
-                    logger.info(f"  Coverage: {stats['coverage_percentage']:.1f}%")
-                    logger.info(f"  Density range: [{stats['min_density']}, {stats['max_density']}]")
-                    logger.info(f"  Mean density: {stats['mean_density']:.2f}")
-
-        except Exception as e:
-            logger.error(f"Ray density analysis failed: {e}")
             raise
 
 
@@ -346,9 +271,6 @@ def run_single_function(cfg: DictConfig, function_name: str) -> None:
         'short_distance_analysis': run_short_distance_analysis,
         'source_analysis': run_source_analysis,
         'gradient_analysis': run_gradient_analysis,
-        'dws_analysis': run_dws_analysis,
-        'raypath_analysis': run_raypath_analysis,
-        'ray_density_analysis': run_ray_density_analysis,
         'tradeoff_analysis': run_tradeoff_analysis,
     }
 
@@ -397,13 +319,6 @@ def initialize_analysis_configuration(cfg: DictConfig) -> None:
         output_base = Path(cfg.paths.output_base_dir)
         ensure_directory_exists(output_base)
 
-    # Initialize performance settings
-    if hasattr(cfg, 'performance'):
-        logger.info("Performance configuration:")
-        logger.info(f"  Parallel processing: {cfg.performance.parallel_processing}")
-        if cfg.performance.parallel_processing:
-            logger.info(f"  Number of jobs: {cfg.performance.n_jobs}")
-
     logger.info("Configuration initialization complete")
 
 
@@ -428,9 +343,6 @@ def run_analysis_pipeline(cfg: DictConfig) -> None:
             ('Short Distance Analysis', run_short_distance_analysis),
             ('Source Correction Analysis', run_source_analysis),
             ('Gradient Analysis', run_gradient_analysis),
-            ('Ray Path Analysis', run_raypath_analysis),
-            ('DWS Analysis', run_dws_analysis),
-            ('Ray Density Analysis', run_ray_density_analysis),
             ('Tradeoff Analysis', run_tradeoff_analysis),
         ]
         
@@ -481,7 +393,8 @@ def validate_configuration(cfg: DictConfig) -> None:
         cfg: Hydra configuration
     """
     logger.info("Validating configuration...")
-    
+    check_spherical_support(cfg)
+
     # Check if at least one analysis is enabled
     enabled_analyses = []
     if cfg.travel_time_analysis.get('enabled', False):
@@ -496,12 +409,6 @@ def validate_configuration(cfg: DictConfig) -> None:
         enabled_analyses.append('source_analysis')
     if cfg.gradient_analysis.get('enabled', False):
         enabled_analyses.append('gradient_analysis')
-    if cfg.raypath_analysis.get('enabled', False):
-        enabled_analyses.append('raypath_analysis')
-    if cfg.dws_analysis.get('enabled', False):
-        enabled_analyses.append('dws_analysis')
-    if cfg.ray_density_analysis.get('enabled', False):
-        enabled_analyses.append('ray_density_analysis')
     if cfg.tradeoff_analysis.get('enabled', False):
         enabled_analyses.append('tradeoff_analysis')
 

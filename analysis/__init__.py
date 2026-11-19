@@ -1,20 +1,20 @@
 """LATTE analysis module.
 
-Post-inversion diagnostics for LATTE tomography results. Reads post-processed
-CSV, HDF5, and ray path cache files to produce publication-quality plots and
-statistical reports. All ten modules are independent and disabled by default.
+Post-inversion diagnostics for the spherical LATTE branch. Reads post-processed CSV and
+HDF5 files to produce publication-quality plots and statistical reports. All modules are
+independent and disabled by default.
 
 Available modules:
     1.  traveltime_analysis     — residual distributions and statistics
     2.  velocity_analysis       — velocity model comparison and spatial projections
-    3.  distance_analysis       — distance-dependent residual bias
-    4.  short_distance_analysis — near-field residual analysis
-    5.  source_analysis         — hypocenter correction distributions
-    6.  gradient_analysis       — velocity/source gradient diagnostics
-    7.  dws_analysis            — Derivative Weight Sum model coverage
-    8.  raypath_analysis        — 3D ray path projection visualization
-    9.  ray_density_analysis    — ray count per grid cell and coverage mapping
-    10. tradeoff_analysis       — data misfit vs. model variance (L-curve)
+    3.  source_analysis         — hypocenter correction distributions
+    4.  tradeoff_analysis       — data misfit vs. model variance (L-curve)
+
+Not available for the spherical coordinate system (they still use Cartesian coordinates;
+their entry points raise NotImplementedError):
+    - distance_analysis         — distance-dependent residual bias
+    - short_distance_analysis   — near-field residual analysis
+    - gradient_analysis         — velocity/source gradient diagnostics
 
 Usage:
     From command line:
@@ -66,16 +66,6 @@ __all__ = [
     'analyze_gradients_and_search',
     'analyze_velocity_gradients',
     'analyze_source_gradients',
-
-    # Ray path analysis
-    'analyze_ray_paths',
-    'load_ray_paths_from_cache',
-    'get_ray_path_metadata',
-    'get_ray_path_statistics',
-    'plot_ray_paths_projection',
-
-    # Ray density analysis
-    'analyze_ray_density',
 
     # Tradeoff analysis
     'analyze_tradeoff',
@@ -187,26 +177,6 @@ try:
 except ImportError as e:
     import logging
     logging.debug(f"Gradient analysis module import warning: {e}")
-
-# Ray path analysis imports
-try:
-    from .raypath_analysis import analyze_ray_paths
-    from .raypath_data import (
-        load_ray_paths_from_cache,
-        get_ray_path_metadata,
-        get_ray_path_statistics
-    )
-    from .raypath_plots import plot_ray_paths_projection
-except ImportError as e:
-    import logging
-    logging.debug(f"Ray path analysis module import warning: {e}")
-
-# Ray density analysis imports
-try:
-    from .ray_density_analysis import analyze_ray_density
-except ImportError as e:
-    import logging
-    logging.debug(f"Ray density analysis module import warning: {e}")
 
 # Basin boundaries imports (for XY plane plots)
 try:

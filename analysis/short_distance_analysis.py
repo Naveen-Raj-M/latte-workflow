@@ -27,6 +27,10 @@ from .short_distance_reports import generate_short_distance_report
 
 logger = logging.getLogger(__name__)
 
+# Not converted to the spherical coordinate system: every entry point raises
+SPHERICAL_UNSUPPORTED = ("Short distance analysis is not available for the spherical coordinate system; this "
+                         "branch is spherical only and the module still uses Cartesian coordinates")
+
 
 def analyze_short_distance_residuals(config: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -40,6 +44,7 @@ def analyze_short_distance_residuals(config: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         Dictionary containing analysis results
     """
+    raise NotImplementedError(SPHERICAL_UNSUPPORTED)
     logger.info("Starting short distance travel time analysis")
     
     # Setup plot style
