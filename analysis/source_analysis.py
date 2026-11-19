@@ -4,6 +4,12 @@ Source correction analysis module.
 This module provides comprehensive analysis of hypocenter corrections
 including spatial, temporal, and depth corrections.
 Supports both ground truth comparison and method-to-method comparison.
+
+Hypocentres are longitude, WGS84 geodetic latitude (degrees) and depth below mean sea level
+(km), as in source_relocation.csv. A relocation is split, at the initial location, into the east
+and north components of the straight-line shift between the Earth-centred positions, and the
+change of depth; the 3D shift is the straight-line distance, as LATTE measures offsets.
+The analysis uses one row per event (the CSV has one row per pick).
 """
 
 import numpy as np
@@ -16,10 +22,32 @@ from datetime import datetime
 
 from utils.io_utils import read_csv_file, write_text_file, ensure_directory_exists
 from utils.plot_utils import setup_plot_style, get_color_scheme, save_figure
-from utils.traveltime_io import km_per_unit
+from utils.spherical import EARTH_RADIUS_KM, east_north_down_km, hypocentral_distance_km
 from .basin_boundaries import load_basin_boundaries
 
 logger = logging.getLogger(__name__)
+
+# Source parameters of the spherical LATTE branch
+SOURCE_PARAMETERS = ['slon', 'slat', 'sdepth', 'st0']
+
+# Initial and corrected hypocentre columns
+INITIAL_POSITION = ['event_longitude', 'event_latitude', 'event_depth_km']
+CORRECTED_POSITION = ['corrected_event_longitude', 'corrected_event_latitude', 'corrected_event_depth_km']
+
+
+def earth_radius_km(df: pd.DataFrame) -> float:
+    """Earth radius (km) of a table: its ``earth_radius_km`` metadata, or 6371 km."""
+    return float((df.attrs.get('metadata') or {}).get('earth_radius_km', EARTH_RADIUS_KM))
+
+
+def one_row_per_event(df: pd.DataFrame) -> pd.DataFrame:
+    """First row of each event (``shot_id``, else ``event_id``): source_relocation.csv has one row
+    per pick, and all rows of an event carry the same locations and origin times."""
+    key = 'shot_id' if 'shot_id' in df.columns else 'event_id'
+    out = df.drop_duplicates(subset=[key], keep='first').reset_index(drop=True)
+    out.attrs = dict(df.attrs)
+    logger.info(f"{len(df)} rows -> {len(out)} events (one row per {key})")
+    return out
 
 
 def analyze_source_corrections(config: Dict[str, Any]) -> Dict[str, Any]:
@@ -69,7 +97,7 @@ def _analyze_ground_truth_comparison(config: Dict[str, Any]) -> Dict[str, Any]:
     output_dir = Path(config['source_analysis']['output_dir'])
     
     logger.info(f"Loading source correction data from: {input_csv}")
-    df = read_csv_file(input_csv)
+    df = one_row_per_event(read_csv_file(input_csv))
 
     # Validate and compute corrections
     df_corrected = compute_source_corrections(df, config, comparison_mode='ground_truth')
@@ -204,19 +232,15 @@ def prepare_method_comparison_data(df1: pd.DataFrame, df2: pd.DataFrame,
     # Prefer corrected_event_* (post-inversion LATTE locations) over
     # event_* (initial catalog, identical across all runs) so that
     # method_comparison reflects actual inversion differences.
-    for coord in ['x', 'y', 'z']:
-        # Pattern 1: corrected_event_x (LATTE output with both initial/corrected)
+    for coord in ['longitude', 'latitude', 'depth_km']:
+        # Pattern 1: corrected_event_longitude (LATTE output with both initial/corrected)
         if f'corrected_event_{coord}_method1' in df_merged.columns:
             rename_map[f'corrected_event_{coord}_method1'] = f'event_{coord}'
             rename_map[f'corrected_event_{coord}_method2'] = f'corrected_event_{coord}'
-        # Pattern 2: event_x only (single-location output)
+        # Pattern 2: event_longitude only (single-location output)
         elif f'event_{coord}_method1' in df_merged.columns:
             rename_map[f'event_{coord}_method1'] = f'event_{coord}'
             rename_map[f'event_{coord}_method2'] = f'corrected_event_{coord}'
-        # Pattern 3: x, y, z (velocity-format coordinate columns)
-        elif f'{coord}_method1' in df_merged.columns:
-            rename_map[f'{coord}_method1'] = f'event_{coord}'
-            rename_map[f'{coord}_method2'] = f'corrected_event_{coord}'
 
     # Handle origin time: prefer corrected times (post-inversion) for method comparison
     if 'corrected_origin_time_s_method1' in df_merged.columns:
@@ -232,7 +256,9 @@ def prepare_method_comparison_data(df1: pd.DataFrame, df2: pd.DataFrame,
     drop_cols = [col for col in df_merged.columns 
                  if col.endswith('_method1') or col.endswith('_method2')]
     df_merged = df_merged.drop(columns=drop_cols, errors='ignore')
-    
+    # Earth radius and units of Method 1
+    df_merged.attrs = dict(df1.attrs)
+
     return df_merged
 
 
@@ -253,8 +279,13 @@ def compute_source_corrections(df: pd.DataFrame,
     logger.info(f"Computing corrections for {len(df)} events")
     logger.info(f"Comparison mode: {comparison_mode}")
 
-    params_to_process = config['source_analysis'].get('parameters_to_process', ['sx', 'sy', 'sz', 'st0'])
+    params_to_process = config['source_analysis'].get('parameters_to_process', SOURCE_PARAMETERS)
     has_st0 = 'st0' in params_to_process
+
+    missing = [c for c in INITIAL_POSITION + CORRECTED_POSITION if c not in df.columns]
+    if missing:
+        raise ValueError(f"Source data lacks the hypocentre columns {missing} (longitude, latitude in "
+                         f"degrees and depth in km of the initial and corrected locations)")
 
     # Temporal correction (only when st0 is in parameters_to_process)
     if has_st0:
@@ -263,30 +294,28 @@ def compute_source_corrections(df: pd.DataFrame,
     else:
         logger.info("Skipping origin time (st0 not in parameters_to_process)")
 
-    # Spatial corrections: the coordinates are in metres (units metadata); the deltas are in km
-    df['delta_x_km'] = (df['corrected_event_x'] - df['event_x']) * km_per_unit(df, 'event_x')
-    df['delta_y_km'] = (df['corrected_event_y'] - df['event_y']) * km_per_unit(df, 'event_y')
-    df['delta_z_km'] = (df['corrected_event_z'] - df['event_z']) * km_per_unit(df, 'event_z')
+    # Spatial corrections (km): east and north components, at the initial location, of the
+    # straight-line shift between the Earth-centred positions; change of depth
+    radius = earth_radius_km(df)
+    initial = [df[c].to_numpy(dtype=float) for c in INITIAL_POSITION]
+    corrected = [df[c].to_numpy(dtype=float) for c in CORRECTED_POSITION]
+    east, north, _ = east_north_down_km(*initial, *corrected, radius)
+    df['delta_east_km'] = east
+    df['delta_north_km'] = north
+    df['delta_depth_km'] = corrected[2] - initial[2]
 
     # Horizontal shift magnitude
-    df['delta_horiz_km'] = np.sqrt(df['delta_x_km']**2 + df['delta_y_km']**2)
+    df['delta_horiz_km'] = np.sqrt(df['delta_east_km']**2 + df['delta_north_km']**2)
 
-    # Total 3D shift magnitude
-    df['delta_3d_km'] = np.sqrt(
-        df['delta_x_km']**2 +
-        df['delta_y_km']**2 +
-        df['delta_z_km']**2
-    )
-
-    # Depth correction (z is depth)
-    df['delta_depth_km'] = df['delta_z_km']
+    # Total 3D shift: straight-line distance, as LATTE measures offsets
+    df['delta_3d_km'] = hypocentral_distance_km(*initial, *corrected, radius)
 
     # Remove any infinite or NaN values
     initial_count = len(df)
     df = df.replace([np.inf, -np.inf], np.nan)
 
-    required_cols = ['delta_x_km', 'delta_y_km', 'delta_z_km',
-                     'delta_horiz_km', 'delta_3d_km', 'delta_depth_km']
+    required_cols = ['delta_east_km', 'delta_north_km', 'delta_depth_km',
+                     'delta_horiz_km', 'delta_3d_km']
     if has_st0:
         required_cols.append('delta_time_s')
 
@@ -316,13 +345,13 @@ def compute_source_statistics(df: pd.DataFrame,
     """
     stats = {'comparison_mode': comparison_mode}
 
-    params_to_process = config['source_analysis'].get('parameters_to_process', ['sx', 'sy', 'sz', 'st0'])
+    params_to_process = config['source_analysis'].get('parameters_to_process', SOURCE_PARAMETERS)
     has_st0 = 'st0' in params_to_process
 
     # Overall statistics for each correction type
     correction_columns = {
-        'x': 'delta_x_km',
-        'y': 'delta_y_km',
+        'east': 'delta_east_km',
+        'north': 'delta_north_km',
         'depth': 'delta_depth_km',
         'horizontal': 'delta_horiz_km',
         '3d': 'delta_3d_km',
@@ -375,9 +404,9 @@ def compute_depth_dependent_stats(df: pd.DataFrame,
     n_bins = config['source_analysis'].get('depth_bins', 10)
     
     df_copy = df.copy()
-    df_copy['depth_bin'] = pd.cut(df_copy['event_z'], bins=n_bins)
+    df_copy['depth_bin'] = pd.cut(df_copy['event_depth_km'], bins=n_bins)
 
-    params_to_process = config['source_analysis'].get('parameters_to_process', ['sx', 'sy', 'sz', 'st0'])
+    params_to_process = config['source_analysis'].get('parameters_to_process', SOURCE_PARAMETERS)
     agg_dict = {
         'delta_horiz_km': ['mean', 'std', 'count'],
         'delta_depth_km': ['mean', 'std'],
@@ -437,7 +466,7 @@ def create_source_plots(df: pd.DataFrame, stats: Dict[str, Any],
     create_correction_summary(df, colors, plots_dir, output_format, use_log, config, comparison_mode)
     
     # Temporal plots only when st0 was processed and original origin times are present
-    _params = config['source_analysis'].get('parameters_to_process', ['sx', 'sy', 'sz', 'st0'])
+    _params = config['source_analysis'].get('parameters_to_process', SOURCE_PARAMETERS)
     if 'origin_time_s' in df.columns and 'st0' in _params:
         create_temporal_corrections(df, colors, plots_dir, output_format, use_log, config, comparison_mode)
 
@@ -570,15 +599,15 @@ def generate_source_report(df: pd.DataFrame, stats: Dict[str, Any],
     report_lines.extend([
         f"COORDINATE-WISE {label_type.upper()}S",
         "-" * 60,
-        "X-direction:",
-        f"  Mean: {stats['x']['mean']:.4f} km",
-        f"  Std: {stats['x']['std']:.4f} km",
-        f"  Mean absolute: {stats['x']['mean_abs']:.4f} km",
+        "East:",
+        f"  Mean: {stats['east']['mean']:.4f} km",
+        f"  Std: {stats['east']['std']:.4f} km",
+        f"  Mean absolute: {stats['east']['mean_abs']:.4f} km",
         "",
-        "Y-direction:",
-        f"  Mean: {stats['y']['mean']:.4f} km",
-        f"  Std: {stats['y']['std']:.4f} km",
-        f"  Mean absolute: {stats['y']['mean_abs']:.4f} km",
+        "North:",
+        f"  Mean: {stats['north']['mean']:.4f} km",
+        f"  Std: {stats['north']['std']:.4f} km",
+        f"  Mean absolute: {stats['north']['mean_abs']:.4f} km",
         "",
     ])
     

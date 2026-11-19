@@ -2,7 +2,8 @@
 Plotting functions for source correction analysis.
 
 This module contains all plotting functions for visualizing
-hypocenter corrections and method comparisons.
+hypocenter corrections and method comparisons. Locations are longitude and latitude (degrees)
+and depth (km); maps are drawn at true distance. Shifts are east, north and depth components in km.
 """
 
 import numpy as np
@@ -13,8 +14,8 @@ from typing import Dict, Any, Optional
 import logging
 
 from utils.plot_utils import save_figure, create_multi_panel_figure
-from utils.traveltime_io import km_per_unit
 from .basin_boundaries import plot_basin_boundaries
+from .velocity_plots import map_aspect, LON_LABEL, LAT_LABEL, DEPTH_LABEL
 
 logger = logging.getLogger(__name__)
 
@@ -67,15 +68,15 @@ def create_correction_histograms(df: pd.DataFrame, colors: Dict[str, str],
         comparison_mode: 'ground_truth' or 'method_comparison'
     """
     labels = _get_labels(comparison_mode, config)
-    params_to_process = config['source_analysis'].get('parameters_to_process', ['sx', 'sy', 'sz', 'st0'])
+    params_to_process = config['source_analysis'].get('parameters_to_process', ['slon', 'slat', 'sdepth', 'st0'])
 
     corrections = []
     if 'st0' in params_to_process:
         corrections.append(('delta_time_s', f'Origin Time {labels["shift"]} (s)', '#2E86AB'))
     corrections.extend([
         ('delta_depth_km', f'Depth {labels["difference"]} (km)', '#A23B72'),
-        ('delta_x_km', f'X {labels["difference"]} (km)', '#F18F01'),
-        ('delta_y_km', f'Y {labels["difference"]} (km)', '#C73E1D'),
+        ('delta_east_km', f'East {labels["difference"]} (km)', '#F18F01'),
+        ('delta_north_km', f'North {labels["difference"]} (km)', '#C73E1D'),
         ('delta_horiz_km', f'Horizontal {labels["shift"]} (km)', '#6A994E'),
     ])
     
@@ -144,13 +145,13 @@ def create_scatter_relationships(df: pd.DataFrame, colors: Dict[str, str],
     labels = _get_labels(comparison_mode, config)
     suffix = "_log" if use_log else ""
     scale_note = " (Log Scale)" if use_log else ""
-    params_to_process = config['source_analysis'].get('parameters_to_process', ['sx', 'sy', 'sz', 'st0'])
+    params_to_process = config['source_analysis'].get('parameters_to_process', ['slon', 'slat', 'sdepth', 'st0'])
     has_st0 = 'st0' in params_to_process
 
     fig, axes = plt.subplots(2, 2, figsize=(12, 10))
 
     # Depth vs horizontal shift
-    axes[0, 0].scatter(df['event_z'] * km_per_unit(df, 'event_z'), df['delta_horiz_km'],
+    axes[0, 0].scatter(df['event_depth_km'], df['delta_horiz_km'],
                       alpha=0.6, s=20, color='#2E86AB',
                       edgecolors='black', linewidth=0.3)
     axes[0, 0].set_xlabel('Original Depth (km)', fontsize=10)
@@ -162,7 +163,7 @@ def create_scatter_relationships(df: pd.DataFrame, colors: Dict[str, str],
     axes[0, 0].grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
 
     # Depth vs depth correction
-    axes[0, 1].scatter(df['event_z'] * km_per_unit(df, 'event_z'), df['delta_depth_km'],
+    axes[0, 1].scatter(df['event_depth_km'], df['delta_depth_km'],
                       alpha=0.6, s=20, color='#A23B72',
                       edgecolors='black', linewidth=0.3)
     axes[0, 1].set_xlabel('Original Depth (km)', fontsize=10)
@@ -173,7 +174,7 @@ def create_scatter_relationships(df: pd.DataFrame, colors: Dict[str, str],
         axes[0, 1].set_yscale('log')
     axes[0, 1].grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
 
-    # Horizontal vs time shift (if st0 processed) or X vs Z (otherwise)
+    # Horizontal vs time shift (if st0 processed) or east vs depth (otherwise)
     if has_st0:
         axes[1, 0].scatter(df['delta_horiz_km'], df['delta_time_s'].abs(),
                           alpha=0.6, s=20, color='#6A994E',
@@ -186,12 +187,12 @@ def create_scatter_relationships(df: pd.DataFrame, colors: Dict[str, str],
             axes[1, 0].set_xscale('log')
             axes[1, 0].set_yscale('log')
     else:
-        axes[1, 0].scatter(df['delta_x_km'], df['delta_z_km'],
+        axes[1, 0].scatter(df['delta_east_km'], df['delta_depth_km'],
                           alpha=0.6, s=20, color='#6A994E',
                           edgecolors='black', linewidth=0.3)
-        axes[1, 0].set_xlabel(f'X {labels["difference"]} (km)', fontsize=10)
-        axes[1, 0].set_ylabel(f'Z {labels["difference"]} (km)', fontsize=10)
-        axes[1, 0].set_title(f'X vs Z {labels["difference"]}s{scale_note}',
+        axes[1, 0].set_xlabel(f'East {labels["difference"]} (km)', fontsize=10)
+        axes[1, 0].set_ylabel(f'Depth {labels["difference"]} (km)', fontsize=10)
+        axes[1, 0].set_title(f'East vs Depth {labels["difference"]}s{scale_note}',
                             fontsize=11, fontweight='bold')
         axes[1, 0].axhline(0, color='gray', linestyle='--', linewidth=1)
         axes[1, 0].axvline(0, color='gray', linestyle='--', linewidth=1)
@@ -200,13 +201,13 @@ def create_scatter_relationships(df: pd.DataFrame, colors: Dict[str, str],
             axes[1, 0].set_yscale('log')
     axes[1, 0].grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
 
-    # X vs Y corrections
-    axes[1, 1].scatter(df['delta_x_km'], df['delta_y_km'],
+    # East vs north corrections
+    axes[1, 1].scatter(df['delta_east_km'], df['delta_north_km'],
                       alpha=0.6, s=20, color='#C73E1D',
                       edgecolors='black', linewidth=0.3)
-    axes[1, 1].set_xlabel(f'X {labels["difference"]} (km)', fontsize=10)
-    axes[1, 1].set_ylabel(f'Y {labels["difference"]} (km)', fontsize=10)
-    axes[1, 1].set_title(f'X vs Y {labels["difference"]}s{scale_note}',
+    axes[1, 1].set_xlabel(f'East {labels["difference"]} (km)', fontsize=10)
+    axes[1, 1].set_ylabel(f'North {labels["difference"]} (km)', fontsize=10)
+    axes[1, 1].set_title(f'East vs North {labels["difference"]}s{scale_note}',
                         fontsize=11, fontweight='bold')
     if use_log:
         axes[1, 1].set_xscale('log')
@@ -219,6 +220,14 @@ def create_scatter_relationships(df: pd.DataFrame, colors: Dict[str, str],
     save_figure(fig, plots_dir / f"scatter_relationships{suffix}", output_format)
 
 
+# Planes of the geographic plots: (name, horizontal column, vertical column, axis labels)
+GEOGRAPHIC_PLANES = {
+    'map': ('longitude', 'latitude', LON_LABEL, LAT_LABEL),
+    'lon_depth': ('longitude', 'depth_km', LON_LABEL, DEPTH_LABEL),
+    'lat_depth': ('latitude', 'depth_km', LAT_LABEL, DEPTH_LABEL),
+}
+
+
 def _single_geographic_plot(df: pd.DataFrame, colors: Dict[str, str],
                          plots_dir: Path, output_format: str,
                          plane: str,
@@ -227,59 +236,57 @@ def _single_geographic_plot(df: pd.DataFrame, colors: Dict[str, str],
                          basin_data: Optional[Dict] = None,
                          basin_config: Optional[Dict] = None) -> None:
     """
-    Create geographic map showing correction vectors.
-    
+    Create a plot of original and corrected locations joined by correction vectors.
+
     Args:
         df: Dataframe with corrections
         colors: Color scheme dictionary
         plots_dir: Output directory for plots
-        plane: Plane to make plot of
+        plane: 'map' (longitude-latitude, at true distance), 'lon_depth' or 'lat_depth'
         output_format: Output format (png, pdf, svg)
         config: Configuration dictionary
         comparison_mode: 'ground_truth' or 'method_comparison'
     """
     labels = _get_labels(comparison_mode, config)
-    
+    col_h, col_v, xlabel, ylabel = GEOGRAPHIC_PLANES[plane]
+
     fig, ax = plt.subplots(figsize=(12, 10))
-    
+
     # Plot original locations
-    ax.scatter(df[f'event_{plane[0]}'] * km_per_unit(df, f'event_{plane[0]}'),
-              df[f'event_{plane[1]}'] * km_per_unit(df, f'event_{plane[1]}'),
+    ax.scatter(df[f'event_{col_h}'], df[f'event_{col_v}'],
               c='#3498db', s=40, alpha=0.5, label=f'{labels["original"]} Locations',
               zorder=2, edgecolors='black', linewidth=0.5)
-    
+
     # Plot corrected locations
-    ax.scatter(df[f'corrected_event_{plane[0]}'] * km_per_unit(df, f'corrected_event_{plane[0]}'),
-              df[f'corrected_event_{plane[1]}'] * km_per_unit(df, f'corrected_event_{plane[1]}'),
+    ax.scatter(df[f'corrected_event_{col_h}'], df[f'corrected_event_{col_v}'],
               c='#e74c3c', s=40, alpha=0.5, label=f'{labels["corrected"]} Locations',
               zorder=3, edgecolors='black', linewidth=0.5)
-    
+
     # Draw correction vectors (subsample if too many)
     max_arrows = config['source_analysis'].get('max_arrows_map', 5000)
     sample_df = df.sample(min(max_arrows, len(df))) if len(df) > max_arrows else df
-    
-    km_x = km_per_unit(df, f'event_{plane[0]}')
-    km_y = km_per_unit(df, f'event_{plane[1]}')
+
     for _, row in sample_df.iterrows():
-        ax.arrow(row[f'event_{plane[0]}'] * km_x, row[f'event_{plane[1]}'] * km_y,
-                row[f'delta_{plane[0]}_km'], row[f'delta_{plane[1]}_km'],
+        ax.arrow(row[f'event_{col_h}'], row[f'event_{col_v}'],
+                row[f'corrected_event_{col_h}'] - row[f'event_{col_h}'],
+                row[f'corrected_event_{col_v}'] - row[f'event_{col_v}'],
                 head_width=0, head_length=0, fc='#2c3e50',
                 ec='#2c3e50', alpha=0.4,
                 zorder=1, linewidth=0.8)
-    
-    ax.set_xlabel('X (km)', fontsize=11)
-    ax.set_ylabel('Y (km)', fontsize=11)
+
+    ax.set_xlabel(xlabel, fontsize=11)
+    ax.set_ylabel(ylabel, fontsize=11)
     ax.set_title(f'Geographic Distribution of Source {labels["difference"]}s\n{labels["title_suffix"]}',
                 fontsize=12, fontweight='bold')
     ax.legend(frameon=True, fancybox=False, edgecolor='black')
     ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.5)
-    if plane == 'xy':
-        ax.set_aspect('equal', adjustable='box')
+    if plane == 'map':
+        ax.set_aspect(map_aspect(df['event_latitude'].to_numpy(dtype=float)), adjustable='box')
         if basin_data:
             plot_basin_boundaries(ax, basin_data, basin_config or {})
     else:
         ax.invert_yaxis()
-    
+
     fig.tight_layout()
     save_figure(fig, plots_dir / f'geographic_corrections_{plane}', output_format)
 
@@ -291,7 +298,7 @@ def create_geographic_map(df: pd.DataFrame, colors: Dict[str, str],
                          basin_data: Optional[Dict] = None,
                          basin_config: Optional[Dict] = None) -> None:
     """
-    Create geographic map showing correction vectors.
+    Create a map and two depth sections showing correction vectors.
 
     Args:
         df: Dataframe with corrections
@@ -303,10 +310,10 @@ def create_geographic_map(df: pd.DataFrame, colors: Dict[str, str],
         basin_data: Basin boundary data loaded from load_basin_boundaries()
         basin_config: Basin boundary configuration for styling
     """
-    _single_geographic_plot(df, colors, plots_dir, output_format, 'xy', config, comparison_mode,
+    _single_geographic_plot(df, colors, plots_dir, output_format, 'map', config, comparison_mode,
                             basin_data=basin_data, basin_config=basin_config)
-    _single_geographic_plot(df, colors, plots_dir, output_format, 'yz', config, comparison_mode)
-    _single_geographic_plot(df, colors, plots_dir, output_format, 'xz', config, comparison_mode)
+    _single_geographic_plot(df, colors, plots_dir, output_format, 'lat_depth', config, comparison_mode)
+    _single_geographic_plot(df, colors, plots_dir, output_format, 'lon_depth', config, comparison_mode)
 
 
 def create_depth_analysis(df: pd.DataFrame, colors: Dict[str, str],
@@ -331,8 +338,8 @@ def create_depth_analysis(df: pd.DataFrame, colors: Dict[str, str],
     
     fig, axes = plt.subplots(1, 2, figsize=(14, 6))
 
-    original_depth = df['event_z'] * km_per_unit(df, 'event_z')
-    corrected_depth = df['corrected_event_z'] * km_per_unit(df, 'corrected_event_z')
+    original_depth = df['event_depth_km']
+    corrected_depth = df['corrected_event_depth_km']
     
     # Original vs corrected depth
     axes[0].scatter(original_depth, 
@@ -365,7 +372,7 @@ def create_depth_analysis(df: pd.DataFrame, colors: Dict[str, str],
     # Depth correction by depth bins
     df_copy = df.copy()
     n_bins = config['source_analysis'].get('depth_bins', 10)
-    df_copy['depth_bin'] = pd.cut(df_copy['event_z'], bins=n_bins)
+    df_copy['depth_bin'] = pd.cut(df_copy['event_depth_km'], bins=n_bins)
     
     depth_stats = df_copy.groupby('depth_bin')['delta_depth_km'].agg(
         ['mean', 'std', 'count']
@@ -417,7 +424,7 @@ def create_correction_summary(df: pd.DataFrame, colors: Dict[str, str],
     labels = _get_labels(comparison_mode, config)
     suffix = "_log" if use_log else ""
     scale_note = " (Log Scale)" if use_log else ""
-    params_to_process = config['source_analysis'].get('parameters_to_process', ['sx', 'sy', 'sz', 'st0'])
+    params_to_process = config['source_analysis'].get('parameters_to_process', ['slon', 'slat', 'sdepth', 'st0'])
 
     fig, ax = plt.subplots(figsize=(12, 6))
 
@@ -428,11 +435,11 @@ def create_correction_summary(df: pd.DataFrame, colors: Dict[str, str],
         plot_labels.append('|Time| (s)')
     correction_data.extend([
         df['delta_depth_km'].abs().dropna(),
-        df['delta_x_km'].abs().dropna(),
-        df['delta_y_km'].abs().dropna(),
+        df['delta_east_km'].abs().dropna(),
+        df['delta_north_km'].abs().dropna(),
         df['delta_horiz_km'].dropna(),
     ])
-    plot_labels.extend(['|Depth| (km)', '|X| (km)', '|Y| (km)', 'Horiz (km)'])
+    plot_labels.extend(['|Depth| (km)', '|East| (km)', '|North| (km)', 'Horiz (km)'])
     
     bp = ax.boxplot(correction_data, labels=plot_labels, patch_artist=True,
                    showmeans=True, meanline=True,

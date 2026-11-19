@@ -276,7 +276,7 @@ short_distance_analysis:
 # Source parameter correction analysis
 source_analysis:
   enabled: false
-  parameters_to_process: ["sx", "sy", "sz", "st0"]  # subset controls which corrections are computed and plotted
+  parameters_to_process: ["slon", "slat", "sdepth", "st0"]  # st0 in the list: origin-time corrections are computed and plotted
   comparison_mode: "ground_truth"         # ground_truth | method_comparison
 
   # ground_truth mode input
@@ -299,7 +299,7 @@ source_analysis:
 
   generate_summary_report: true
   save_corrected_data: true               # true = write source_corrections_with_deltas.csv
-  plot_basin_boundaries: false            # true = overlay basin boundaries on XY geographic map
+  plot_basin_boundaries: false            # true = overlay basin boundaries on the map of corrections
 
 # Inversion tradeoff curve (data misfit vs. model variance)
 tradeoff_analysis:
