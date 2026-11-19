@@ -4,7 +4,6 @@ These functions can be reused across preprocessing, postprocessing, and analysis
 """
 
 import os
-import re
 import logging
 from pathlib import Path
 from typing import Union, List, Dict, Any, Optional
@@ -18,162 +17,50 @@ from utils.csv_metadata import read_csv_header_metadata
 
 
 # --------------------------------------------------------------------------- #
-# Standard CSV file names
+# Standard file names
 # --------------------------------------------------------------------------- #
-# Default names of the per-pick tables, matching the published data package
-# (analysis/geometry_and_travel_times/). Legacy names are only fallbacks for inputs.
+# Names of the per-pick tables, matching the published data package
+# (analysis/geometry_and_travel_times/), and the stems of the velocity models.
 GROUND_TRUTH_CSV_NAME = "geometry_ground_truth_traveltimes.csv"
 SYNTHETIC_TT_CSV_NAME = "synthetic_traveltimes.csv"
 SOURCE_RELOCATION_CSV_NAME = "source_relocation.csv"
-
-_CSV_NAMES = {
-    'ground_truth': (
-        GROUND_TRUTH_CSV_NAME,
-        ("ground_truth_traveltimes.csv",
-         "ground_truth_travel_times_corrected.csv",
-         "ground_truth_travel_times.csv"),
-    ),
-    'synthetic': (
-        SYNTHETIC_TT_CSV_NAME,
-        ("synthetic_travel_times_latte_output.csv",),
-    ),
-    # The source columns were once appended to the synthetic travel time table
-    'source': (
-        SOURCE_RELOCATION_CSV_NAME,
-        ("source_parameters_latte_output.csv",
-         "synthetic_travel_times_latte_output.csv"),
-    ),
-}
-
-# Legacy glob patterns used when scanning iteration directories
-_LEGACY_CSV_GLOBS = {
-    SYNTHETIC_TT_CSV_NAME: ("synthetic_travel_times_latte_output.csv", "travel_time_residuals*.csv"),
-    SOURCE_RELOCATION_CSV_NAME: ("source_parameters_latte_output.csv", "source_corrections*.csv"),
-    GROUND_TRUTH_CSV_NAME: ("ground_truth_traveltimes.csv", "ground_truth_travel_times*.csv"),
-}
-
-# Velocity models: standard stem and legacy stems. The extension (.csv, .h5, .hdf5) is kept, and a
-# trailing grid/method suffix (_coarse, _exact) carries over to the standard name.
 VELOCITY_INIT_STEM = "velocity_model_init"
 VELOCITY_FINAL_STEM = "velocity_model_final"
-
-_VELOCITY_STEMS = {
-    'init': (
-        VELOCITY_INIT_STEM,
-        ("velocity_model_cartesian", "velocity_initial_cartesian",
-         "velocity_cartesian_initial", "velocity_cartesian"),
-    ),
-    'final': (
-        VELOCITY_FINAL_STEM,
-        ("velocity_cartesian_latte_output", "velocity_cartesian_updated", "velocity_model_inverted"),
-    ),
-}
-_VELOCITY_EXTENSIONS = ('.csv', '.h5', '.hdf5')
-_VELOCITY_SUFFIX_RE = re.compile(r'^(?P<stem>.+?)(?P<suffix>(?:_exact)?(?:_coarse)?)$')
 
 _logger = logging.getLogger(__name__)
 
 
-def _csv_role_from_name(name: str) -> Optional[str]:
-    for role, (new_name, legacy_names) in _CSV_NAMES.items():
-        if name == new_name:
-            return role
-    for role, (_, legacy_names) in _CSV_NAMES.items():
-        if name in legacy_names:
-            return role
-    return None
-
-
 def resolve_csv_path(filepath: Union[str, Path], role: Optional[str] = None) -> str:
     """
-    Resolve the standard per-pick CSV (ground truth, synthetic travel times, source
-    relocation) to a file that exists, preferring the standard name.
+    Path of a per-pick CSV (ground truth, synthetic travel times, source relocation).
 
-    If filepath exists it is returned as is. Otherwise the same directory is searched
-    for the standard name and then the legacy names. A warning is logged whenever a
-    legacy name is used. Paths with other names, or with no match, are returned
-    unchanged so the caller reports its usual error.
+    Files are read only under the configured name: there is no fallback to the legacy names of
+    the Cartesian workflow, so a missing file is reported by the reader.
 
     Args:
         filepath: Configured CSV path
-        role: 'ground_truth', 'synthetic' or 'source'; inferred from the file name if omitted
+        role: Unused; kept for the callers that name the table
 
     Returns:
-        Path of the file to read
+        The configured path
     """
-    path = Path(filepath)
-    role = role or _csv_role_from_name(path.name)
-    if role not in _CSV_NAMES:
-        return str(filepath)
-
-    standard, legacy_names = _CSV_NAMES[role]
-    if path.exists():
-        if path.name in legacy_names:
-            _logger.warning(f"Legacy CSV name '{path.name}' in use; standard name is '{standard}'")
-        return str(filepath)
-
-    for name in (standard, *legacy_names):
-        candidate = path.parent / name
-        if candidate.exists():
-            if name != standard:
-                _logger.warning(f"'{standard}' not found in {path.parent}; "
-                                f"using legacy file '{name}' (rename it to '{standard}')")
-            return str(candidate)
     return str(filepath)
 
 
 def glob_csv(directory: Union[str, Path], pattern: str, recursive: bool = False) -> List[Path]:
-    """
-    Sorted glob of directory for pattern, with legacy fallback when the pattern is a
-    standard CSV name. A warning is logged if only legacy names match.
-    """
+    """Sorted glob of ``directory`` for ``pattern`` (no fallback to legacy file names)."""
     directory = Path(directory)
     find = directory.rglob if recursive else directory.glob
-    matches = sorted(find(pattern))
-    if matches:
-        return matches
-    for legacy in _LEGACY_CSV_GLOBS.get(pattern, ()):
-        matches = sorted(find(legacy))
-        if matches:
-            _logger.warning(f"No '{pattern}' in {directory}; using legacy file(s) matching "
-                            f"'{legacy}' (rename to '{pattern}')")
-            return matches
-    return []
+    return sorted(find(pattern))
 
 
 def resolve_velocity_path(filepath: Union[str, Path]) -> str:
     """
-    Resolve a velocity model file (CSV or HDF5) to one that exists, preferring the standard
-    stems 'velocity_model_init' and 'velocity_model_final'.
+    Path of a velocity model file (CSV or HDF5).
 
-    Behaves like resolve_csv_path: an existing path is returned as is, otherwise the same
-    directory is searched for the standard stem and then the legacy stems with the same
-    extension and suffix. A warning is logged whenever a legacy name is used. Other names, or
-    no match, return the path unchanged.
+    Files are read only under the configured name: there is no fallback to the legacy
+    (Cartesian) names, so a missing file is reported by the reader.
     """
-    path = Path(filepath)
-    if path.suffix.lower() not in _VELOCITY_EXTENSIONS:
-        return str(filepath)
-    match = _VELOCITY_SUFFIX_RE.match(path.stem)
-    stem, suffix = match.group('stem'), match.group('suffix')
-    role = next((r for r, (std, legacy) in _VELOCITY_STEMS.items() if stem == std or stem in legacy), None)
-    if role is None:
-        return str(filepath)
-
-    standard, legacy_stems = _VELOCITY_STEMS[role]
-    standard_name = f"{standard}{suffix}{path.suffix}"
-    if path.exists():
-        if stem != standard:
-            _logger.warning(f"Legacy velocity model name '{path.name}' in use; standard name is '{standard_name}'")
-        return str(filepath)
-
-    for name_stem in (standard, *legacy_stems):
-        candidate = path.parent / f"{name_stem}{suffix}{path.suffix}"
-        if candidate.exists():
-            if name_stem != standard:
-                _logger.warning(f"'{standard_name}' not found in {path.parent}; "
-                                f"using legacy file '{candidate.name}' (rename it to '{standard_name}')")
-            return str(candidate)
     return str(filepath)
 
 
@@ -286,7 +173,7 @@ def read_csv_file(filepath: Union[str, Path], **kwargs) -> pd.DataFrame:
     default_kwargs.update(kwargs)
     
     df = pd.read_csv(filepath, **default_kwargs)
-    # Legacy column names are renamed (X_grid_km -> x, event_x_transformed -> event_x, ...)
+    # Grid index columns and the dropped geometry columns (residual, distance_m, ...) are removed
     context = Path(filepath).name
     df = normalize_coordinate_columns(df, drop_index_columns=False, context=context)
     df = normalize_geometry_columns(df, context=context)

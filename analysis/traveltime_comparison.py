@@ -62,6 +62,15 @@ def prepare_comparison_data(df1: pd.DataFrame, df2: pd.DataFrame,
     # Compute residual (Method2 - Method1)
     df_merged['residual_s'] = df_merged['synthetic_tt'] - df_merged['observed_tt']
     
+    # Weights of Method 1 (the 'observed' role); warn where the two files disagree
+    if 'weight_method1' in df_merged.columns:
+        df_merged['weight'] = df_merged['weight_method1']
+        if 'weight_method2' in df_merged.columns:
+            differ = ~np.isclose(df_merged['weight_method1'], df_merged['weight_method2'])
+            if differ.any():
+                logger.warning(f"Weights differ between Method 1 and Method 2 for {int(differ.sum())} picks; "
+                               f"using the Method 1 weights")
+
     # Also keep observed travel time if it exists (for reference)
     if 'observed_tt_method1' in df_merged.columns:
         df_merged['ground_truth_tt'] = df_merged['observed_tt_method1']

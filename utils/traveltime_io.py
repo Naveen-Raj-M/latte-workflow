@@ -46,6 +46,12 @@ TRAVELTIME_UNITS = {
 
 _LENGTH_TO_KM = {'m': 1e-3, 'km': 1.0}
 
+# Position columns of the per-pick tables of the Cartesian workflow
+CARTESIAN_COLUMNS = tuple(f'{prefix}_{axis}' for prefix in ('event', 'station', 'corrected_event')
+                          for axis in ('x', 'y', 'z'))
+SPHERICAL_COLUMNS = ('event_longitude', 'event_latitude', 'event_depth_km',
+                     'station_longitude', 'station_latitude', 'station_depth_km')
+
 
 def get_units(df: pd.DataFrame) -> Dict[str, str]:
     """Units of the columns: from the ``units.*`` file metadata, else the standard units."""
@@ -62,6 +68,22 @@ def km_per_unit(df: pd.DataFrame, column: str) -> float:
     if unit not in _LENGTH_TO_KM:
         raise ValueError(f"Column '{column}' has no length unit (found {unit!r})")
     return _LENGTH_TO_KM[unit]
+
+
+def coordinate_system(df: pd.DataFrame) -> str:
+    """
+    Coordinate system of a per-pick table: the ``coordinate_system`` of its header metadata;
+    without it, ``cartesian`` if it has Cartesian position columns (``event_x``, ...),
+    ``spherical`` if it has the longitude/latitude/depth columns, otherwise ``unknown``.
+    """
+    declared = (df.attrs.get('metadata') or {}).get('coordinate_system')
+    if declared:
+        return str(declared)
+    if any(c in df.columns for c in CARTESIAN_COLUMNS):
+        return 'cartesian'
+    if all(c in df.columns for c in SPHERICAL_COLUMNS):
+        return 'spherical'
+    return 'unknown'
 
 
 def read_traveltime_csv(filepath: Union[str, Path], **kwargs) -> pd.DataFrame:

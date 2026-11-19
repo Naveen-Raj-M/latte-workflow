@@ -14,7 +14,7 @@ import logging
 from datetime import datetime
 
 from utils.io_utils import read_csv_file, write_text_file, ensure_directory_exists
-from utils.traveltime_io import add_residual_s
+from utils.traveltime_io import add_residual_s, coordinate_system
 from utils.plot_utils import setup_plot_style
 
 from .traveltime_plots import create_travel_time_plots
@@ -23,6 +23,13 @@ from .traveltime_comparison import prepare_comparison_data
 from .filters import apply_analysis_filters
 
 logger = logging.getLogger(__name__)
+
+
+def log_coordinate_system(df: pd.DataFrame, source: str) -> None:
+    """Log the coordinate system of an input table. The travel-time analysis uses only times,
+    phases and identifiers, so it continues whatever the coordinate system."""
+    logger.info(f"  {source}: coordinate system '{coordinate_system(df)}'; the travel-time analysis "
+                f"does not use coordinates, continuing")
 
 
 def analyze_travel_time_residuals(config: Dict[str, Any]) -> Dict[str, Any]:
@@ -72,8 +79,9 @@ def _analyze_ground_truth_comparison(config: Dict[str, Any]) -> Dict[str, Any]:
 
     logger.info(f"Loading travel time data from: {input_csv}")
     df = add_residual_s(read_csv_file(input_csv))  # residual_s is computed, not stored in the file
+    log_coordinate_system(df, Path(input_csv).name)
 
-    # Apply analysis filters (depth and phase type)
+    # Apply analysis filters (phase type)
     df = apply_analysis_filters(df, config, data_type="travel time data")
 
     # Validate and clean data
@@ -115,6 +123,8 @@ def _analyze_method_comparison(config: Dict[str, Any]) -> Dict[str, Any]:
 
     df1 = read_csv_file(method1_csv)
     df2 = read_csv_file(method2_csv)
+    log_coordinate_system(df1, f"Method 1 ({Path(method1_csv).name})")
+    log_coordinate_system(df2, f"Method 2 ({Path(method2_csv).name})")
 
     # Apply analysis filters to both datasets
     df1 = apply_analysis_filters(df1, config, data_type="Method 1 travel time data")
