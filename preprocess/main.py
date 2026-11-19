@@ -9,8 +9,9 @@ Workflow order:
 1. Raw data visualization (optional, own filters)
 2. QuakeML to HDF5 conversion (optional, own filters)
 3. Preprocessing pipeline (global filters), if preprocessing.run_pipeline:
-   load data (QuakeML or HDF5), transform coordinates, create geometry and
-   travel time files, create velocity model and binaries, final data visualization
+   load data (QuakeML or HDF5), check coordinates (longitude, WGS84 geodetic latitude,
+   depth below MSL on a spherical Earth), create geometry and travel time files,
+   create velocity model and binaries, final data visualization
 """
 
 import logging
@@ -23,7 +24,7 @@ from omegaconf import DictConfig, OmegaConf
 
 # Import preprocessing functions
 from preprocess.data_loader import load_seismic_data
-from preprocess.coordinate_transformation import transform_coordinates
+from preprocess.coordinate_transformation import transform_coordinates, check_grid_configuration
 from preprocess.geometry_traveltime import create_geometry_and_traveltime_files
 from preprocess.initial_velocity_model import create_velocity_model
 from preprocess.hdf5_conversion import convert_to_hdf5
@@ -59,15 +60,22 @@ def run_data_loading(cfg: DictConfig, raw: Optional[CatalogData] = None):
 
         print(f"\nLoaded data summary:")
         print(f"  Events: {len(events_df)}")
-        print(f"  Stations: {len(stations_df.drop_duplicates(subset=['longitude', 'latitude', 'depth']))} (unique positions)")
+        print(f"  Stations: {_unique_positions(stations_df)} (unique positions)")
         print(f"  Arrivals: {len(arrivals_df)}")
         print(f"  Picks: {len(picks_df)}")
 
     return events_df, stations_df, arrivals_df, picks_df
 
 
+def _unique_positions(df: Optional[pd.DataFrame]) -> int:
+    """Number of distinct (longitude, latitude, depth) positions in a table."""
+    if df is None or df.empty:
+        return 0
+    return len(df.drop_duplicates(subset=['longitude', 'latitude', 'depth']))
+
+
 def run_coordinate_transform(cfg: DictConfig, events_df, stations_df, picks_df):
-    """Transform coordinates from geodetic to Cartesian.
+    """Check the coordinates of events and stations (longitude, geodetic latitude, depth).
 
     Args:
         cfg: Configuration settings.
@@ -76,35 +84,35 @@ def run_coordinate_transform(cfg: DictConfig, events_df, stations_df, picks_df):
         picks_df: DataFrame with picks.
 
     Returns:
-        Tuple of (events_cart_df, stations_cart_df).
+        Tuple of (events_df, stations_df) with the columns longitude, latitude, depth.
     """
     if not cfg.coordinate_transform.enabled:
         return events_df, stations_df
 
     print("\n" + "="*60)
-    print("COORDINATE TRANSFORMATION (FLATTENING)")
+    print("COORDINATES (SPHERICAL EARTH)")
     print("="*60)
 
-    with ProcessTimer("Coordinate Transformation"):
-        events_cart, stations_cart = transform_coordinates(
+    with ProcessTimer("Coordinate Check"):
+        events_out, stations_out = transform_coordinates(
             cfg, events_df, stations_df
         )
 
         # Also save picks to coordinate_transform output directory for independent visualization
         if picks_df is not None and not picks_df.empty:
-            picks_csv = Path(cfg.coordinate_transform.picks_cartesian_csv)
+            picks_csv = Path(cfg.coordinate_transform.picks_csv)
             ensure_directory_exists(picks_csv.parent)
             picks_df.to_csv(picks_csv, index=False)
             print(f"  Picks: {len(picks_df)} saved to {picks_csv}")
 
-        print(f"\nTransformed coordinates:")
-        print(f"  Events: {len(events_cart)} to Cartesian")
-        print(f"  Stations: {len(stations_cart.drop_duplicates(subset=['x', 'y', 'z']))} (unique positions) to Cartesian")
+        print(f"\nChecked coordinates:")
+        print(f"  Events: {len(events_out)}")
+        print(f"  Stations: {_unique_positions(stations_out)} (unique positions)")
 
-    return events_cart, stations_cart
+    return events_out, stations_out
 
 
-def run_geometry_traveltime(cfg: DictConfig, events_cart, stations_cart,
+def run_geometry_traveltime(cfg: DictConfig, events_df, stations_df,
                             picks_df) -> Tuple[Optional[pd.DataFrame],
                                                Optional[pd.DataFrame],
                                                Optional[pd.DataFrame]]:
@@ -112,8 +120,8 @@ def run_geometry_traveltime(cfg: DictConfig, events_cart, stations_cart,
 
     Args:
         cfg: Configuration settings.
-        events_cart: DataFrame with events in Cartesian coordinates.
-        stations_cart: DataFrame with stations in Cartesian coordinates.
+        events_df: DataFrame with events (longitude, latitude, depth).
+        stations_df: DataFrame with stations (longitude, latitude, depth).
         picks_df: DataFrame with picks.
 
     Returns:
@@ -130,14 +138,13 @@ def run_geometry_traveltime(cfg: DictConfig, events_cart, stations_cart,
 
     with ProcessTimer("Geometry and Travel Time Processing"):
         filtered_events, filtered_stations, filtered_picks = create_geometry_and_traveltime_files(
-            cfg, events_cart, stations_cart, picks_df
+            cfg, events_df, stations_df, picks_df
         )
 
         if filtered_events is not None and len(filtered_events) > 0:
-            n_receivers = len(filtered_stations.drop_duplicates(subset=['x', 'y', 'z'])) if filtered_stations is not None else 0
             print(f"\nAfter geometry/traveltime filtering:")
             print(f"  Sources: {len(filtered_events)}")
-            print(f"  Unique receivers (unique positions): {n_receivers}")
+            print(f"  Unique receivers (unique positions): {_unique_positions(filtered_stations)}")
             print(f"  Picks: {len(filtered_picks)}")
 
         print(f"\nGeometry files created in: "
@@ -151,13 +158,13 @@ def run_geometry_traveltime(cfg: DictConfig, events_cart, stations_cart,
     return filtered_events, filtered_stations, filtered_picks
 
 
-def run_velocity_model(cfg: DictConfig, events_cart, stations_cart) -> None:
+def run_velocity_model(cfg: DictConfig, events_df, stations_df) -> None:
     """Create velocity model and binary files.
 
     Args:
         cfg: Configuration settings.
-        events_cart: DataFrame with events in Cartesian coordinates.
-        stations_cart: DataFrame with stations in Cartesian coordinates.
+        events_df: DataFrame with events (longitude, latitude, depth).
+        stations_df: DataFrame with stations (longitude, latitude, depth).
     """
     if not cfg.initial_velocity_model.enabled:
         return
@@ -167,7 +174,7 @@ def run_velocity_model(cfg: DictConfig, events_cart, stations_cart) -> None:
     print("="*60)
 
     with ProcessTimer("Velocity Model Creation"):
-        create_velocity_model(cfg, events_cart, stations_cart)
+        create_velocity_model(cfg, events_df, stations_df)
 
         print(f"\nVelocity model CSV: {cfg.initial_velocity_model.output_csv}")
 
@@ -176,11 +183,12 @@ def run_velocity_model(cfg: DictConfig, events_cart, stations_cart) -> None:
             print(f"Vp binary file: {cfg.initial_velocity_model.vp_binary}")
         if phase_type in ['both', 's']:
             print(f"Vs binary file: {cfg.initial_velocity_model.vs_binary}")
+        latte_grid_file = cfg.coordinate_transform.get('latte_grid_file', None)
+        if latte_grid_file:
+            print(f"LATTE grid parameters: {latte_grid_file}")
 
 
 def load_existing_data_for_visualization(cfg: DictConfig) -> Tuple[Optional[pd.DataFrame],
-                                                                   Optional[pd.DataFrame],
-                                                                   Optional[pd.DataFrame],
                                                                    Optional[pd.DataFrame],
                                                                    Optional[pd.DataFrame]]:
     """Load data from existing CSV files for visualization.
@@ -188,62 +196,48 @@ def load_existing_data_for_visualization(cfg: DictConfig) -> Tuple[Optional[pd.D
     This function attempts to load previously saved data files to enable
     visualization without running the entire preprocessing pipeline.
 
-    IMPORTANT: This function prefers FILTERED data files if they exist.
-    Filtered data only includes picks that passed all geometry processing
-    filters (velocity validation, P&S pair requirements, etc.) and were
-    written to the output geometry/traveltime files.
+    The files hold only the data that passed all geometry processing filters
+    (velocity validation, P&S pair requirements, etc.) and were written to the
+    output geometry/traveltime files.
 
     Args:
         cfg: Configuration settings.
 
     Returns:
-        Tuple of (events_df, stations_df, events_cart, stations_cart, picks_df).
-        Any or all can be None if files don't exist.
+        Tuple of (events_df, stations_df, picks_df). Any or all can be None if
+        files don't exist.
     """
     logger = logging.getLogger(__name__)
 
-    # Define paths - only fully-filtered data is written
-    events_geo_path = Path(cfg.coordinate_transform.events_geodetic_csv)
-    stations_geo_path = Path(cfg.coordinate_transform.stations_geodetic_csv)
-    events_cart_path = Path(cfg.coordinate_transform.events_cartesian_csv)
-    stations_cart_path = Path(cfg.coordinate_transform.stations_cartesian_csv)
-    picks_path = Path(cfg.coordinate_transform.picks_cartesian_csv)
+    coord_cfg = cfg.coordinate_transform
+    events_path = Path(coord_cfg.events_csv)
+    stations_path = Path(coord_cfg.stations_csv)
+    picks_path = Path(coord_cfg.picks_csv)
 
     events_df = None
     stations_df = None
-    events_cart = None
-    stations_cart = None
     picks_df = None
 
-    if events_geo_path.exists() and stations_geo_path.exists():
+    if events_path.exists() and stations_path.exists():
         try:
-            events_df = pd.read_csv(events_geo_path)
-            stations_df = pd.read_csv(stations_geo_path)
-            logger.info(f"Loaded geodetic data: {len(events_df)} events, {len(stations_df.drop_duplicates(subset=['longitude', 'latitude', 'depth']))} stations (unique positions)")
+            events_df = normalize_coordinate_columns(pd.read_csv(events_path), context=events_path.name)
+            stations_df = normalize_coordinate_columns(pd.read_csv(stations_path), context=stations_path.name)
+            logger.info(f"Loaded data: {len(events_df)} events, {_unique_positions(stations_df)} stations (unique positions)")
         except Exception as e:
-            logger.warning(f"Failed to load geodetic CSVs: {e}")
-
-    if events_cart_path.exists() and stations_cart_path.exists():
-        try:
-            events_cart = normalize_coordinate_columns(pd.read_csv(events_cart_path), context=events_cart_path.name)
-            stations_cart = normalize_coordinate_columns(pd.read_csv(stations_cart_path), context=stations_cart_path.name)
-            logger.info(f"Loaded Cartesian data: {len(events_cart)} events, {len(stations_cart.drop_duplicates(subset=['x', 'y', 'z']))} stations (unique positions)")
-        except Exception as e:
-            logger.warning(f"Failed to load Cartesian CSVs: {e}")
+            logger.warning(f"Failed to load event/station CSVs: {e}")
 
     if picks_path.exists():
         try:
-            picks_df = normalize_coordinate_columns(pd.read_csv(picks_path), context=picks_path.name)
+            picks_df = pd.read_csv(picks_path)
             logger.info(f"Loaded picks: {len(picks_df)} picks")
         except Exception as e:
             logger.warning(f"Failed to load picks CSV: {e}")
 
-    return events_df, stations_df, events_cart, stations_cart, picks_df
+    return events_df, stations_df, picks_df
 
 
 def run_visualization(cfg: DictConfig, events_df=None, stations_df=None,
-                     picks_df=None, events_cart=None, stations_cart=None,
-                     load_from_files=False) -> None:
+                     picks_df=None, load_from_files=False) -> None:
     """Create visualizations.
 
     Args:
@@ -251,8 +245,6 @@ def run_visualization(cfg: DictConfig, events_df=None, stations_df=None,
         events_df: DataFrame with events (geodetic coordinates). If None and load_from_files=True, will try to load.
         stations_df: DataFrame with stations (geodetic coordinates). If None and load_from_files=True, will try to load.
         picks_df: DataFrame with picks. If None and load_from_files=True, will try to load.
-        events_cart: DataFrame with events (Cartesian coordinates). If None and load_from_files=True, will try to load.
-        stations_cart: DataFrame with stations (Cartesian coordinates). If None and load_from_files=True, will try to load.
         load_from_files: If True, attempt to load data from existing CSV files when data is None.
     """
     if not cfg.final_data_visualization.enabled:
@@ -263,9 +255,9 @@ def run_visualization(cfg: DictConfig, events_df=None, stations_df=None,
     # If load_from_files is True and data is None, try loading from CSVs
     if load_from_files and (events_df is None or stations_df is None):
         logger.info("Attempting to load existing data for visualization...")
-        events_df, stations_df, events_cart, stations_cart, picks_df = load_existing_data_for_visualization(cfg)
+        events_df, stations_df, picks_df = load_existing_data_for_visualization(cfg)
 
-        if events_df is None and stations_df is None and events_cart is None:
+        if events_df is None and stations_df is None:
             logger.warning("No existing data files found for visualization")
             print("\nWARNING: No existing data files found. Run the full workflow first to generate data.")
             return
@@ -287,7 +279,7 @@ def run_visualization(cfg: DictConfig, events_df=None, stations_df=None,
                 print(f"  Station/event visualizations saved to: "
                       f"{final_vis.station_event_vis.output_dir}")
         else:
-            logger.warning("Station/event visualization enabled but geodetic coordinate data not available")
+            logger.warning("Station/event visualization enabled but coordinate data not available")
 
     # Velocity model visualization
     if ('velocity_model_vis' in final_vis and
@@ -388,12 +380,14 @@ def print_configuration_summary(config: DictConfig) -> None:
 
     # Enabled processing steps
     print("\nEnabled processing steps:")
-    if config.coordinate_transform.enabled:
-        print(f"  1. Coordinate transformation (flattening)")
-        print(f"     Origin: ({config.coordinate_transform.origin_lon}°, "
-              f"{config.coordinate_transform.origin_lat}°, "
-              f"{config.coordinate_transform.origin_depth_km} km)")
-        print(f"     Grid spacing: {config.coordinate_transform.grid_spacing_km} km")
+    coord_cfg = config.coordinate_transform
+    print(f"\nSpherical Earth: radius {coord_cfg.get('earth_radius_km', 6371.0)} km")
+    print(f"  Grid origin (west, south, top): ({coord_cfg.origin_lon}°, "
+          f"{coord_cfg.origin_lat}°, {coord_cfg.origin_depth_km} km)")
+    dlon, dlat, ddepth = coord_cfg.grid_spacing
+    print(f"  Grid spacing: {dlon}° lon, {dlat}° lat, {ddepth} km depth")
+    if coord_cfg.enabled:
+        print(f"  1. Coordinate check")
     if config.geometry_traveltime.enabled:
         phase_type = config.geometry_traveltime.get('phase_type', 'both')
         print(f"  2. Geometry and travel time file creation "
@@ -478,91 +472,63 @@ def run_preprocessing_pipeline(config: DictConfig) -> None:
                   "filters.")
             return
 
-        # Step 2: Transform coordinates (flattening)
-        events_cart, stations_cart = run_coordinate_transform(
+        # Step 2: Check coordinates (spherical Earth)
+        events_df, stations_df = run_coordinate_transform(
             config, events_df, stations_df, picks_df
         )
 
         # Step 3: Geometry and travel time files
-        filtered_events_cart, filtered_stations_cart, filtered_picks = run_geometry_traveltime(
-            config, events_cart, stations_cart, picks_df
+        filtered_events, filtered_stations, filtered_picks = run_geometry_traveltime(
+            config, events_df, stations_df, picks_df
         )
 
         # Step 4: Velocity model and binaries
-        run_velocity_model(config, events_cart, stations_cart)
+        run_velocity_model(config, events_df, stations_df)
 
         # Save fully-filtered data to CSV
-        if filtered_events_cart is not None and len(filtered_events_cart) > 0:
-            # Save filtered Cartesian data
+        has_filtered = filtered_events is not None and len(filtered_events) > 0
+        if has_filtered:
             coord_cfg = config.coordinate_transform
-            events_cart_csv = Path(coord_cfg.events_cartesian_csv)
-            stations_cart_csv = Path(coord_cfg.stations_cartesian_csv)
-            picks_cart_csv = Path(coord_cfg.picks_cartesian_csv)
-            filtered_events_cart.to_csv(events_cart_csv, index=False)
-            filtered_stations_cart.to_csv(stations_cart_csv, index=False)
-            filtered_picks.to_csv(picks_cart_csv, index=False)
-
-            # Also save filtered geodetic data
-            filtered_event_ids = set(filtered_events_cart['event_id'].unique())
-            filtered_station_ids = set(filtered_stations_cart['station_id'].unique())
-            events_df_filtered = events_df[events_df['event_id'].isin(filtered_event_ids)]
-            stations_df_filtered = stations_df[stations_df['station_id'].isin(filtered_station_ids)]
-
-            events_geo_csv = Path(coord_cfg.events_geodetic_csv)
-            stations_geo_csv = Path(coord_cfg.stations_geodetic_csv)
-            ensure_directory_exists(events_geo_csv.parent)
-            ensure_directory_exists(stations_geo_csv.parent)
-            events_df_filtered.to_csv(events_geo_csv, index=False)
-            stations_df_filtered.to_csv(stations_geo_csv, index=False)
-
+            outputs = ((filtered_events, Path(coord_cfg.events_csv)),
+                       (filtered_stations, Path(coord_cfg.stations_csv)),
+                       (filtered_picks, Path(coord_cfg.picks_csv)))
             print(f"\nFiltered data saved:")
-            print(f"  {events_cart_csv}")
-            print(f"  {stations_cart_csv}")
-            print(f"  {picks_cart_csv}")
-            print(f"  {events_geo_csv}")
-            print(f"  {stations_geo_csv}")
+            for table, path in outputs:
+                ensure_directory_exists(path.parent)
+                table.to_csv(path, index=False)
+                print(f"  {path}")
 
         # Step 5: Visualizations
         # Use filtered data if available (from geometry processing), otherwise use original data
         # This ensures visualizations show only the data that was written to output files
-        if filtered_events_cart is not None and len(filtered_events_cart) > 0:
-            # Filter geodetic events/stations to match filtered Cartesian data
-            filtered_event_ids = set(filtered_events_cart['event_id'].unique())
-            filtered_station_ids = set(filtered_stations_cart['station_id'].unique())
-            events_df_for_vis = events_df[events_df['event_id'].isin(filtered_event_ids)]
-            stations_df_for_vis = stations_df[stations_df['station_id'].isin(filtered_station_ids)]
+        if has_filtered:
+            events_df_for_vis = filtered_events
+            stations_df_for_vis = filtered_stations
             picks_df_for_vis = filtered_picks
-            events_cart_for_vis = filtered_events_cart
-            stations_cart_for_vis = filtered_stations_cart
 
             print(f"\nVisualization will use FILTERED data:")
             print(f"  Events: {len(events_df_for_vis)} (filtered from {len(events_df)})")
-            print(f"  Stations: {len(stations_df_for_vis.drop_duplicates(subset=['longitude', 'latitude', 'depth']))} (unique positions, filtered from {len(stations_df.drop_duplicates(subset=['longitude', 'latitude', 'depth']))})")
+            print(f"  Stations: {_unique_positions(stations_df_for_vis)} (unique positions, filtered from {_unique_positions(stations_df)})")
             print(f"  Picks: {len(picks_df_for_vis)} (filtered from {len(picks_df)})")
         else:
             # Fallback to original data if geometry processing was disabled
             events_df_for_vis = events_df
             stations_df_for_vis = stations_df
             picks_df_for_vis = picks_df
-            events_cart_for_vis = events_cart
-            stations_cart_for_vis = stations_cart
 
-        run_visualization(config, events_df_for_vis, stations_df_for_vis, picks_df_for_vis,
-                         events_cart_for_vis, stations_cart_for_vis)
+        run_visualization(config, events_df_for_vis, stations_df_for_vis, picks_df_for_vis)
 
         print("\n" + "="*60)
         print("PREPROCESSING PIPELINE COMPLETED SUCCESSFULLY")
         print("="*60)
 
         print(f"\nFinal dataset summary:")
-        if filtered_events_cart is not None and len(filtered_events_cart) > 0:
-            n_final_sources = len(filtered_events_cart)
-            n_final_receivers = len(filtered_stations_cart.drop_duplicates(subset=['x', 'y', 'z']))
-            print(f"  Sources (events after all filtering): {n_final_sources}")
-            print(f"  Unique receivers (unique positions): {n_final_receivers}")
+        if has_filtered:
+            print(f"  Sources (events after all filtering): {len(filtered_events)}")
+            print(f"  Unique receivers (unique positions): {_unique_positions(filtered_stations)}")
         else:
-            print(f"  Sources: {len(events_cart)} (geometry filtering disabled)")
-            print(f"  Unique receivers (unique positions): {len(stations_cart.drop_duplicates(subset=['x', 'y', 'z']))}")
+            print(f"  Sources: {len(events_df)} (geometry filtering disabled)")
+            print(f"  Unique receivers (unique positions): {_unique_positions(stations_df)}")
 
         print(f"\nAll outputs saved to: {config.preprocessing.output_dir}")
 
@@ -598,6 +564,9 @@ def validate_preprocessing_config(cfg: DictConfig) -> None:
                         "mode is 'fixed'")
             raise ValueError("origin_time.fixed_value is required when "
                            "mode is 'fixed'")
+
+    # Validate the grid origin and spacing (spherical Earth)
+    check_grid_configuration(cfg.coordinate_transform)
 
     # Validate raw data visualization plot selection
     valid_plots = set(PLOT_FUNCTIONS)

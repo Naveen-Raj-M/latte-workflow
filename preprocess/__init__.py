@@ -7,7 +7,7 @@ Workflow:
 0. Parse QuakeML once (if any enabled step needs it)
 1. Optional raw data visualization and QuakeML-to-HDF5 conversion (own filters each)
 2. Load data from QuakeML or HDF5 and apply the global filters
-3. Transform coordinates (geodetic → local Cartesian via flattening)
+3. Check coordinates (longitude, WGS84 geodetic latitude, depth below MSL; spherical Earth)
 4. Create geometry and travel time files
 5. Create initial 3D velocity model and Fortran-compatible binaries
 6. Generate final data visualizations
@@ -19,7 +19,7 @@ Main components:
     - raw_data_visualization: Plots of the raw catalog
     - plot_settings: Unified ``plots`` settings shared by all visualizations
     - data_loader: Load events/stations/picks from QuakeML or HDF5; apply filters
-    - coordinate_transformation: Geodetic to Cartesian coordinate transformation
+    - coordinate_transformation: Coordinate checks of events, stations and the grid configuration
     - geometry_traveltime: Source-receiver geometry and travel time table generation
     - initial_velocity_model: 3D velocity model creation and binary output
     - visualization: Station/event maps and velocity model plots
@@ -42,7 +42,7 @@ __author__ = "Naveen Raj Manoharan"
 from preprocess.data_loader import load_seismic_data
 from preprocess.coordinate_transformation import (
     transform_coordinates,
-    flattening_transformation
+    check_grid_configuration
 )
 from preprocess.geometry_traveltime import create_geometry_and_traveltime_files
 from preprocess.initial_velocity_model import create_velocity_model
@@ -60,7 +60,7 @@ __all__ = [
     'convert_to_hdf5',
     'create_raw_data_visualization',
     'transform_coordinates',
-    'flattening_transformation',
+    'check_grid_configuration',
     'create_geometry_and_traveltime_files',
     'create_velocity_model',
     'create_station_event_visualization',

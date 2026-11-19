@@ -1,8 +1,9 @@
-"""Initial velocity model creation and binary file generation.
+"""Initial velocity model creation and binary file generation (spherical Earth).
 
-This module combines velocity model creation from an initial 1D model with
-binary file generation. It creates a 3D velocity model on a Cartesian grid
-and writes both CSV and binary formats.
+This module builds a 3D velocity model from an initial 1D model on the grid of the spherical
+LATTE branch: regular in longitude and WGS84 geodetic latitude (degrees) and in depth below
+mean sea level (km). It writes the model as CSV/HDF5 (km/s) and as LATTE binaries (m/s, float32,
+Fortran order (ndepth, nlat, nlon)), and the grid lines of the LATTE parameter file.
 """
 
 import logging
@@ -18,7 +19,9 @@ from joblib import Parallel, delayed
 from tqdm import tqdm
 
 from utils.io_utils import ensure_directory_exists
-from utils.velocity_io import write_velocity_file, build_coarse_metadata
+from utils.velocity_io import write_velocity_file, build_coarse_metadata, subsample_to_coarse_grid
+from utils.spherical import (EARTH_RADIUS_KM, GRID_AXES, check_grid, grid_axes,
+                             latte_grid_lines, node_count)
 
 
 def load_initial_model(filepath: str,
@@ -143,65 +146,78 @@ def get_velocity_for_depth(target_depth: float,
     return vp_values[idx], vs_values[idx]
 
 
-def create_cartesian_grid(min_coords: Tuple[float, float, float],
-                          max_coords: Tuple[float, float, float],
-                          grid_spacing: Tuple[float, float, float]) -> pd.DataFrame:
-    """Create a 3D Cartesian grid of points.
+def _snap_down(value: float, origin: float, step: float) -> float:
+    """Largest node ``origin + i * step`` (integer i) at or below ``value``."""
+    return origin + np.floor((value - origin) / step + 1e-9) * step
+
+
+def _snap_up(value: float, origin: float, step: float) -> float:
+    """Smallest node ``origin + i * step`` (integer i) at or above ``value``."""
+    return origin + np.ceil((value - origin) / step - 1e-9) * step
+
+
+def _axis_from_data(name: str, unit: str, origin: float, step: float,
+                    data_min: float, data_max: float, logger) -> Tuple[float, float]:
+    """Grid range of one axis covering the data: it starts at ``origin`` and is extended
+    beyond it, with a warning, only if data lie on the negative side of the origin."""
+    lo = origin
+    if data_min < origin:
+        lo = _snap_down(data_min, origin, step)
+        logger.warning(f"Sources/receivers lie beyond the grid origin along {name}: data min "
+                       f"{data_min:.6g} {unit} < origin {origin:.6g} {unit}. Extending the grid to {lo:.6g} {unit}.")
+    hi = _snap_up(data_max, origin, step)
+    logger.info(f"Data {name} range: [{data_min:.6g}, {data_max:.6g}] {unit} -> grid [{lo:.6g}, {hi:.6g}] {unit}")
+    return lo, hi
+
+
+def define_spherical_grid(lon_range: Tuple[float, float], lat_range: Tuple[float, float],
+                          depth_range: Tuple[float, float],
+                          grid_spacing: Tuple[float, float, float]) -> dict:
+    """Grid definition (``nlon .. odepth``) of a grid from its first to last node on each axis.
 
     Args:
-        min_coords: (x_min, y_min, z_min) in km.
-        max_coords: (x_max, y_max, z_max) in km.
-        grid_spacing: (dx, dy, dz) spacing in km.
-
-    Returns:
-        DataFrame with columns [x, y, z] in km.
+        lon_range: (west, east) node longitudes, degrees.
+        lat_range: (south, north) node geodetic latitudes, degrees.
+        depth_range: (top, bottom) node depths below MSL, km.
+        grid_spacing: (dlon, dlat) in degrees and ddepth in km.
     """
+    grid = {}
+    for (lo, hi), step, axis in zip((lon_range, lat_range, depth_range), grid_spacing, GRID_AXES):
+        if hi < lo:
+            raise ValueError(f"Grid {axis} range is empty: [{lo}, {hi}]")
+        grid[f'n{axis}'] = node_count(lo, hi, step)
+        grid[f'd{axis}'] = float(step)
+        grid[f'o{axis}'] = float(lo)
+    return grid
+
+
+def create_spherical_grid(grid: dict) -> pd.DataFrame:
+    """All nodes of a grid as a DataFrame with columns [lon, lat, depth] (degrees, degrees,
+    km below MSL), depth varying fastest, then latitude, then longitude."""
     logger = logging.getLogger(__name__)
+    lons, lats, depths = grid_axes(grid)
 
-    x_min, y_min, z_min = min_coords
-    x_max, y_max, z_max = max_coords
-    dx, dy, dz = grid_spacing
+    logger.info("Creating spherical grid:")
+    logger.info(f"  lon: [{lons[0]:.6g}, {lons[-1]:.6g}] deg, {len(lons)} points")
+    logger.info(f"  lat: [{lats[0]:.6g}, {lats[-1]:.6g}] deg, {len(lats)} points")
+    logger.info(f"  depth: [{depths[0]:.6g}, {depths[-1]:.6g}] km, {len(depths)} points")
 
-    # Create grid arrays
-    xs = np.arange(x_min, x_max + dx/2, dx)
-    ys = np.arange(y_min, y_max + dy/2, dy)
-    zs = np.arange(z_min, z_max + dz/2, dz)
-
-    logger.info(f"Creating Cartesian grid:")
-    logger.info(f"  x: [{x_min:.2f}, {x_max:.2f}] km, {len(xs)} points")
-    logger.info(f"  y: [{y_min:.2f}, {y_max:.2f}] km, {len(ys)} points")
-    logger.info(f"  z: [{z_min:.2f}, {z_max:.2f}] km, {len(zs)} points")
-
-    # Create meshgrid
-    x_grid, y_grid, z_grid = np.meshgrid(xs, ys, zs, indexing='ij')
-
-    # Flatten and create DataFrame
+    lon_grid, lat_grid, depth_grid = np.meshgrid(lons, lats, depths, indexing='ij')
     grid_df = pd.DataFrame({
-        'x': x_grid.ravel(),
-        'y': y_grid.ravel(),
-        'z': z_grid.ravel()
+        'lon': lon_grid.ravel(),
+        'lat': lat_grid.ravel(),
+        'depth': depth_grid.ravel()
     })
 
     logger.info(f"Created grid with {len(grid_df)} points")
-
     return grid_df
 
 
-def _grid_indices(grid_df: pd.DataFrame, min_coords: Tuple[float, float, float],
-                  grid_spacing: Tuple[float, float, float]) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Compute 0-based (i, j, k) array indices of the grid points from their x, y, z.
-
-    Args:
-        grid_df: DataFrame with [x, y, z] columns.
-        min_coords: (x_min, y_min, z_min) grid origin.
-        grid_spacing: (dx, dy, dz) spacing in km.
-
-    Returns:
-        Integer arrays (i, j, k) along x, y, z.
-    """
+def _grid_indices(grid_df: pd.DataFrame, grid: dict) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """0-based (i, j, k) array indices of the grid points along lon, lat and depth."""
     return tuple(
-        np.round((grid_df[axis].values - origin) / step).astype(int)
-        for axis, origin, step in zip(('x', 'y', 'z'), min_coords, grid_spacing)
+        np.round((grid_df[axis].values - grid[f'o{axis}']) / grid[f'd{axis}']).astype(int)
+        for axis in GRID_AXES
     )
 
 
@@ -232,232 +248,114 @@ def _get_velocities_vectorized(depths_array, initial_model):
     return vp_array, vs_array
 
 
-def _cartesian_to_geographic_vectorized(x_km, y_km, z_km, origin_lon, origin_lat,
-                                         origin_depth, invert_y_axis):
-    """Vectorized conversion of Cartesian coordinates to geographic.
-
-    Args:
-        x_km, y_km, z_km: NumPy arrays of Cartesian coordinates (km)
-        origin_lon, origin_lat, origin_depth: Origin point
-        invert_y_axis: Y-axis direction flag
-
-    Returns:
-        Tuple of (lon_array, lat_array, depth_array)
-    """
-    EARTH_RADIUS_KM = 6371.0
-
-    origin_lat_rad = np.radians(origin_lat)
-
-    # Vectorized conversion
-    y_multiplier = -1 if invert_y_axis else 1
-    lat = origin_lat + y_multiplier * (y_km / EARTH_RADIUS_KM) * (180.0 / np.pi)
-    lon = origin_lon + (x_km / (EARTH_RADIUS_KM * np.cos(origin_lat_rad))) * (180.0 / np.pi)
-    depth = z_km + origin_depth
-
-    return lon, lat, depth
-
-
-def _assign_velocities_vectorized(grid_df, initial_model, origin_lon, origin_lat,
-                                   origin_depth, invert_y_axis, logger):
-    """Fully vectorized velocity assignment (no chunking).
+def _assign_velocities_vectorized(grid_df, initial_model, logger):
+    """Assign Vp and Vs of the 1D model to every grid point by its depth (no chunking).
 
     Best for grids that fit comfortably in memory.
 
-    Args:
-        grid_df: DataFrame with grid points
-        initial_model: Velocity model DataFrame
-        origin_lon, origin_lat, origin_depth: Origin parameters
-        invert_y_axis: Y-axis direction flag
-        logger: Logger instance
-
     Returns:
-        DataFrame with added vp, vs, lon, lat, depth columns
+        DataFrame with added vp, vs columns
     """
     logger.info("Using full vectorization (grid fits in memory)")
-
-    # Extract columns as numpy arrays
-    x_vals = grid_df['x'].values
-    y_vals = grid_df['y'].values
-    z_vals = grid_df['z'].values
-
-    # Vectorized operations on entire grid
-    logger.info("Computing absolute depths...")
-    absolute_depths = z_vals + origin_depth
-
     logger.info("Looking up velocities from initial model...")
-    vp_vals, vs_vals = _get_velocities_vectorized(absolute_depths, initial_model)
-
-    logger.info("Converting to geographic coordinates...")
-    lon_vals, lat_vals, depth_vals = _cartesian_to_geographic_vectorized(
-        x_vals, y_vals, z_vals, origin_lon, origin_lat, origin_depth, invert_y_axis
-    )
-
-    # Add to DataFrame (no copy needed - assigning to full DataFrame, not a slice)
+    vp_vals, vs_vals = _get_velocities_vectorized(grid_df['depth'].values, initial_model)
     grid_df['vp'] = vp_vals
     grid_df['vs'] = vs_vals
-    grid_df['lon'] = lon_vals
-    grid_df['lat'] = lat_vals
-    grid_df['depth'] = depth_vals
-
     return grid_df
 
 
-def _assign_velocities_chunked_vectorized(grid_df, initial_model, origin_lon, origin_lat,
-                                          origin_depth, invert_y_axis, chunk_size, n_jobs, logger):
-    """Vectorized processing within chunks for large grids.
-
-    Combines parallelism with vectorization for optimal performance on large grids.
-
-    Args:
-        grid_df: DataFrame with grid points
-        initial_model: Velocity model DataFrame
-        origin_lon, origin_lat, origin_depth: Origin parameters
-        invert_y_axis: Y-axis direction flag
-        chunk_size: Number of points per chunk
-        n_jobs: Number of parallel workers
-        logger: Logger instance
+def _assign_velocities_chunked_vectorized(grid_df, initial_model, chunk_size, n_jobs, logger):
+    """Assign Vp and Vs of the 1D model by depth, in parallel chunks, for large grids.
 
     Returns:
-        DataFrame with added vp, vs, lon, lat, depth columns
+        DataFrame with added vp, vs columns
     """
     logger.info(f"Using chunked vectorization (large grid: {len(grid_df):,} points)")
     logger.info(f"Chunk size: {chunk_size:,}, Workers: {n_jobs if n_jobs != -1 else 'all cores'}")
 
-    # Extract columns as numpy arrays
-    x_vals = grid_df['x'].values
-    y_vals = grid_df['y'].values
-    z_vals = grid_df['z'].values
-
-    # Calculate chunks
-    num_chunks = (len(grid_df) + chunk_size - 1) // chunk_size
-    logger.info(f"Processing in {num_chunks} chunks...")
-
-    def process_chunk_vectorized(start_idx, end_idx):
-        """Process a chunk using vectorization."""
-        # Slice arrays (no copy, just views)
-        x_chunk = x_vals[start_idx:end_idx]
-        y_chunk = y_vals[start_idx:end_idx]
-        z_chunk = z_vals[start_idx:end_idx]
-
-        # Vectorized operations on chunk
-        absolute_depths = z_chunk + origin_depth
-        vp_chunk, vs_chunk = _get_velocities_vectorized(absolute_depths, initial_model)
-        lon_chunk, lat_chunk, depth_chunk = _cartesian_to_geographic_vectorized(
-            x_chunk, y_chunk, z_chunk, origin_lon, origin_lat, origin_depth, invert_y_axis
-        )
-
-        return (start_idx, vp_chunk, vs_chunk, lon_chunk, lat_chunk, depth_chunk)
-
-    # Process chunks in parallel
+    depth_vals = grid_df['depth'].values
     chunk_ranges = [
         (i, min(i + chunk_size, len(grid_df)))
         for i in range(0, len(grid_df), chunk_size)
     ]
+    logger.info(f"Processing in {len(chunk_ranges)} chunks...")
+
+    def process_chunk_vectorized(start_idx, end_idx):
+        vp_chunk, vs_chunk = _get_velocities_vectorized(depth_vals[start_idx:end_idx], initial_model)
+        return (start_idx, vp_chunk, vs_chunk)
 
     results = Parallel(n_jobs=n_jobs, backend='loky')(
         delayed(process_chunk_vectorized)(start, end)
         for start, end in tqdm(chunk_ranges, desc="Processing chunks", unit="chunk")
     )
 
-    # Combine results
     logger.info("Combining results...")
     vp_vals = np.empty(len(grid_df), dtype=np.float64)
     vs_vals = np.empty(len(grid_df), dtype=np.float64)
-    lon_vals = np.empty(len(grid_df), dtype=np.float64)
-    lat_vals = np.empty(len(grid_df), dtype=np.float64)
-    depth_vals = np.empty(len(grid_df), dtype=np.float64)
-
-    for start_idx, vp_chunk, vs_chunk, lon_chunk, lat_chunk, depth_chunk in results:
+    for start_idx, vp_chunk, vs_chunk in results:
         end_idx = start_idx + len(vp_chunk)
         vp_vals[start_idx:end_idx] = vp_chunk
         vs_vals[start_idx:end_idx] = vs_chunk
-        lon_vals[start_idx:end_idx] = lon_chunk
-        lat_vals[start_idx:end_idx] = lat_chunk
-        depth_vals[start_idx:end_idx] = depth_chunk
 
-    # Add to DataFrame (no copy needed - assigning to full DataFrame, not a slice)
     grid_df['vp'] = vp_vals
     grid_df['vs'] = vs_vals
-    grid_df['lon'] = lon_vals
-    grid_df['lat'] = lat_vals
-    grid_df['depth'] = depth_vals
-
     return grid_df
 
 
-def _process_grid_chunk(chunk_rows, initial_model, origin_lon, origin_lat,
-                        origin_depth, invert_y_axis, x_col, y_col, z_col):
-    """Process a chunk of grid points to assign velocities.
+def _grid_from_config(vel_config: DictConfig, events_df: pd.DataFrame,
+                      stations_df: pd.DataFrame, logger) -> dict:
+    """Grid definition from the configuration: automatic bounds covering the events and
+    stations, or manual bounds."""
+    dlon, dlat, ddepth = (float(v) for v in vel_config.grid_spacing)
 
-    This function is designed to be called in parallel for chunks of grid points.
-    DEPRECATED: Use vectorized versions instead.
+    if vel_config.use_auto_bounds:
+        logger.info("Auto-detecting grid bounds from filtered events and stations...")
+        both = pd.concat([events_df[['longitude', 'latitude', 'depth']],
+                          stations_df[['longitude', 'latitude', 'depth']]], ignore_index=True)
+        origin_lon = float(vel_config.origin_lon)
+        origin_lat = float(vel_config.origin_lat)
+        origin_depth = float(vel_config.origin_depth_km)
 
-    Returns:
-        List of tuples: (index, vp, vs, lon, lat, depth)
-    """
-    results = []
-    for idx, row in chunk_rows:
-        x_km = row[x_col]
-        y_km = row[y_col]
-        z_km = row[z_col]
+        lon_range = _axis_from_data('longitude', 'deg', origin_lon, dlon,
+                                    both['longitude'].min(), both['longitude'].max(), logger)
+        lat_range = _axis_from_data('latitude', 'deg', origin_lat, dlat,
+                                    both['latitude'].min(), both['latitude'].max(), logger)
+        depth_lo, depth_hi = _axis_from_data('depth', 'km', origin_depth, ddepth,
+                                             both['depth'].min(), both['depth'].max(), logger)
+        # Deepest node: max_depth_km if specified, otherwise the deepest data
+        if vel_config.max_depth_km is not None:
+            depth_hi = _snap_up(float(vel_config.max_depth_km), origin_depth, ddepth)
+            logger.info(f"Using max_depth_km={vel_config.max_depth_km} km -> deepest node {depth_hi:.6g} km")
+        depth_range = (depth_lo, depth_hi)
+    else:
+        logger.info("Using manual bounds for grid")
+        lon_range = (float(vel_config.lon_min), float(vel_config.lon_max))
+        lat_range = (float(vel_config.lat_min), float(vel_config.lat_max))
+        depth_range = (float(vel_config.depth_min), float(vel_config.depth_max))
 
-        # Convert relative z to absolute depth
-        absolute_depth = z_km + origin_depth
-        vp, vs = get_velocity_for_depth(absolute_depth, initial_model)
-
-        # Convert Cartesian back to geographic coordinates
-        lon, lat, depth = cartesian_to_geographic(
-            x_km, y_km, z_km, origin_lon, origin_lat, origin_depth, invert_y_axis
-        )
-
-        results.append((idx, vp, vs, lon, lat, depth))
-
-    return results
+    return define_spherical_grid(lon_range, lat_range, depth_range, (dlon, dlat, ddepth))
 
 
-def cartesian_to_geographic(x_km: float, y_km: float, z_km: float,
-                           origin_lon: float, origin_lat: float, origin_depth: float,
-                           invert_y_axis: bool = True) -> Tuple[float, float, float]:
-    """Convert Cartesian coordinates back to geographic coordinates.
-
-    Args:
-        x_km: X coordinate in km (East).
-        y_km: Y coordinate in km (direction depends on invert_y_axis).
-        z_km: Z coordinate in km (depth relative to origin).
-        origin_lon: Origin longitude in degrees.
-        origin_lat: Origin latitude in degrees.
-        origin_depth: Origin depth in km.
-        invert_y_axis: If True, positive y means south (lat decreases).
-                       If False, positive y means north (lat increases).
-
-    Returns:
-        Tuple of (longitude, latitude, depth) in degrees and km.
-    """
-    EARTH_RADIUS_KM = 6371.0
-
-    # Convert back to lat/lon
-    origin_lat_rad = np.radians(origin_lat)
-
-    # Reverse the transformation
-    # If invert_y_axis=True: y = -1 * (lat - origin_lat) => lat = origin_lat - y
-    # If invert_y_axis=False: y = (lat - origin_lat) => lat = origin_lat + y
-    y_multiplier = -1 if invert_y_axis else 1
-    lat = origin_lat + y_multiplier * (y_km / EARTH_RADIUS_KM) * (180.0 / np.pi)
-    lon = origin_lon + (x_km / (EARTH_RADIUS_KM * np.cos(origin_lat_rad))) * (180.0 / np.pi)
-    depth = z_km + origin_depth
-
-    return lon, lat, depth
+def write_latte_grid_file(filepath: Path, grid: dict, earth_radius_km: float) -> None:
+    """Write the grid lines of a spherical LATTE parameter file (lengths in metres)."""
+    ensure_directory_exists(filepath.parent)
+    with open(filepath, 'w') as f:
+        f.write("\n".join(latte_grid_lines(grid, earth_radius_km)) + "\n")
+    logging.getLogger(__name__).info(f"LATTE grid parameters written: {filepath}")
 
 
 def create_velocity_model(config: DictConfig,
-                          events_cart_df: pd.DataFrame,
-                          stations_cart_df: pd.DataFrame) -> None:
-    """Create initial velocity model on Cartesian grid and generate binaries.
+                          events_df: pd.DataFrame,
+                          stations_df: pd.DataFrame) -> None:
+    """Create the initial velocity model on the spherical grid and generate binaries.
+
+    The grid is regular in longitude, geodetic latitude (degrees) and depth below MSL (km).
+    Every node takes the Vp and Vs of the 1D model at its depth.
 
     Args:
         config: Full configuration.
-        events_cart_df: DataFrame with event Cartesian coordinates.
-        stations_cart_df: DataFrame with station Cartesian coordinates.
+        events_df: Events with longitude, latitude and depth (km).
+        stations_df: Stations with longitude, latitude and depth (km).
     """
     logger = logging.getLogger(__name__)
     vel_config = config.initial_velocity_model
@@ -467,6 +365,7 @@ def create_velocity_model(config: DictConfig,
         return
 
     logger.info("Creating initial velocity model...")
+    earth_radius_km = float(config.coordinate_transform.get('earth_radius_km', EARTH_RADIUS_KM))
 
     # Load initial 1D model
     initial_model = load_initial_model(
@@ -474,124 +373,13 @@ def create_velocity_model(config: DictConfig,
         max_depth_km=vel_config.max_depth_km
     )
 
-    # Get origin parameters
-    origin_lon = vel_config.origin_lon
-    origin_lat = vel_config.origin_lat
-    origin_depth = vel_config.origin_depth_km
-
-    # Get y-axis inversion setting from coordinate_transform config
-    invert_y_axis = config.coordinate_transform.get('invert_y_axis', True)
-    logger.info(f"Using y-axis mode: {'inverted (positive south)' if invert_y_axis else 'standard (positive north)'}")
-
-    x_col, y_col, z_col = 'x', 'y', 'z'
-
-    # Determine grid bounds
-    if vel_config.use_auto_bounds:
-        logger.info("Auto-detecting grid bounds from filtered events and stations...")
-
-        # Get grid spacing
-        dx, dy, dz = vel_config.grid_spacing_km
-
-        # --- X bounds ---
-        # Always start from the origin (x=0). Only go negative if sources/receivers
-        # exist west of the origin, and warn the user in that case.
-        min_x = 0.0
-        data_min_x = min(events_cart_df[x_col].min(), stations_cart_df[x_col].min())
-        if data_min_x < 0:
-            logger.warning(
-                f"Sources/receivers exist at negative X (west of origin): "
-                f"data min X = {data_min_x:.2f} km. "
-                f"Extending grid westward to include them."
-            )
-            min_x = np.floor(data_min_x / dx) * dx
-
-        data_max_x = max(events_cart_df[x_col].max(), stations_cart_df[x_col].max())
-        max_x = np.ceil(data_max_x / dx) * dx
-
-        logger.info(
-            f"Data X range: [{data_min_x:.2f}, {data_max_x:.2f}] km -> "
-            f"Grid X: [{min_x:.2f}, {max_x:.2f}] km"
-        )
-
-        # --- Y bounds ---
-        # Always start from the origin (y=0). Only go negative if sources/receivers
-        # exist on the negative-Y side of the origin, and warn the user.
-        min_y = 0.0
-        data_min_y = min(events_cart_df[y_col].min(), stations_cart_df[y_col].min())
-        if data_min_y < 0:
-            logger.warning(
-                f"Sources/receivers exist at negative Y (beyond origin): "
-                f"data min Y = {data_min_y:.2f} km. "
-                f"Extending grid to include them."
-            )
-            min_y = np.floor(data_min_y / dy) * dy
-
-        data_max_y = max(events_cart_df[y_col].max(), stations_cart_df[y_col].max())
-        max_y = np.ceil(data_max_y / dy) * dy
-
-        logger.info(
-            f"Data Y range: [{data_min_y:.2f}, {data_max_y:.2f}] km -> "
-            f"Grid Y: [{min_y:.2f}, {max_y:.2f}] km"
-        )
-
-        # --- Z bounds ---
-        # Always start from the origin (z=0 in Cartesian = origin_depth in absolute).
-        # For example, if origin_depth=-4 km, z=0 corresponds to 4 km above MSL.
-        # Only extend above the origin (negative z) if sources/receivers exist there,
-        # and warn the user in that case.
-        min_z = 0.0
-        data_min_z = min(events_cart_df[z_col].min(), stations_cart_df[z_col].min())
-        if data_min_z < 0:
-            abs_depth_min = data_min_z + origin_depth
-            logger.warning(
-                f"Sources/receivers exist above origin depth "
-                f"(Cartesian z = {data_min_z:.2f} km, "
-                f"absolute depth = {abs_depth_min:.2f} km). "
-                f"Extending grid upward to include them."
-            )
-            min_z = np.floor(data_min_z / dz) * dz
-
-        # For Z max: use max_depth_km if specified, otherwise use data maximum
-        if vel_config.max_depth_km is not None:
-            # max_depth_km is absolute depth; convert to Cartesian Z:
-            # z = absolute_depth - origin_depth
-            max_z_from_config = vel_config.max_depth_km - origin_depth
-            logger.info(
-                f"Using max_depth_km={vel_config.max_depth_km} km "
-                f"(Cartesian z={max_z_from_config:.2f} km)"
-            )
-            max_z = np.ceil(max_z_from_config / dz) * dz
-        else:
-            data_max_z = max(events_cart_df[z_col].max(), stations_cart_df[z_col].max())
-            max_z = np.ceil(data_max_z / dz) * dz
-            logger.info(
-                f"Data max Z: {data_max_z:.2f} km -> Extended to grid point: {max_z:.2f} km"
-            )
-
-        min_coords = (min_x, min_y, min_z)
-        max_coords = (max_x, max_y, max_z)
-    else:
-        logger.info("Using manual bounds for grid")
-        min_coords = (vel_config.x_min, vel_config.y_min, vel_config.z_min)
-        max_coords = (vel_config.x_max, vel_config.y_max, vel_config.z_max)
-
-    logger.info(f"Grid bounds (Cartesian):")
-    logger.info(f"  x: [{min_coords[0]:.2f}, {max_coords[0]:.2f}] km")
-    logger.info(f"  y: [{min_coords[1]:.2f}, {max_coords[1]:.2f}] km")
-    logger.info(f"  z: [{min_coords[2]:.2f}, {max_coords[2]:.2f}] km")
-
-    # Create Cartesian grid
-    grid_spacing = tuple(vel_config.grid_spacing_km)
-    grid_df = create_cartesian_grid(min_coords, max_coords, grid_spacing)
-
-    # Grid definition stored in the metadata of every output file; downstream modules
+    # Grid definition, stored in the metadata of every output file; downstream modules
     # read it from there instead of from their configuration.
-    grid_meta = {
-        f'n{axis}': int(len(np.arange(lo, hi + step / 2, step)))
-        for axis, lo, hi, step in zip('xyz', min_coords, max_coords, grid_spacing)
-    }
-    grid_meta.update({f'd{axis}': float(step) for axis, step in zip('xyz', grid_spacing)})
-    grid_meta.update({f'origin_{axis}': float(lo) for axis, lo in zip('xyz', min_coords)})
+    grid_meta = _grid_from_config(vel_config, events_df, stations_df, logger)
+    check_grid(grid_meta, earth_radius_km)
+    grid_spacing = (grid_meta['dlon'], grid_meta['dlat'], grid_meta['ddepth'])
+
+    grid_df = create_spherical_grid(grid_meta)
 
     # Get parallel processing configuration
     parallel_config = config.get('parallel', {})
@@ -608,22 +396,15 @@ def create_velocity_model(config: DictConfig,
     logger.info(f"Grid size: {len(grid_df):,} points")
     logger.info(f"Vectorization threshold: {vectorize_threshold:,} points")
 
-    # Estimate memory requirements (rough estimate: 8 bytes per float * 8 arrays)
-    estimated_memory_mb = (len(grid_df) * 8 * 8) / (1024 * 1024)
+    # Estimate memory requirements (rough estimate: 8 bytes per float * 5 arrays)
+    estimated_memory_mb = (len(grid_df) * 8 * 5) / (1024 * 1024)
     logger.info(f"Estimated memory requirement: ~{estimated_memory_mb:.1f} MB")
 
-    # Choose processing strategy
     if len(grid_df) < vectorize_threshold:
-        # FAST PATH: Full vectorization for grids that fit in memory
-        grid_df = _assign_velocities_vectorized(
-            grid_df, initial_model, origin_lon, origin_lat,
-            origin_depth, invert_y_axis, logger
-        )
+        grid_df = _assign_velocities_vectorized(grid_df, initial_model, logger)
     else:
-        # SAFE PATH: Chunked vectorization for large grids
         grid_df = _assign_velocities_chunked_vectorized(
-            grid_df, initial_model, origin_lon, origin_lat,
-            origin_depth, invert_y_axis, grid_chunk_size, n_jobs, logger
+            grid_df, initial_model, grid_chunk_size, n_jobs, logger
         )
 
     # Save velocity model (CSV and/or HDF5)
@@ -633,22 +414,19 @@ def create_velocity_model(config: DictConfig,
     # Metadata written to every output (HDF5 attributes / CSV header)
     metadata = {
         **grid_meta,
-        'origin_lon': origin_lon,
-        'origin_lat': origin_lat,
-        'origin_depth_km': origin_depth,
-        'transformation_method': 'initial_model_cartesian',
-        'invert_y_axis': invert_y_axis,
+        'coordinate_system': 'spherical',
+        'earth_radius_km': earth_radius_km,
         'data_type': 'velocity',
     }
 
-    # Prepare coarse grid config if enabled
+    # Prepare coarse grid config if enabled (dlon, dlat in degrees, ddepth in km)
     coarse_config = None
     hdf5_opts = vel_config.get('hdf5_options', {})
     if hdf5_opts.get('create_coarse_dataset', False) or hdf5_opts.get('write_coarse_csv', False):
         coarse_config = {
-            'dx_coarse': hdf5_opts.coarse_grid.dx,
-            'dy_coarse': hdf5_opts.coarse_grid.dy,
-            'dz_coarse': hdf5_opts.coarse_grid.dz,
+            'dlon_coarse': float(hdf5_opts.coarse_grid.dlon),
+            'dlat_coarse': float(hdf5_opts.coarse_grid.dlat),
+            'ddepth_coarse': float(hdf5_opts.coarse_grid.ddepth),
         }
 
     # Write CSV if requested
@@ -693,26 +471,20 @@ def create_velocity_model(config: DictConfig,
 
     # Write separate coarse CSV if requested
     if hdf5_opts.get('write_coarse_csv', False) and coarse_config:
-        from utils.velocity_io import subsample_to_coarse_grid
-
         output_coarse_csv = Path(hdf5_opts.get('output_coarse_csv',
                                                vel_config.output_csv.replace('.csv', '_coarse.csv')))
         ensure_directory_exists(output_coarse_csv.parent)
 
         logger.info(f"Creating coarse-sampled CSV: {output_coarse_csv}")
 
-        # Fine grid spacing from the grid definition
-        fine_dx, fine_dy, fine_dz = metadata['dx'], metadata['dy'], metadata['dz']
-
-        # Generate coarse grid
         grid_df_coarse = subsample_to_coarse_grid(
             grid_df,
-            dx_coarse=coarse_config['dx_coarse'],
-            dy_coarse=coarse_config['dy_coarse'],
-            dz_coarse=coarse_config['dz_coarse'],
-            fine_dx=fine_dx,
-            fine_dy=fine_dy,
-            fine_dz=fine_dz,
+            dlon_coarse=coarse_config['dlon_coarse'],
+            dlat_coarse=coarse_config['dlat_coarse'],
+            ddepth_coarse=coarse_config['ddepth_coarse'],
+            fine_dlon=grid_meta['dlon'],
+            fine_dlat=grid_meta['dlat'],
+            fine_ddepth=grid_meta['ddepth'],
             n_jobs=hdf5_opts.get('n_jobs', 1),
             show_progress=hdf5_opts.get('show_progress', True)
         )
@@ -729,16 +501,18 @@ def create_velocity_model(config: DictConfig,
         coarse_size = output_coarse_csv.stat().st_size / (1024**2)
         logger.info(f"Coarse CSV written: {len(grid_df_coarse):,} points ({coarse_size:.1f}MB)")
 
-    # Grid dimensions
-    nx, ny, nz = grid_meta['nx'], grid_meta['ny'], grid_meta['nz']
-    dx, dy, dz = grid_spacing
+    # Grid lines of the spherical LATTE parameter file
+    latte_grid_file = config.coordinate_transform.get('latte_grid_file', None)
+    if latte_grid_file:
+        write_latte_grid_file(Path(latte_grid_file), grid_meta, earth_radius_km)
 
-    # Count number of sources (events)
-    num_sources = len(events_cart_df)
+    nlon, nlat, ndepth = grid_meta['nlon'], grid_meta['nlat'], grid_meta['ndepth']
+    dlon, dlat, ddepth = grid_spacing
+    num_sources = len(events_df)
 
     logger.info("Velocity model created successfully")
-    logger.info(f"  Grid dimensions (nx, ny, nz): {nx} x {ny} x {nz}")
-    logger.info(f"  Grid spacing (dx, dy, dz): {dx:.2f} x {dy:.2f} x {dz:.2f} km")
+    logger.info(f"  Grid dimensions (nlon, nlat, ndepth): {nlon} x {nlat} x {ndepth}")
+    logger.info(f"  Grid spacing (dlon, dlat, ddepth): {dlon:g} deg x {dlat:g} deg x {ddepth:g} km")
     logger.info(f"  Total grid points: {len(grid_df):,}")
     logger.info(f"  Events used for grid bounds: {num_sources}")
     logger.info(f"  Vp range: {grid_df['vp'].min():.3f} - "
@@ -749,7 +523,7 @@ def create_velocity_model(config: DictConfig,
                f"{grid_df['depth'].max():.2f} km")
 
     # Generate binary files
-    _generate_binary_files(config, grid_df, grid_meta, min_coords, grid_spacing)
+    _generate_binary_files(config, grid_df, grid_meta)
 
     # Print final summary
     logger.info("")
@@ -757,20 +531,22 @@ def create_velocity_model(config: DictConfig,
     logger.info("VELOCITY MODEL SUMMARY")
     logger.info("=" * 60)
     logger.info(f"Events used for grid bounds: {num_sources}")
-    logger.info(f"Grid dimensions (nx, ny, nz): {nx} x {ny} x {nz}")
-    logger.info(f"Grid spacing (dx, dy, dz): {dx:.2f} km x {dy:.2f} km x {dz:.2f} km")
+    logger.info(f"Grid dimensions (nlon, nlat, ndepth): {nlon} x {nlat} x {ndepth}")
+    logger.info(f"Grid spacing (dlon, dlat, ddepth): {dlon:g} deg x {dlat:g} deg x {ddepth:g} km")
+    logger.info(f"Grid origin (olon, olat, odepth): {grid_meta['olon']:g} deg, "
+                f"{grid_meta['olat']:g} deg, {grid_meta['odepth']:g} km")
     logger.info(f"Total grid points: {len(grid_df):,}")
     logger.info("=" * 60)
 
 
-def _fill_grid_vectorized(grid_df, vel_col, nx, ny, nz, indices, logger):
+def _fill_grid_vectorized(grid_df, vel_col, nlon, nlat, ndepth, indices, logger):
     """Fill 3D grid array using vectorization (no chunking).
 
     Args:
         grid_df: DataFrame with velocity data
         vel_col: Column name ('vp' or 'vs')
-        nx, ny, nz: Grid dimensions
-        indices: 0-based (i, j, k) array indices of the grid points
+        nlon, nlat, ndepth: Grid dimensions
+        indices: 0-based (i, j, k) array indices of the grid points along lon, lat, depth
         logger: Logger instance
 
     Returns:
@@ -779,7 +555,7 @@ def _fill_grid_vectorized(grid_df, vel_col, nx, ny, nz, indices, logger):
     logger.info(f"Using full vectorization to fill {vel_col.upper()} grid")
 
     # Create 3D grid array in Fortran-order
-    grid_3d = np.zeros((nz, ny, nx), dtype=np.float32, order='F')
+    grid_3d = np.zeros((ndepth, nlat, nlon), dtype=np.float32, order='F')
 
     # Extract indices and velocities as numpy arrays
     i_vals, j_vals, k_vals = indices
@@ -787,9 +563,9 @@ def _fill_grid_vectorized(grid_df, vel_col, nx, ny, nz, indices, logger):
 
     # Create mask for valid indices
     valid_mask = (
-        (i_vals >= 0) & (i_vals < nx) &
-        (j_vals >= 0) & (j_vals < ny) &
-        (k_vals >= 0) & (k_vals < nz)
+        (i_vals >= 0) & (i_vals < nlon) &
+        (j_vals >= 0) & (j_vals < nlat) &
+        (k_vals >= 0) & (k_vals < ndepth)
     )
 
     # Filter to valid indices
@@ -805,14 +581,14 @@ def _fill_grid_vectorized(grid_df, vel_col, nx, ny, nz, indices, logger):
     return grid_3d
 
 
-def _fill_grid_chunked_vectorized(grid_df, vel_col, nx, ny, nz, indices, chunk_size, n_jobs, logger):
+def _fill_grid_chunked_vectorized(grid_df, vel_col, nlon, nlat, ndepth, indices, chunk_size, n_jobs, logger):
     """Fill 3D grid array using chunked vectorization.
 
     Args:
         grid_df: DataFrame with velocity data
         vel_col: Column name ('vp' or 'vs')
-        nx, ny, nz: Grid dimensions
-        indices: 0-based (i, j, k) array indices of the grid points
+        nlon, nlat, ndepth: Grid dimensions
+        indices: 0-based (i, j, k) array indices of the grid points along lon, lat, depth
         chunk_size: Points per chunk
         n_jobs: Number of workers
         logger: Logger instance
@@ -824,7 +600,7 @@ def _fill_grid_chunked_vectorized(grid_df, vel_col, nx, ny, nz, indices, chunk_s
     logger.info(f"Chunk size: {chunk_size:,}, Workers: {n_jobs if n_jobs != -1 else 'all cores'}")
 
     # Create 3D grid array in Fortran-order
-    grid_3d = np.zeros((nz, ny, nx), dtype=np.float32, order='F')
+    grid_3d = np.zeros((ndepth, nlat, nlon), dtype=np.float32, order='F')
 
     # Extract arrays once
     i_vals, j_vals, k_vals = indices
@@ -843,9 +619,9 @@ def _fill_grid_chunked_vectorized(grid_df, vel_col, nx, ny, nz, indices, chunk_s
 
         # Filter valid indices
         valid_mask = (
-            (i_chunk >= 0) & (i_chunk < nx) &
-            (j_chunk >= 0) & (j_chunk < ny) &
-            (k_chunk >= 0) & (k_chunk < nz)
+            (i_chunk >= 0) & (i_chunk < nlon) &
+            (j_chunk >= 0) & (j_chunk < nlat) &
+            (k_chunk >= 0) & (k_chunk < ndepth)
         )
 
         return (
@@ -875,17 +651,13 @@ def _fill_grid_chunked_vectorized(grid_df, vel_col, nx, ny, nz, indices, chunk_s
 
 
 def _generate_binary_files(config: DictConfig, grid_df: pd.DataFrame,
-                           grid_meta: dict,
-                           min_coords: Tuple[float, float, float],
-                           grid_spacing: Tuple[float, float, float]) -> None:
+                           grid_meta: dict) -> None:
     """Generate binary velocity files from grid DataFrame.
 
     Args:
         config: Configuration.
-        grid_df: DataFrame with velocity grid data.
-        grid_meta: Grid definition (nx, ny, nz, ...).
-        min_coords: Grid origin coordinates.
-        grid_spacing: Grid spacing.
+        grid_df: DataFrame with velocity grid data (lon, lat, depth, vp, vs).
+        grid_meta: Grid definition (nlon .. odepth).
     """
     logger = logging.getLogger(__name__)
     vel_config = config.initial_velocity_model
@@ -893,10 +665,10 @@ def _generate_binary_files(config: DictConfig, grid_df: pd.DataFrame,
     logger.info("Creating velocity binary files...")
 
     # Get grid dimensions
-    nx, ny, nz = grid_meta['nx'], grid_meta['ny'], grid_meta['nz']
-    indices = _grid_indices(grid_df, min_coords, grid_spacing)
+    nlon, nlat, ndepth = grid_meta['nlon'], grid_meta['nlat'], grid_meta['ndepth']
+    indices = _grid_indices(grid_df, grid_meta)
 
-    logger.info(f"Grid dimensions: {nx} x {ny} x {nz}")
+    logger.info(f"Grid dimensions (nlon, nlat, ndepth): {nlon} x {nlat} x {ndepth}")
 
     # Get parallel processing configuration
     parallel_config = config.get('parallel', {})
@@ -924,7 +696,7 @@ def _generate_binary_files(config: DictConfig, grid_df: pd.DataFrame,
 
         # Always use full vectorization - numpy fancy indexing is fast and memory-efficient
         # The chunked parallel version causes memory issues due to process forking
-        grid_3d = _fill_grid_vectorized(grid_df, vel_col, nx, ny, nz, indices, logger)
+        grid_3d = _fill_grid_vectorized(grid_df, vel_col, nlon, nlat, ndepth, indices, logger)
 
         # Interpolate if requested
         if vel_config.get('interpolate', False):
@@ -1013,19 +785,19 @@ def _write_velocity_binary(filepath: Path, grid: np.ndarray) -> None:
 
     Args:
         filepath: Output file path.
-        grid: 3D velocity array (nz, ny, nx) in Fortran-order.
+        grid: 3D velocity array (ndepth, nlat, nlon) in Fortran-order.
     """
     logger = logging.getLogger(__name__)
 
     ensure_directory_exists(filepath.parent)
 
-    nz, ny, nx = grid.shape
+    ndepth, nlat, nlon = grid.shape
 
     # Write in Fortran-order to match LATTE's column-major format
     grid.astype(np.float32).flatten('F').tofile(str(filepath))
 
     # Verify the written file
-    grid_check = np.fromfile(str(filepath), dtype=np.float32).reshape((nz, ny, nx), order='F')
+    grid_check = np.fromfile(str(filepath), dtype=np.float32).reshape((ndepth, nlat, nlon), order='F')
 
     logger.info(f"Written binary file: {filepath}")
     logger.info(f"  File size: {filepath.stat().st_size} bytes")

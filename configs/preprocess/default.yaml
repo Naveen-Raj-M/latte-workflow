@@ -55,7 +55,7 @@ data:
 # Parallel processing
 parallel:
   num_workers: null                       # null = all CPU cores
-  chunk_size: 100                         # events per chunk (parse_picks_with_cartesian)
+  chunk_size: 100                         # events per chunk (parse_picks_with_coordinates)
   grid_chunk_size: 50000                  # grid points per chunk (velocity model creation)
   vectorize_max_points: 100000000         # max points for full vectorization (~6 GB RAM at 100 M)
 
@@ -173,49 +173,38 @@ origin_time:
   mode: "fixed"                           # fixed | unix_epoch
   fixed_value: 0.0                        # seconds; used when mode is 'fixed'
 
-# Converts geodetic (lon/lat/depth) to Cartesian (x/y/z km) via flattening transformation
+# Spherical Earth (the spherical LATTE branch). Positions are longitude and WGS84 geodetic
+# latitude (degrees) and depth below mean sea level (km); no coordinate transformation is
+# applied. This block checks the coordinates of events and stations and defines the grid
+# origin and spacing, inherited by initial_velocity_model.
 coordinate_transform:
   enabled: true
-  origin_lon: -108.0                      # degrees
-  origin_lat: 34.5                        # degrees
-  origin_depth_km: 0.0                    # km, positive = below MSL
-  grid_spacing_km: [1.0, 1.0, 1.0]       # [dx, dy, dz] in km
-  # true = +y going south (lat decreases); false = +y going north (lat increases)
-  invert_y_axis: true
+  earth_radius_km: 6371.0                 # radius of the spherical Earth (LATTE earth_radius / 1000)
+  origin_lon: -108.0                      # degrees; west edge of the grid (first longitude node)
+  origin_lat: 34.5                        # degrees, geodetic; south edge of the grid (first latitude node)
+  origin_depth_km: 0.0                    # km below MSL; top of the grid (first depth node)
+  grid_spacing: [0.01, 0.01, 1.0]         # [dlon (deg), dlat (deg), ddepth (km)]
   output_dir: "${data.output_base_dir}/coordinate_transform"
 
-  # Output CSV file paths
-  events_cartesian_csv: "${coordinate_transform.output_dir}/events_cartesian.csv"
-  stations_cartesian_csv: "${coordinate_transform.output_dir}/stations_cartesian.csv"
-  picks_cartesian_csv: "${coordinate_transform.output_dir}/picks_cartesian.csv"
-  events_geodetic_csv: "${data.output_base_dir}/events_geodetic.csv"
-  stations_geodetic_csv: "${data.output_base_dir}/stations_geodetic.csv"
-
-  # Transforms basin boundary CSVs from geographic to Cartesian coordinates
-  # Output saved to: ${coordinate_transform.output_dir}/basin_boundaries/
-  basin_boundaries:
-    enabled: false
-    data_dir: "/path/to/basin_boundaries"
-    basins:
-      - file: "CentralBasin_Verticies_WGS84.csv"
-        label: "Central Basin"
-      - file: "DelawareBasin_Verticies_WGS84.csv"
-        label: "Delaware Basin"
-      - file: "MidlandBasin_Verticies_WGS84.csv"
-        label: "Midland Basin"
+  # Output CSV file paths (only the data that passed all filters)
+  events_csv: "${coordinate_transform.output_dir}/events.csv"
+  stations_csv: "${coordinate_transform.output_dir}/stations.csv"
+  picks_csv: "${coordinate_transform.output_dir}/picks.csv"
+  # Grid lines (nlon .. odepth, earth_radius, in metres) for the LATTE parameter file
+  latte_grid_file: "${data.output_base_dir}/model/latte_grid.txt"
 
 # Geometry and travel time file generation
 geometry_traveltime:
   enabled: true
 
   # Input files (outputs from coordinate_transform)
-  events_csv: "${coordinate_transform.events_cartesian_csv}"
-  stations_csv: "${coordinate_transform.stations_cartesian_csv}"
+  events_csv: "${coordinate_transform.events_csv}"
+  stations_csv: "${coordinate_transform.stations_csv}"
 
   # Output directories
   geometry_dir: "${data.output_base_dir}/geometry"
   traveltime_dir: "${data.output_base_dir}/ground_truth_traveltimes"
-  source_dir: "${data.output_base_dir}/model"
+  source_dir: "${data.output_base_dir}/model"   # slon.bin, slat.bin (deg), sdepth.bin (m), st0.bin (s)
 
   generate_travel_time_csv: true
   csv_output_dir: "${data.output_base_dir}/geometry_csv"
@@ -225,7 +214,7 @@ geometry_traveltime:
   # apply_default_weights and apply_azimuthal_weighting are mutually exclusive
   apply_default_weights: false
   default_weight: 1.0
-  # true = write 5-column geometry files (x y z weight_p weight_s); false = 4-column (x y z weight)
+  # true = write 5-column geometry files (lon lat depth_m weight_p weight_s); false = 4-column (lon lat depth_m weight)
   separate_weight_p_s: false
   default_weight_p: 1.0                  # base P-wave weight; applied as-is or as a scale on azimuthal weights
   default_weight_s: 1.0                  # base S-wave weight; applied as-is or as a scale on azimuthal weights
@@ -236,6 +225,7 @@ geometry_traveltime:
   # Azimuthal weighting uses global scale (pick counts per station-bin across ALL events)
   # When separate_weight_p_s is true, azimuthal weights are scaled by default_weight_p / default_weight_s
   phase_type: "both"                      # both | p | s
+  # Apparent velocity = straight-line event-station distance (as LATTE offsets) / travel time
   p_velocity_range_m_s: [500, 10000]      # m/s; picks outside this range are discarded
   s_velocity_range_m_s: [500, 6000]       # m/s; picks outside this range are discarded
 
@@ -243,23 +233,26 @@ geometry_traveltime:
 initial_velocity_model:
   enabled: true
   initial_model_file: "/path/to/initial_model.csv"
-  max_depth_km: 100.0                     # km; model entries below this depth are ignored
+  # km; model entries below this depth are ignored; deepest grid node with use_auto_bounds
+  max_depth_km: 100.0
 
   # Origin and grid spacing inherited from coordinate_transform
   origin_lon: "${coordinate_transform.origin_lon}"
   origin_lat: "${coordinate_transform.origin_lat}"
   origin_depth_km: "${coordinate_transform.origin_depth_km}"
-  grid_spacing_km: "${coordinate_transform.grid_spacing_km}"
+  grid_spacing: "${coordinate_transform.grid_spacing}"
 
-  # true = bounds computed from transformed events/stations; false = use manual bounds below
+  # true = the grid starts at the origin and extends east, north and down to cover all events
+  # and stations (and to max_depth_km); it extends beyond the origin, with a warning, only if
+  # data lie west, south or above it. false = manual bounds below.
   use_auto_bounds: true
-  # Manual bounds in Cartesian km relative to origin; used only when use_auto_bounds is false
-  x_min: null
-  x_max: null
-  y_min: null
-  y_max: null
-  z_min: null
-  z_max: null
+  # Manual bounds: first and last grid nodes; used only when use_auto_bounds is false
+  lon_min: null                           # degrees
+  lon_max: null
+  lat_min: null                           # degrees, geodetic
+  lat_max: null
+  depth_min: null                         # km below MSL
+  depth_max: null
 
   output_format: "csv"                    # csv | hdf5 | both
   output_csv: "${data.output_base_dir}/velocity_model_init.csv"
@@ -278,9 +271,9 @@ initial_velocity_model:
     write_coarse_csv: false               # true = write a separate coarse CSV file
     output_coarse_csv: "${data.output_base_dir}/velocity_model_init_coarse.csv"
     coarse_grid:
-      dx: 2.0                             # km; must be an integer multiple of fine dx
-      dy: 2.0                             # km; must be an integer multiple of fine dy
-      dz: 2.0                             # km; must be an integer multiple of fine dz
+      dlon: 0.02                          # degrees; must be an integer multiple of fine dlon
+      dlat: 0.02                          # degrees; must be an integer multiple of fine dlat
+      ddepth: 2.0                         # km; must be an integer multiple of fine ddepth
 
   interpolate: true
   neighbor_threshold: 5
@@ -301,7 +294,7 @@ final_data_visualization:
     enabled: false
     output_dir: "${data.output_base_dir}/visualizations"
     plot_depth_slices: true
-    # km; one contourf plot (Vp + Vs) is produced per depth
+    # km below MSL; one longitude-latitude contourf plot (Vp + Vs) is produced per depth
     depth_slices: [5, 10, 20, 30, 40, 50]
     plot_profiles: true
     profile_type: "both"                  # lat | lon | both
@@ -347,7 +340,7 @@ plots:
     alpha: 0.3                            # 0 = transparent, 1 = opaque
     linewidth: 0.5
 
-  equal_aspect: false                     # true = equal physical scale in km on both axes
+  equal_aspect: false                     # true = equal physical scale in km on both axes (at the mean latitude)
   max_depth: null                         # km, deepest depth shown in cross-sections; null = auto
 
   # Basin boundary overlays, shown on map views only

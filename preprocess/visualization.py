@@ -24,8 +24,7 @@ from scipy.interpolate import griddata as scipy_griddata
 from preprocess.plot_settings import resolve_plot_settings, save_figure
 from utils.io_utils import ensure_directory_exists
 from utils.velocity_io import read_velocity_file
-
-KM_PER_DEG = 111.0
+from utils.spherical import km_per_degree
 
 # view -> (x column, y column, x label, title, event colour column, colormap, colorbar label)
 _VIEWS = {
@@ -214,7 +213,7 @@ def _apply_limits(ax, view: str, events_df, stations_df, filters, origin, settin
                                   stations_df['longitude'].values.astype(float)])
         if len(all_lon) > 0:
             lons, lats = all_lon, all_lat
-            if origin is not None:  # model domain starts at the Cartesian origin
+            if origin is not None:  # model grid starts at its west/south edge (origin)
                 lons, lats = np.append(lons, origin[0]), np.append(lats, origin[1])
             lon_margin = max((lons.max() - lons.min()) * 0.02, 0.01)
             lat_margin = max((lats.max() - lats.min()) * 0.02, 0.01)
@@ -230,8 +229,9 @@ def _apply_limits(ax, view: str, events_df, stations_df, filters, origin, settin
         ax.set_xlim(xlim)
         ax.set_ylim(ylim)
         if settings.equal_aspect:
-            # 1 degree of latitude spans 1/cos(lat) times more km than 1 degree of longitude
-            ax.set_aspect(1.0 / np.cos(np.radians(mean_lat)), adjustable='box')
+            # Equal km on both axes at the mean latitude (sea level of the spherical Earth)
+            lon_km, lat_km = km_per_degree(mean_lat)
+            ax.set_aspect(float(lat_km / lon_km), adjustable='box')
         return
 
     lo, hi = (lon_lo, lon_hi) if view == 'lon_depth' else (lat_lo, lat_hi)
@@ -246,8 +246,9 @@ def _apply_limits(ax, view: str, events_df, stations_df, filters, origin, settin
         ax.set_ylim(bottom if bottom is not None else cur[0],
                     depth_lo if depth_lo is not None else cur[1])
     if settings.equal_aspect:
-        km_per_deg = KM_PER_DEG * (np.cos(np.radians(mean_lat)) if view == 'lon_depth' else 1.0)
-        ax.set_aspect(1.0 / km_per_deg, adjustable='box')
+        lon_km, lat_km = km_per_degree(mean_lat)
+        km_per_deg = lon_km if view == 'lon_depth' else lat_km
+        ax.set_aspect(1.0 / float(km_per_deg), adjustable='box')
 
 
 def create_station_event_visualization(config: DictConfig,
@@ -367,19 +368,20 @@ def create_velocity_model_visualization(config: DictConfig,
 
 def _plot_depth_slices(vel_df: pd.DataFrame, depth_slices: list,
                       output_dir: Path, settings: DictConfig) -> None:
-    """Plot horizontal depth slices using filled contours (viridis/plasma).
+    """Plot horizontal depth slices (longitude-latitude maps) using filled contours.
 
     Matches the analysis workflow style: contourf with 20 levels, griddata
     interpolation, and shared colorbar normalization.  When the model is
     laterally uniform (1D initial model), an annotation is added and the
     colorbar range is centred on the uniform value so the fill is still
-    informative.
+    informative. The axes have equal km per unit length at the mean latitude
+    of the slice.
     """
     logger = logging.getLogger(__name__)
 
-    z_col, x_col, y_col = 'z', 'x', 'y'
-    x_label = 'X (km)'
-    y_label = 'Y (km)'
+    z_col, x_col, y_col = 'depth', 'lon', 'lat'
+    x_label = 'Longitude (°)'
+    y_label = 'Latitude (°)'
 
     for depth in depth_slices:
         # Find closest depth in data
@@ -396,6 +398,8 @@ def _plot_depth_slices(vel_df: pd.DataFrame, depth_slices: list,
         x_unique = np.sort(slice_df[x_col].unique())
         y_unique = np.sort(slice_df[y_col].unique())
         X, Y = np.meshgrid(x_unique, y_unique)
+        lon_km, lat_km = km_per_degree(float(np.mean(y_unique)), float(closest_depth))
+        aspect = float(lat_km / lon_km)
 
         # Interpolate Vp and Vs onto the regular grid
         Z_vp = scipy_griddata(
@@ -443,7 +447,7 @@ def _plot_depth_slices(vel_df: pd.DataFrame, depth_slices: list,
         ax1.set_title(f'Vp at {closest_depth:.1f} km depth', fontsize=13)
         ax1.set_xlabel(x_label, fontsize=11)
         ax1.set_ylabel(y_label, fontsize=11)
-        ax1.set_aspect('equal')
+        ax1.set_aspect(aspect)
         ax1.grid(True, alpha=0.3)
         plt.colorbar(
             plt.cm.ScalarMappable(norm=norm_vp, cmap='viridis'),
@@ -461,7 +465,7 @@ def _plot_depth_slices(vel_df: pd.DataFrame, depth_slices: list,
         ax2.set_title(f'Vs at {closest_depth:.1f} km depth', fontsize=13)
         ax2.set_xlabel(x_label, fontsize=11)
         ax2.set_ylabel(y_label, fontsize=11)
-        ax2.set_aspect('equal')
+        ax2.set_aspect(aspect)
         ax2.grid(True, alpha=0.3)
         plt.colorbar(
             plt.cm.ScalarMappable(norm=norm_vs, cmap='plasma'),

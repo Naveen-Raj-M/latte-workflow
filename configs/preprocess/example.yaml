@@ -29,10 +29,12 @@ raw_data_visualization:
 hdf5_conversion:
   enabled: false
 
+# Grid origin (west edge, south edge, top) and spacing [dlon deg, dlat deg, ddepth km]
 coordinate_transform:
   origin_lon: 0.0
   origin_lat: 0.0
   origin_depth_km: 0.0
+  grid_spacing: [0.01, 0.01, 1.0]
 
 initial_velocity_model:
   initial_model_file: "/path/to/initial_model.csv"

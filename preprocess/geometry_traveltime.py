@@ -1,7 +1,9 @@
-"""Geometry and travel time processing for LATTE preprocessing.
+"""Geometry and travel time processing for LATTE preprocessing (spherical Earth).
 
-This module provides functions for creating geometry files and travel time
-binary files from Cartesian coordinates (after coordinate transformation).
+This module writes the geometry files, travel-time binaries and source binaries of the
+spherical LATTE branch, and the ground-truth travel-time CSV. Positions are longitude and
+WGS84 geodetic latitude (degrees) and depth below mean sea level; LATTE files carry the depth
+in metres, the CSV in km. Distances are those of LATTE (``utils.spherical``).
 """
 
 import logging
@@ -21,43 +23,29 @@ from collections import defaultdict
 from utils.io_utils import ensure_directory_exists, GROUND_TRUTH_CSV_NAME
 from utils.traveltime_io import write_traveltime_csv
 from utils.origin_time_utils import get_origin_time_for_event
+from utils.spherical import EARTH_RADIUS_KM, azimuth_deg, hypocentral_distance_km
+
+# Columns that identify the position of a station
+STATION_POSITION = ['longitude', 'latitude', 'depth']
 
 
-def compute_back_azimuth(station_x: float, station_y: float,
-                          event_x: float, event_y: float) -> float:
-    """Compute back azimuth from station to event (source).
-
-    Back azimuth is the direction from the station looking towards the event,
-    measured clockwise from North (positive Y direction in Cartesian coords).
+def compute_back_azimuth(station_lon: float, station_lat: float,
+                          event_lon: float, event_lat: float) -> float:
+    """Back azimuth at a station: the azimuth (degrees clockwise from north, 0 to 360) at the
+    station of the great circle toward the event, on the spherical Earth.
 
     Args:
-        station_x: Station X coordinate (meters).
-        station_y: Station Y coordinate (meters).
-        event_x: Event X coordinate (meters).
-        event_y: Event Y coordinate (meters).
-
-    Returns:
-        Back azimuth in degrees (0-360), where 0=North, 90=East, etc.
+        station_lon, station_lat: Station longitude and geodetic latitude (degrees).
+        event_lon, event_lat: Event longitude and geodetic latitude (degrees).
     """
-    dx = event_x - station_x
-    dy = event_y - station_y
-
-    # atan2(dx, dy) gives angle from positive Y axis (North), clockwise
-    azimuth_rad = np.arctan2(dx, dy)
-    azimuth_deg = np.degrees(azimuth_rad)
-
-    # Normalize to 0-360 range
-    if azimuth_deg < 0:
-        azimuth_deg += 360.0
-
-    return azimuth_deg
+    return float(azimuth_deg(station_lon, station_lat, event_lon, event_lat))
 
 
 def compute_azimuthal_weights(picks_with_coords: list,
                                event_coords: tuple,
                                bin_size_deg: float = 30.0,
                                weight_formula: str = 'inverse_sqrt') -> dict:
-    """Compute azimuthal weights for picks based on back-azimuth distribution.
+    """Compute azimuthal weights for the picks of one event from their back azimuths.
 
     For each azimuthal bin, computes weight based on the number of picks N:
     - 'inverse_sqrt': weight = 1/sqrt(N)
@@ -67,8 +55,8 @@ def compute_azimuthal_weights(picks_with_coords: list,
     picks in sparsely sampled directions.
 
     Args:
-        picks_with_coords: List of tuples (station_id, station_x, station_y, ...).
-        event_coords: Tuple of (event_x, event_y, event_z) in meters.
+        picks_with_coords: List of tuples (station_id, station_lon, station_lat, ...).
+        event_coords: Tuple of (event_lon, event_lat, event_depth_m).
         bin_size_deg: Size of azimuthal bins in degrees.
         weight_formula: Formula for computing weights ('inverse_sqrt' or 'inverse').
 
@@ -77,15 +65,13 @@ def compute_azimuthal_weights(picks_with_coords: list,
     """
     logger = logging.getLogger(__name__)
 
-    event_x, event_y, _ = event_coords
+    event_lon, event_lat, _ = event_coords
 
     # Compute back azimuth for each pick
     station_azimuths = {}
     for item in picks_with_coords:
         station_id = item[0]
-        station_x = item[1]
-        station_y = item[2]
-        azimuth = compute_back_azimuth(station_x, station_y, event_x, event_y)
+        azimuth = compute_back_azimuth(item[1], item[2], event_lon, event_lat)
         station_azimuths[station_id] = azimuth
 
     # Bin the azimuths
@@ -130,7 +116,7 @@ def compute_global_azimuthal_bin_counts(temp_events: dict,
 
     Args:
         temp_events: Dictionary of processed events {event_id: event_data}.
-        event_lookup: Dictionary of event coordinates {event_id: {x, y, z, ...}}.
+        event_lookup: Dictionary of events {event_id: {lon, lat, depth_m, ...}}.
         bin_size_deg: Size of azimuthal bins in degrees.
 
     Returns:
@@ -151,19 +137,19 @@ def compute_global_azimuthal_bin_counts(temp_events: dict,
         if event_coords is None:
             continue
 
-        event_x, event_y, _ = event_coords
+        event_lon, event_lat, _ = event_coords
 
         # Process P picks
         for station_id, pick_info in event_data['p_picks'].items():
-            sx, sy, _ = pick_info['coords']
-            azimuth = compute_back_azimuth(sx, sy, event_x, event_y)
+            station_lon, station_lat, _ = pick_info['coords']
+            azimuth = compute_back_azimuth(station_lon, station_lat, event_lon, event_lat)
             bin_idx = int(azimuth / bin_size_deg) % num_bins
             global_bin_counts[(station_id, bin_idx)] += 1
 
         # Process S picks
         for station_id, pick_info in event_data['s_picks'].items():
-            sx, sy, _ = pick_info['coords']
-            azimuth = compute_back_azimuth(sx, sy, event_x, event_y)
+            station_lon, station_lat, _ = pick_info['coords']
+            azimuth = compute_back_azimuth(station_lon, station_lat, event_lon, event_lat)
             bin_idx = int(azimuth / bin_size_deg) % num_bins
             global_bin_counts[(station_id, bin_idx)] += 1
 
@@ -198,7 +184,7 @@ def apply_global_azimuthal_weights(temp_events: dict,
 
     Args:
         temp_events: Dictionary of processed events {event_id: event_data}.
-        event_lookup: Dictionary of event coordinates {event_id: {x, y, z, ...}}.
+        event_lookup: Dictionary of events {event_id: {lon, lat, depth_m, ...}}.
         bin_size_deg: Size of azimuthal bins in degrees.
         weight_formula: Formula for computing weights ('inverse_sqrt' or 'inverse').
         default_weight_p: Base scale factor for P-wave azimuthal weights.
@@ -226,12 +212,12 @@ def apply_global_azimuthal_weights(temp_events: dict,
         if event_coords is None:
             continue
 
-        event_x, event_y, _ = event_coords
+        event_lon, event_lat, _ = event_coords
 
         # Apply weights to P picks
         for station_id, pick_info in event_data['p_picks'].items():
-            sx, sy, _ = pick_info['coords']
-            azimuth = compute_back_azimuth(sx, sy, event_x, event_y)
+            station_lon, station_lat, _ = pick_info['coords']
+            azimuth = compute_back_azimuth(station_lon, station_lat, event_lon, event_lat)
             bin_idx = int(azimuth / bin_size_deg) % num_bins
 
             n = global_bin_counts.get((station_id, bin_idx), 1)
@@ -248,8 +234,8 @@ def apply_global_azimuthal_weights(temp_events: dict,
 
         # Apply weights to S picks
         for station_id, pick_info in event_data['s_picks'].items():
-            sx, sy, _ = pick_info['coords']
-            azimuth = compute_back_azimuth(sx, sy, event_x, event_y)
+            station_lon, station_lat, _ = pick_info['coords']
+            azimuth = compute_back_azimuth(station_lon, station_lat, event_lon, event_lat)
             bin_idx = int(azimuth / bin_size_deg) % num_bins
 
             n = global_bin_counts.get((station_id, bin_idx), 1)
@@ -314,10 +300,12 @@ def call_get_origin_time_from_datetime(
 
 
 def _process_single_event(event_id, event_picks, event_lookup, station_lookup,
-                          geom_config, origin_time_config):
+                          geom_config, origin_time_config, earth_radius_km=EARTH_RADIUS_KM):
     """Process picks for a single event.
 
-    This function is designed to be called in parallel for each event.
+    This function is designed to be called in parallel for each event. The apparent velocity
+    of a pick is the straight-line distance between the Earth-centred positions of the event
+    and the station (the LATTE offset) divided by the travel time.
 
     Returns:
         Tuple of (event_id, event_data_dict, unrealistic_count) or None if event invalid
@@ -338,8 +326,7 @@ def _process_single_event(event_id, event_picks, event_lookup, station_lookup,
         'second': None,
         'p_picks': {},
         's_picks': {},
-        'coords': None,
-        'original_coords': None
+        'coords': None
     }
 
     unrealistic_velocity_count = 0
@@ -365,8 +352,7 @@ def _process_single_event(event_id, event_picks, event_lookup, station_lookup,
         event_data['hour'] = origin_dt.hour
         event_data['minute'] = origin_dt.minute
         event_data['second'] = origin_dt.second + origin_dt.microsecond * 1e-6
-        event_data['coords'] = (event_info['x'], event_info['y'], event_info['z'])
-        event_data['original_coords'] = (event_info['lon'], event_info['lat'], event_info['depth'])
+        event_data['coords'] = (event_info['lon'], event_info['lat'], event_info['depth_m'])
         event_data['magnitude'] = event_info.get('magnitude', None)
 
     except Exception as e:
@@ -399,9 +385,10 @@ def _process_single_event(event_id, event_picks, event_lookup, station_lookup,
                 continue
 
             # Velocity check
-            distance = np.sqrt((event_info['x'] - station_info['x'])**2 +
-                             (event_info['y'] - station_info['y'])**2 +
-                             (event_info['z'] - station_info['z'])**2)
+            distance = 1000.0 * float(hypocentral_distance_km(
+                event_info['lon'], event_info['lat'], event_info['depth_m'] / 1000.0,
+                station_info['lon'], station_info['lat'], station_info['depth_m'] / 1000.0,
+                earth_radius_km))
 
             if physical_travel_time < 1e-6:
                 unrealistic_velocity_count += 1
@@ -443,8 +430,7 @@ def _process_single_event(event_id, event_picks, event_lookup, station_lookup,
 
             pick_data = {
                 'station': station_id,
-                'coords': (station_info['x'], station_info['y'], station_info['z']),
-                'original_coords': (station_info['lon'], station_info['lat'], station_info['depth']),
+                'coords': (station_info['lon'], station_info['lat'], station_info['depth_m']),
                 'physical_travel_time': physical_travel_time,
                 'observed_travel_time': observed_travel_time,
                 'weight': weight,
@@ -466,15 +452,17 @@ def _process_single_event(event_id, event_picks, event_lookup, station_lookup,
     return (event_id, event_data, unrealistic_velocity_count, negative_tt_count)
 
 
-def parse_picks_with_cartesian(events_df: pd.DataFrame,
-                               stations_df: pd.DataFrame,
-                               picks_df: pd.DataFrame,
-                               config: DictConfig) -> Tuple[Dict, Dict]:
-    """Parse picks and match with Cartesian coordinates.
+def parse_picks_with_coordinates(events_df: pd.DataFrame,
+                                 stations_df: pd.DataFrame,
+                                 picks_df: pd.DataFrame,
+                                 config: DictConfig) -> Tuple[Dict, Dict]:
+    """Parse picks and match them with the coordinates of events and stations.
+
+    Positions are kept as (lon, lat, depth_m): degrees and metres below mean sea level.
 
     Args:
-        events_df: DataFrame with event Cartesian coordinates.
-        stations_df: DataFrame with station Cartesian coordinates.
+        events_df: Events with longitude, latitude and depth (km).
+        stations_df: Stations with longitude, latitude and depth (km).
         picks_df: DataFrame with pick data.
         config: Full configuration.
 
@@ -484,31 +472,26 @@ def parse_picks_with_cartesian(events_df: pd.DataFrame,
     logger = logging.getLogger(__name__)
     geom_config = config.geometry_traveltime
     origin_time_config = config.origin_time
+    earth_radius_km = float(config.coordinate_transform.get('earth_radius_km', EARTH_RADIUS_KM))
 
-    # Create lookup dictionaries for event coordinates
+    # Create lookup dictionaries for event coordinates (depth in metres)
     event_lookup = {}
     for _, row in events_df.iterrows():
         event_lookup[row['event_id']] = {
-            'x': row['x'] * 1000,  # Convert to meters
-            'y': row['y'] * 1000,
-            'z': row['z'] * 1000,
+            'lon': float(row['longitude']),
+            'lat': float(row['latitude']),
+            'depth_m': float(row['depth']) * 1000.0,
             'origin_time': row['origin_time'],
-            'lon': row.get('longitude', row.get('lon', 0.0)),
-            'lat': row.get('latitude', row.get('lat', 0.0)),
-            'depth': row.get('depth', 0.0),
             'magnitude': row.get('magnitude', None)
         }
 
-    # Create lookup dictionaries for station coordinates
+    # Create lookup dictionaries for station coordinates (depth in metres)
     station_lookup = {}
     for _, row in stations_df.iterrows():
         station_lookup[row['station_id']] = {
-            'x': row['x'] * 1000,  # Convert to meters
-            'y': row['y'] * 1000,
-            'z': row['z'] * 1000,
-            'lon': row.get('longitude', row.get('lon', 0.0)),
-            'lat': row.get('latitude', row.get('lat', 0.0)),
-            'depth': row.get('depth', 0.0)
+            'lon': float(row['longitude']),
+            'lat': float(row['latitude']),
+            'depth_m': float(row['depth']) * 1000.0
         }
 
     # Get parallel processing configuration
@@ -518,7 +501,7 @@ def parse_picks_with_cartesian(events_df: pd.DataFrame,
         n_jobs = -1  # Use all CPU cores
 
     logger.info(f"Using parallel processing with n_jobs={n_jobs if n_jobs != -1 else 'all cores'}")
-    logger.info(f"Input: {len(events_df)} events, {len(stations_df.drop_duplicates(subset=['x', 'y', 'z']))} stations (unique positions), {len(picks_df)} picks")
+    logger.info(f"Input: {len(events_df)} events, {len(stations_df.drop_duplicates(subset=STATION_POSITION))} stations (unique positions), {len(picks_df)} picks")
 
     # Process picks grouped by event
     picks_by_event = list(picks_df.groupby('event_id'))
@@ -529,7 +512,7 @@ def parse_picks_with_cartesian(events_df: pd.DataFrame,
     results = Parallel(n_jobs=n_jobs, backend='loky')(
         delayed(_process_single_event)(
             event_id, event_picks, event_lookup, station_lookup,
-            geom_config, origin_time_config
+            geom_config, origin_time_config, earth_radius_km
         )
         for event_id, event_picks in tqdm(picks_by_event, desc="Processing events", unit="event")
     )
@@ -587,7 +570,6 @@ def parse_picks_with_cartesian(events_df: pd.DataFrame,
                     'minute': data['minute'],
                     'second': data['second'],
                     'coords': data['coords'],
-                    'original_coords': data['original_coords'],
                     'magnitude': data.get('magnitude', None),
                     'p_picks': [data['p_picks'][stn] for stn in common_stations],
                     's_picks': [data['s_picks'][stn] for stn in common_stations]
@@ -606,7 +588,6 @@ def parse_picks_with_cartesian(events_df: pd.DataFrame,
                     'minute': data['minute'],
                     'second': data['second'],
                     'coords': data['coords'],
-                    'original_coords': data['original_coords'],
                     'magnitude': data.get('magnitude', None),
                     'p_picks': [data['p_picks'][stn] for stn in p_stations],
                     's_picks': []
@@ -625,7 +606,6 @@ def parse_picks_with_cartesian(events_df: pd.DataFrame,
                     'minute': data['minute'],
                     'second': data['second'],
                     'coords': data['coords'],
-                    'original_coords': data['original_coords'],
                     'magnitude': data.get('magnitude', None),
                     'p_picks': [],
                     's_picks': [data['s_picks'][stn] for stn in s_stations]
@@ -663,7 +643,7 @@ def _write_single_event_files(event_item, geom_config, phase_type):
     receivers_for_geometry = data['p_picks'] if data['p_picks'] else data['s_picks']
 
     geom_fname = f"shot_{idx}_geometry.txt"
-    ex, ey, ez = data['coords']
+    elon, elat, edepth = data['coords']
 
     # Prepare origin time formatting (single precision, 6 decimal places)
     origin_time = data.get('origin_time_s', 0.0)
@@ -673,23 +653,23 @@ def _write_single_event_files(event_item, geom_config, phase_type):
     geom_path = Path(geom_config.geometry_dir) / geom_fname
     with open(geom_path, "w") as out:
         out.write(f"{idx}\n\n1\n")
-        out.write(f"{ex:.6f} {ey:.6f} {ez:.6f} {origin_time_fmt}\n\n")
+        out.write(f"{elon:.8f} {elat:.8f} {edepth:.3f} {origin_time_fmt}\n\n")
         out.write(f"{len(receivers_for_geometry)}\n")
         if separate_weight_p_s:
-            # 5-column format: x y z weight_p weight_s
+            # 5-column format: lon lat depth_m weight_p weight_s
             p_picks = data['p_picks']
             s_picks = data['s_picks']
             for i, pick in enumerate(receivers_for_geometry):
-                sx, sy, sz = pick['coords']
+                rlon, rlat, rdepth = pick['coords']
                 wp = p_picks[i]['weight'] if i < len(p_picks) else 0.0
                 ws = s_picks[i]['weight'] if i < len(s_picks) else 0.0
-                out.write(f"{sx:.6f} {sy:.6f} {sz:.6f} {wp:.6f} {ws:.6f}\n")
+                out.write(f"{rlon:.8f} {rlat:.8f} {rdepth:.3f} {wp:.6f} {ws:.6f}\n")
         else:
-            # 4-column format: x y z weight
+            # 4-column format: lon lat depth_m weight
             for pick in receivers_for_geometry:
-                sx, sy, sz = pick['coords']
+                rlon, rlat, rdepth = pick['coords']
                 w = pick['weight']
-                out.write(f"{sx:.6f} {sy:.6f} {sz:.6f} {w:.6f}\n")
+                out.write(f"{rlon:.8f} {rlat:.8f} {rdepth:.3f} {w:.6f}\n")
 
     # Write P-wave traveltime binary (if processing P-waves)
     if phase_type in ['both', 'p'] and data['p_picks']:
@@ -712,8 +692,10 @@ def _write_single_event_files(event_item, geom_config, phase_type):
 
 def write_source_binary_files(events: Dict, config: DictConfig, origin_time_config: DictConfig) -> None:
     """
-    Write source binary files (sx.bin, sy.bin, sz.bin, st0.bin) for the events.
-    These files contain the source coordinates and origin times for each event.
+    Write the source binary files of the spherical LATTE branch for the events: slon.bin and
+    slat.bin (degrees), sdepth.bin (metres below mean sea level) and st0.bin (origin times, s),
+    read through ``file_slon``, ``file_slat``, ``file_sdepth`` and ``file_st0``. Values are
+    little-endian float32, one per event, in shot order.
     """
     logger = logging.getLogger(__name__)
     geom_config = config.geometry_traveltime
@@ -727,52 +709,30 @@ def write_source_binary_files(events: Dict, config: DictConfig, origin_time_conf
 
     # Sort events to maintain consistent ordering (same as in geometry files)
     sorted_events = sorted(events.items(), key=lambda item: item[0])
+    coords = np.array([data['coords'] for _, data in sorted_events], dtype=float).reshape(-1, 3)
+    values = {
+        'slon': coords[:, 0],
+        'slat': coords[:, 1],
+        'sdepth': coords[:, 2],
+        'st0': np.array([data['origin_time_s'] for _, data in sorted_events], dtype=float),
+    }
 
-    # Extract source coordinates and origin times
-    sx_values = []
-    sy_values = []
-    sz_values = []
-    st0_values = []
-
-    for eid, data in sorted_events:
-        ex, ey, ez = data['coords']
-        sx_values.append(ex)
-        sy_values.append(ey)
-        sz_values.append(ez)
-        st0_values.append(data['origin_time_s'])
-
-    # Convert to numpy arrays
-    sx_array = np.array(sx_values, dtype='<f4')  # Little-endian 32-bit float
-    sy_array = np.array(sy_values, dtype='<f4')
-    sz_array = np.array(sz_values, dtype='<f4')
-
-    # Origin times: single precision (little-endian 32-bit float)
-    st0_array = np.array(st0_values, dtype='<f4')
-
-    # Write binary files
     source_dir = Path(geom_config.source_dir)
-    with open(source_dir / 'sx.bin', 'wb') as f:
-        f.write(sx_array.tobytes())
-    with open(source_dir / 'sy.bin', 'wb') as f:
-        f.write(sy_array.tobytes())
-    with open(source_dir / 'sz.bin', 'wb') as f:
-        f.write(sz_array.tobytes())
-    with open(source_dir / 'st0.bin', 'wb') as f:
-        f.write(st0_array.tobytes())
+    for name, array in values.items():
+        with open(source_dir / f'{name}.bin', 'wb') as f:
+            f.write(array.astype('<f4').tobytes())
 
-    logger.info(f"Source binary files written:")
-    logger.info(f"  sx.bin: {len(sx_values)} values (x-coordinates, single precision)")
-    logger.info(f"  sy.bin: {len(sy_values)} values (y-coordinates, single precision)")
-    logger.info(f"  sz.bin: {len(sz_values)} values (z-coordinates, single precision)")
-    logger.info(f"  st0.bin: {len(st0_values)} values (origin times in {origin_time_config.mode} mode, single precision (4 bytes))")
+    logger.info(f"Source binary files written ({len(sorted_events)} values each, single precision):")
+    logger.info(f"  slon.bin (degrees), slat.bin (degrees), sdepth.bin (m), "
+                f"st0.bin (origin times in {origin_time_config.mode} mode, s)")
 
-    # Print summary statistics
-    if sx_values:
+    if len(sorted_events):
         logger.info(f"Source coordinate ranges:")
-        logger.info(f"  X: {min(sx_values):.1f} to {max(sx_values):.1f} m")
-        logger.info(f"  Y: {min(sy_values):.1f} to {max(sy_values):.1f} m")
-        logger.info(f"  Z: {min(sz_values):.1f} to {max(sz_values):.1f} m")
-        logger.info(f"  Origin times ({origin_time_config.mode} mode): {min(st0_values):.1f} to {max(st0_values):.1f} s")
+        logger.info(f"  Longitude: {values['slon'].min():.4f} to {values['slon'].max():.4f} deg")
+        logger.info(f"  Latitude: {values['slat'].min():.4f} to {values['slat'].max():.4f} deg")
+        logger.info(f"  Depth: {values['sdepth'].min():.1f} to {values['sdepth'].max():.1f} m")
+        logger.info(f"  Origin times ({origin_time_config.mode} mode): "
+                    f"{values['st0'].min():.1f} to {values['st0'].max():.1f} s")
 
 
 def write_output_files(events: Dict, config: DictConfig, origin_time_config: DictConfig) -> None:
@@ -865,9 +825,8 @@ def write_travel_time_csv(events: Dict, config: DictConfig) -> None:
     for idx, (eid, data) in enumerate(sorted_events, start=1):
         shot_id = idx
 
-        # Get event coordinates
-        ex_transformed, ey_transformed, ez_transformed = data['coords']
-        event_lon, event_lat, event_depth_km = data['original_coords']
+        # Get event coordinates (depth in metres)
+        event_lon, event_lat, event_depth_m = data['coords']
 
         # Get event metadata
         origin_time_s = data.get('origin_time_s', 0.0)
@@ -890,8 +849,7 @@ def write_travel_time_csv(events: Dict, config: DictConfig) -> None:
                 station = pick['station']
                 physical_travel_time = pick['physical_travel_time']
                 weight = pick['weight']
-                sx_transformed, sy_transformed, sz_transformed = pick['coords']
-                station_lon, station_lat, station_depth_km = pick['original_coords']
+                station_lon, station_lat, station_depth_m = pick['coords']
 
                 row = {
                     # Identifiers
@@ -904,21 +862,13 @@ def write_travel_time_csv(events: Dict, config: DictConfig) -> None:
                     'observed_tt': physical_travel_time,
                     'weight': weight,
 
-                    # Original coordinates (lat/lon/depth)
+                    # Coordinates (degrees, km below mean sea level)
                     'event_longitude': event_lon,
                     'event_latitude': event_lat,
-                    'event_depth_km': event_depth_km,
+                    'event_depth_km': event_depth_m / 1000.0,
                     'station_longitude': station_lon,
                     'station_latitude': station_lat,
-                    'station_depth_km': station_depth_km,
-
-                    # Cartesian coordinates (metres, relative to the coordinate origin)
-                    'event_x': ex_transformed,
-                    'event_y': ey_transformed,
-                    'event_z': ez_transformed,
-                    'station_x': sx_transformed,
-                    'station_y': sy_transformed,
-                    'station_z': sz_transformed,
+                    'station_depth_km': station_depth_m / 1000.0,
 
                     'origin_time_s': origin_time_s,
                 }
@@ -934,8 +884,10 @@ def write_travel_time_csv(events: Dict, config: DictConfig) -> None:
         
         csv_filename = GROUND_TRUTH_CSV_NAME
         csv_path = Path(geom_config.csv_output_dir) / csv_filename
-        # Units (m for the Cartesian coordinates, km for depths, ...) go in the header metadata
-        write_traveltime_csv(df, csv_path, data_type='geometry_traveltime')
+        # Units and the Earth radius go in the header metadata
+        earth_radius_km = float(config.coordinate_transform.get('earth_radius_km', EARTH_RADIUS_KM))
+        write_traveltime_csv(df, csv_path, data_type='geometry_traveltime',
+                             metadata={'earth_radius_km': earth_radius_km})
 
         logger.info(f"Comprehensive travel time CSV written: {csv_filename}")
         logger.info(f"  Phase type: {phase_type}")
@@ -956,10 +908,11 @@ def write_travel_time_csv(events: Dict, config: DictConfig) -> None:
                 logger.info(f"  S-wave picks: {len(s_data)}")
                 logger.info(f"  S-wave travel times: {s_data['observed_tt'].min():.3f} to {s_data['observed_tt'].max():.3f} s (mean: {s_data['observed_tt'].mean():.3f} s)")
 
-        # Print coordinate range information
-        distance_m = np.sqrt((df['event_x'] - df['station_x'])**2 +
-                             (df['event_y'] - df['station_y'])**2 +
-                             (df['event_z'] - df['station_z'])**2)
+        # Print the range of event-station distances (straight line, as in LATTE)
+        distance_m = 1000.0 * pd.Series(hypocentral_distance_km(
+            df['event_longitude'].to_numpy(), df['event_latitude'].to_numpy(), df['event_depth_km'].to_numpy(),
+            df['station_longitude'].to_numpy(), df['station_latitude'].to_numpy(), df['station_depth_km'].to_numpy(),
+            earth_radius_km))
         if not distance_m.isna().all():
             logger.info(f"  Distance range: {distance_m.min():.1f} to {distance_m.max():.1f} m")
 
@@ -982,7 +935,7 @@ def convert_final_events_to_dataframes(final_events: Dict,
     as DataFrames suitable for visualization.
 
     Args:
-        final_events: Dictionary of filtered events from parse_picks_with_cartesian.
+        final_events: Dictionary of filtered events from parse_picks_with_coordinates.
         events_df: Original events DataFrame (for metadata lookup).
         stations_df: Original stations DataFrame (for metadata lookup).
 
@@ -1038,7 +991,7 @@ def convert_final_events_to_dataframes(final_events: Dict,
 
     logger.info(f"Converted final_events to DataFrames:")
     logger.info(f"  Filtered events: {len(filtered_events_df)}")
-    logger.info(f"  Filtered stations: {len(filtered_stations_df.drop_duplicates(subset=['x', 'y', 'z']))} (unique positions)")
+    logger.info(f"  Filtered stations: {len(filtered_stations_df.drop_duplicates(subset=STATION_POSITION))} (unique positions)")
     logger.info(f"  Filtered picks: {len(filtered_picks_df)}")
 
     return filtered_events_df, filtered_stations_df, filtered_picks_df
@@ -1048,12 +1001,12 @@ def create_geometry_and_traveltime_files(config: DictConfig,
                                         events_df: pd.DataFrame,
                                         stations_df: pd.DataFrame,
                                         picks_df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Create geometry and travel time files from Cartesian coordinates.
+    """Create geometry, travel-time and source files for the spherical LATTE branch.
 
     Args:
         config: Full configuration.
-        events_df: DataFrame with event Cartesian coordinates.
-        stations_df: DataFrame with station Cartesian coordinates.
+        events_df: Events with longitude, latitude and depth (km below MSL).
+        stations_df: Stations with longitude, latitude and depth (km below MSL).
         picks_df: DataFrame with pick data.
 
     Returns:
@@ -1069,7 +1022,7 @@ def create_geometry_and_traveltime_files(config: DictConfig,
         return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
     logger.info("--- Starting Geometry and Travel Time File Generation ---")
-    logger.info(f"Input: {len(events_df)} events, {len(stations_df.drop_duplicates(subset=['x', 'y', 'z']))} stations (unique positions), {len(picks_df)} picks")
+    logger.info(f"Input: {len(events_df)} events, {len(stations_df.drop_duplicates(subset=STATION_POSITION))} stations (unique positions), {len(picks_df)} picks")
 
     # Create output directories
     ensure_directory_exists(Path(geom_config.geometry_dir))
@@ -1079,8 +1032,8 @@ def create_geometry_and_traveltime_files(config: DictConfig,
     if geom_config.generate_travel_time_csv:
         ensure_directory_exists(Path(geom_config.csv_output_dir))
 
-    # Parse picks with Cartesian coordinates
-    event_data, station_lookup = parse_picks_with_cartesian(
+    # Parse picks and attach the coordinates of events and stations
+    event_data, station_lookup = parse_picks_with_coordinates(
         events_df, stations_df, picks_df, config
     )
 
@@ -1118,7 +1071,7 @@ def create_geometry_and_traveltime_files(config: DictConfig,
     apply_default_weights = geom_config.get('apply_default_weights', False)
     apply_azimuthal_weighting = geom_config.get('apply_azimuthal_weighting', False)
     separate_weight_p_s = geom_config.get('separate_weight_p_s', False)
-    geom_format = "5-column (x y z wp ws)" if separate_weight_p_s else "4-column (x y z w)"
+    geom_format = "5-column (lon lat depth_m wp ws)" if separate_weight_p_s else "4-column (lon lat depth_m w)"
     logger.info(f"Geometry file format: {geom_format}")
     if apply_default_weights:
         if separate_weight_p_s:
@@ -1160,7 +1113,7 @@ def create_geometry_and_traveltime_files(config: DictConfig,
         if origin_time_config.mode == "fixed":
             origin_time_desc += f" (value={origin_time_config.get('fixed_value', 0.0)}s)"
         logger.info(f"  - Origin times: {origin_time_desc}")
-        logger.info(f"  - Files: sx.bin, sy.bin, sz.bin, st0.bin")
+        logger.info(f"  - Files: slon.bin, slat.bin, sdepth.bin, st0.bin")
 
     logger.info("=" * 60)
     logger.info("Geometry and traveltime generation completed successfully")

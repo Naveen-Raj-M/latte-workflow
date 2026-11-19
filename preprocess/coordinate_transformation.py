@@ -1,243 +1,94 @@
-"""Coordinate transformation functions for LATTE preprocessing.
+"""Coordinates of the LATTE preprocessing (spherical Earth).
 
-This module provides flattening transformation to convert geodetic coordinates
-(latitude, longitude, depth) to Cartesian coordinates (x, y, z) in km.
+The spherical LATTE branch takes positions as longitude, WGS84 geodetic latitude and depth
+below mean sea level, the coordinates of the catalog. No transformation is applied; this module
+checks the coordinates of events and stations and the grid configuration, and puts the
+coordinate columns in a standard form:
+
+    longitude  degrees
+    latitude   degrees, WGS84 geodetic
+    depth      km below mean sea level (stations above sea level have negative depth)
+
+The geometry of the spherical Earth is in ``utils.spherical``.
 """
 
 import logging
-from pathlib import Path
 from typing import Tuple
 
 import numpy as np
 import pandas as pd
 from omegaconf import DictConfig
 
-from utils.io_utils import ensure_directory_exists
+from utils.spherical import EARTH_RADIUS_KM
 
-# Constants
-EARTH_RADIUS_KM = 6371.0
-
-
-def flattening_transformation(df: pd.DataFrame, origin_lon: float,
-                              origin_lat: float, origin_depth: float,
-                              invert_y_axis: bool = True) -> pd.DataFrame:
-    """Apply flattening transformation from geodetic to Cartesian coordinates.
-
-    Transforms (longitude, latitude, depth) to (x, y, z) in km using simple
-    geometric conversion relative to specified origin.
-
-    Args:
-        df: DataFrame with columns ['longitude', 'latitude', 'depth'].
-            Can also accept ['lon', 'lat', 'depth'].
-        origin_lon: Origin longitude in degrees.
-        origin_lat: Origin latitude in degrees.
-        origin_depth: Origin depth in km (positive down).
-        invert_y_axis: If True, positive y when latitude decreases (going south).
-                       If False, positive y when latitude increases (going north).
-
-    Returns:
-        DataFrame with added columns ['x', 'y', 'z'] in km.
-
-    Notes:
-        - x points East (positive)
-        - y direction controlled by invert_y_axis parameter
-        - z points Down (positive, relative to origin depth)
-    """
-    logger = logging.getLogger(__name__)
-    df_out = df.copy()
-
-    # Handle both naming conventions
-    lon_col = 'longitude' if 'longitude' in df.columns else 'lon'
-    lat_col = 'latitude' if 'latitude' in df.columns else 'lat'
-
-    # Convert to radians
-    lon_rad = np.radians(df_out[lon_col])
-    lat_rad = np.radians(df_out[lat_col])
-    origin_lon_rad = np.radians(origin_lon)
-    origin_lat_rad = np.radians(origin_lat)
-
-    # Apply flattening transformation
-    # x: East direction (positive)
-    x_km = (EARTH_RADIUS_KM * (lon_rad - origin_lon_rad) *
-            np.cos(origin_lat_rad))
-
-    # y: Direction controlled by invert_y_axis
-    # If invert_y_axis=True: positive y as lat decreases (origin at top, y increases going south)
-    # If invert_y_axis=False: positive y as lat increases (origin at bottom, y increases going north)
-    y_multiplier = -1 if invert_y_axis else 1
-    y_km = y_multiplier * (EARTH_RADIUS_KM * (lat_rad - origin_lat_rad))
-
-    # z: Depth direction (positive down, relative to origin)
-    z_km = df_out['depth'] - origin_depth
-
-    df_out['x'] = x_km
-    df_out['y'] = y_km
-    df_out['z'] = z_km
-
-    logger.debug(f"Transformed {len(df_out)} points to Cartesian coordinates")
-    logger.debug(f"  x range: [{df_out['x'].min():.2f}, {df_out['x'].max():.2f}] km")
-    logger.debug(f"  y range: [{df_out['y'].min():.2f}, {df_out['y'].max():.2f}] km")
-    logger.debug(f"  z range: [{df_out['z'].min():.2f}, {df_out['z'].max():.2f}] km")
-
-    return df_out
+COORDINATE_COLUMNS = ['longitude', 'latitude', 'depth']
 
 
-def compute_domain_bounds(events_df: pd.DataFrame, stations_df: pd.DataFrame,
-                         origin_lon: float, origin_lat: float,
-                         origin_depth: float) -> Tuple[Tuple[float, float, float],
-                                                       Tuple[float, float, float]]:
-    """Compute Cartesian domain bounds from events and stations.
+def standardize_coordinates(df: pd.DataFrame, label: str,
+                            earth_radius_km: float = EARTH_RADIUS_KM) -> pd.DataFrame:
+    """Return a copy of ``df`` with the columns ``longitude``, ``latitude`` and ``depth``.
+
+    ``lon`` and ``lat`` are accepted as aliases. Raises ``ValueError`` if a coordinate is
+    missing or not finite, a latitude is outside [-90, 90] degrees, or a depth reaches the
+    centre of the Earth.
 
     Args:
-        events_df: DataFrame with event geodetic coordinates.
-        stations_df: DataFrame with station geodetic coordinates.
-        origin_lon: Origin longitude in degrees.
-        origin_lat: Origin latitude in degrees.
-        origin_depth: Origin depth in km.
-
-    Returns:
-        Tuple of (min_coords, max_coords) where each is (x, y, z) in km.
+        df: Events or stations.
+        label: Name used in error messages ('events' or 'stations').
+        earth_radius_km: Radius of the spherical Earth, km.
     """
-    logger = logging.getLogger(__name__)
-
-    # Transform events and stations
-    events_cart = flattening_transformation(events_df, origin_lon,
-                                           origin_lat, origin_depth)
-    stations_cart = flattening_transformation(stations_df, origin_lon,
-                                             origin_lat, origin_depth)
-
-    # Combine for bounds calculation
-    combined = pd.concat([events_cart, stations_cart], ignore_index=True)
-
-    min_x = combined['x'].min()
-    max_x = combined['x'].max()
-    min_y = combined['y'].min()
-    max_y = combined['y'].max()
-    min_z = combined['z'].min()
-    max_z = combined['z'].max()
-
-    logger.info(f"Computed domain bounds (Cartesian):")
-    logger.info(f"  x: [{min_x:.2f}, {max_x:.2f}] km")
-    logger.info(f"  y: [{min_y:.2f}, {max_y:.2f}] km")
-    logger.info(f"  z: [{min_z:.2f}, {max_z:.2f}] km")
-
-    return (min_x, min_y, min_z), (max_x, max_y, max_z)
+    out = df.rename(columns={'lon': 'longitude', 'lat': 'latitude'}).copy()
+    missing = [c for c in COORDINATE_COLUMNS if c not in out.columns]
+    if missing:
+        raise ValueError(f"{label} lack the coordinate columns {missing}")
+    values = out[COORDINATE_COLUMNS].to_numpy(dtype=float)
+    if not np.all(np.isfinite(values)):
+        raise ValueError(f"{label} have missing or non-finite coordinates")
+    if np.any(np.abs(out['latitude']) > 90.0):
+        raise ValueError(f"{label} have latitudes outside [-90, 90] degrees")
+    if np.any(out['depth'] >= earth_radius_km):
+        raise ValueError(f"{label} have depths at or below the centre of the Earth")
+    return out
 
 
-def _load_and_transform_basin_boundaries(config: DictConfig, origin_lon: float,
-                                          origin_lat: float, origin_depth: float,
-                                          invert_y_axis: bool, output_dir: Path) -> None:
-    """Load basin boundaries and transform their coordinates.
-
-    Args:
-        config: Basin boundaries configuration.
-        origin_lon: Origin longitude in degrees.
-        origin_lat: Origin latitude in degrees.
-        origin_depth: Origin depth in km.
-        invert_y_axis: If True, positive y when latitude decreases (going south).
-        output_dir: Directory to save transformed basin boundary files.
-    """
-    logger = logging.getLogger(__name__)
-
-    if not config.get('enabled', False):
-        logger.info("Basin boundary transformation disabled")
-        return
-
-    data_dir = Path(config.data_dir)
-    basin_output_dir = output_dir / 'basin_boundaries'
-    ensure_directory_exists(basin_output_dir)
-
-    transformed_count = 0
-    for basin in config.basins:
-        csv_file = data_dir / basin['file']
-
-        if not csv_file.exists():
-            logger.warning(f"Basin boundary file not found: {csv_file}")
-            continue
-
-        # Read space-delimited file (despite .csv extension)
-        df = pd.read_csv(csv_file, sep=r'\s+')
-
-        # Create a DataFrame with standard column names for transformation
-        basin_df = pd.DataFrame({
-            'longitude': df['POINT_X'].values,
-            'latitude': df['POINT_Y'].values,
-            'depth': np.zeros(len(df))  # Basins are surface features
-        })
-
-        # Transform to Cartesian coordinates
-        basin_cart = flattening_transformation(basin_df, origin_lon, origin_lat,
-                                               origin_depth, invert_y_axis)
-
-        # Create output DataFrame in same format as input (POINT_X, POINT_Y)
-        # but with Cartesian coordinates
-        output_df = pd.DataFrame({
-            'POINT_X': basin_cart['x'].values,
-            'POINT_Y': basin_cart['y'].values
-        })
-
-        # Save transformed basin boundary
-        output_file = basin_output_dir / basin['file']
-        # Save with space delimiter to match input format
-        output_df.to_csv(output_file, sep=' ', index=False)
-
-        basin_name = basin.get('label', basin['file'])
-        logger.info(f"Transformed basin boundary '{basin_name}': {output_file}")
-        transformed_count += 1
-
-    if transformed_count > 0:
-        logger.info(f"Saved {transformed_count} transformed basin boundaries to {basin_output_dir}")
+def check_grid_configuration(coord_config: DictConfig) -> None:
+    """Raise ``ValueError`` unless the grid origin and spacing are valid: three positive
+    spacings (dlon and dlat in degrees, ddepth in km), an origin latitude in (-90, 90) and a
+    positive Earth radius."""
+    spacing = list(coord_config.grid_spacing)
+    if len(spacing) != 3 or min(spacing) <= 0:
+        raise ValueError(f"coordinate_transform.grid_spacing must be three positive values "
+                         f"[dlon_deg, dlat_deg, ddepth_km] (got {spacing})")
+    if not -90.0 < float(coord_config.origin_lat) < 90.0:
+        raise ValueError("coordinate_transform.origin_lat must lie in (-90, 90) degrees")
+    if float(coord_config.get('earth_radius_km', EARTH_RADIUS_KM)) <= 0:
+        raise ValueError("coordinate_transform.earth_radius_km must be > 0")
 
 
 def transform_coordinates(config: DictConfig, events_df: pd.DataFrame,
-                          stations_df: pd.DataFrame) -> Tuple[pd.DataFrame,
-                                                              pd.DataFrame]:
-    """Transform events and stations to Cartesian coordinates.
+                          stations_df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """Check and standardize the coordinates of events and stations.
 
     Args:
         config: Full configuration.
-        events_df: DataFrame with event geodetic coordinates.
-        stations_df: DataFrame with station geodetic coordinates.
+        events_df: Events with geodetic coordinates.
+        stations_df: Stations with geodetic coordinates.
 
     Returns:
-        Tuple of (events_cart_df, stations_cart_df) with Cartesian coordinates.
+        Tuple of (events_df, stations_df) with the columns longitude, latitude, depth.
     """
     logger = logging.getLogger(__name__)
     coord_config = config.coordinate_transform
+    check_grid_configuration(coord_config)
+    radius = float(coord_config.get('earth_radius_km', EARTH_RADIUS_KM))
 
-    if not coord_config.enabled:
-        logger.info("Coordinate transformation disabled")
-        return events_df, stations_df
+    events = standardize_coordinates(events_df, 'events', radius)
+    stations = standardize_coordinates(stations_df, 'stations', radius)
 
-    logger.info("Transforming coordinates to Cartesian (flattening)...")
-
-    # Get origin
-    origin_lon = coord_config.origin_lon
-    origin_lat = coord_config.origin_lat
-    origin_depth = coord_config.origin_depth_km
-    invert_y_axis = coord_config.get('invert_y_axis', True)  # Default to True for backward compatibility
-
-    logger.info(f"Origin: ({origin_lon}°, {origin_lat}°, {origin_depth} km)")
-    logger.info(f"Y-axis mode: {'inverted (positive south)' if invert_y_axis else 'standard (positive north)'}")
-
-    # Transform events
-    logger.info(f"Transforming {len(events_df)} events...")
-    events_cart = flattening_transformation(events_df, origin_lon,
-                                           origin_lat, origin_depth, invert_y_axis)
-
-    # Transform stations
-    logger.info(f"Transforming {len(stations_df.drop_duplicates(subset=['longitude', 'latitude', 'depth']))} stations (unique positions)...")
-    stations_cart = flattening_transformation(stations_df, origin_lon,
-                                             origin_lat, origin_depth, invert_y_axis)
-
-    # Transform basin boundaries if configured
-    output_dir = Path(coord_config.output_dir)
-    ensure_directory_exists(output_dir)
-    if hasattr(coord_config, 'basin_boundaries'):
-        _load_and_transform_basin_boundaries(
-            coord_config.basin_boundaries,
-            origin_lon, origin_lat, origin_depth, invert_y_axis,
-            output_dir
-        )
-
-    return events_cart, stations_cart
+    logger.info(f"Spherical Earth of radius {radius} km; coordinates are longitude, WGS84 geodetic "
+                f"latitude (degrees) and depth below MSL (km)")
+    for label, df in (('Events', events), ('Stations', stations)):
+        logger.info(f"  {label}: lon [{df['longitude'].min():.4f}, {df['longitude'].max():.4f}], "
+                    f"lat [{df['latitude'].min():.4f}, {df['latitude'].max():.4f}], "
+                    f"depth [{df['depth'].min():.3f}, {df['depth'].max():.3f}] km")
+    return events, stations
