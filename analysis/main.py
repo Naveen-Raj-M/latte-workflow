@@ -25,6 +25,7 @@ from .short_distance_analysis import analyze_short_distance_residuals
 from .source_analysis import analyze_source_corrections
 from .gradient_analysis import analyze_gradients_and_search
 from .tradeoff_analysis import analyze_tradeoff
+from .tradeoff_statistics import check_model_variance_config
 
 logger = logging.getLogger(__name__)
 
@@ -249,7 +250,7 @@ def run_tradeoff_analysis(cfg: DictConfig) -> None:
                 for depth_km, df in results['by_depth'].items():
                     if not df.empty:
                         logger.info(
-                            f"  Z={depth_km:.2f} km: {len(df)} iterations"
+                            f"  Depth {depth_km:.2f} km: {len(df)} iterations"
                         )
         except Exception as e:
             logger.error(f"Tradeoff analysis failed: {e}")
@@ -820,15 +821,10 @@ def _validate_tradeoff_config(cfg: DictConfig) -> None:
         )
         sys.exit(1)
 
-    # Region mode
+    # Region mode and bound keys (raises for the keys of the Cartesian workflow)
     mv_cfg = tcfg.get('model_variance', {})
+    check_model_variance_config(mv_cfg)
     region = mv_cfg.get('region', 'full')
-    if region not in ('full', 'z_bounded', 'depth_layer'):
-        logger.error(
-            f"Invalid tradeoff_analysis model_variance.region: '{region}'. "
-            "Valid options: 'full', 'z_bounded', 'depth_layer'"
-        )
-        sys.exit(1)
     if region == 'depth_layer':
         layers = mv_cfg.get('depth_layers', [])
         if not layers:

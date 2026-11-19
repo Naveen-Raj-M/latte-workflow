@@ -196,11 +196,43 @@ def _build_col_names(
     return {'x': x, 'x_vs': x_vs, 'y': y, 'y_p': y_p, 'y_s': y_s}
 
 
+# Keys of model_variance replaced in the spherical branch: old key -> new key
+REMOVED_MODEL_VARIANCE_KEYS = {
+    'x_bounds': 'lon_bounds (degrees)',
+    'y_bounds': 'lat_bounds (degrees)',
+    'z_bounds': 'depth_bounds (km)',
+}
+REGIONS = ('full', 'depth_bounded', 'depth_layer')
+
+# Bound axes: (config key, column, unit)
+_BOUND_AXES = (('lon_bounds', 'lon', 'deg'), ('lat_bounds', 'lat', 'deg'), ('depth_bounds', 'depth', 'km'))
+
+
+def check_model_variance_config(mv_cfg: Dict[str, Any]) -> None:
+    """
+    Raise ``ValueError`` if ``model_variance`` uses keys or a region of the Cartesian workflow
+    (x_bounds, y_bounds, z_bounds, region 'z_bounded'), naming their replacements, or an
+    unknown region.
+    """
+    old = [k for k in REMOVED_MODEL_VARIANCE_KEYS if k in mv_cfg]
+    if old:
+        raise ValueError(
+            "tradeoff_analysis.model_variance: "
+            + ", ".join(f"{k} is replaced by {REMOVED_MODEL_VARIANCE_KEYS[k]}" for k in old))
+    region = mv_cfg.get('region', 'full')
+    if region == 'z_bounded':
+        raise ValueError("tradeoff_analysis.model_variance.region 'z_bounded' is replaced by "
+                         "'depth_bounded' (with depth_bounds in km)")
+    if region not in REGIONS:
+        raise ValueError(f"Unknown model_variance.region: '{region}'. "
+                         f"Valid options: {', '.join(repr(r) for r in REGIONS)}")
+
+
 def validate_spatial_bounds(
     df_initial: pd.DataFrame,
-    x_bounds: BoundPair,
-    y_bounds: BoundPair,
-    z_bounds: Optional[BoundPair],
+    lon_bounds: BoundPair,
+    lat_bounds: BoundPair,
+    depth_bounds: Optional[BoundPair],
 ) -> None:
     """
     Validate user-specified spatial bounds against the actual model domain.
@@ -209,22 +241,20 @@ def validate_spatial_bounds(
     raises a WARNING; no overlap at all raises a ValueError.
 
     Args:
-        df_initial: Initial velocity model DataFrame with X/Y/z columns.
-        x_bounds: (x_min, x_max) – either element may be None (no bound).
-        y_bounds: (y_min, y_max) – same convention.
-        z_bounds: (z_min, z_max) or None (no Z filter).
+        df_initial: Initial velocity model DataFrame with lon/lat/depth columns.
+        lon_bounds: (lon_min, lon_max) in degrees – either element may be None (no bound).
+        lat_bounds: (lat_min, lat_max) in degrees – same convention.
+        depth_bounds: (depth_min, depth_max) in km, or None (no depth filter).
 
     Raises:
         ValueError: If any bound has zero overlap with the model domain.
     """
-    axes = [
-        ('X', 'x', x_bounds),
-        ('Y', 'y', y_bounds),
-    ]
-    if z_bounds is not None:
-        axes.append(('Z', 'z', z_bounds))
+    bounds_by_key = {'lon_bounds': lon_bounds, 'lat_bounds': lat_bounds, 'depth_bounds': depth_bounds}
 
-    for axis_name, col, bounds in axes:
+    for key, col, unit in _BOUND_AXES:
+        bounds = bounds_by_key[key]
+        if bounds is None:
+            continue  # No depth filter
         lo, hi = bounds
         if lo is None and hi is None:
             continue  # No bound on this axis
@@ -238,34 +268,34 @@ def validate_spatial_bounds(
         # Check for zero overlap
         if effective_lo > model_max or effective_hi < model_min:
             raise ValueError(
-                f"{axis_name}_bounds [{lo}, {hi}] has no overlap with the model "
-                f"domain [{model_min:.3f}, {model_max:.3f}] km. "
+                f"{key} [{lo}, {hi}] has no overlap with the model "
+                f"domain [{model_min:.4f}, {model_max:.4f}] {unit}. "
                 f"No grid points would be selected."
             )
 
         # Warn if bounds extend beyond model domain
         if lo is not None and lo < model_min:
             logger.warning(
-                f"{axis_name}_bounds lower limit {lo:.3f} km is below the model "
-                f"minimum {model_min:.3f} km – it will be clipped to the model domain."
+                f"{key} lower limit {lo:.4f} {unit} is below the model "
+                f"minimum {model_min:.4f} {unit} – it will be clipped to the model domain."
             )
         if hi is not None and hi > model_max:
             logger.warning(
-                f"{axis_name}_bounds upper limit {hi:.3f} km exceeds the model "
-                f"maximum {model_max:.3f} km – it will be clipped to the model domain."
+                f"{key} upper limit {hi:.4f} {unit} exceeds the model "
+                f"maximum {model_max:.4f} {unit} – it will be clipped to the model domain."
             )
 
         logger.info(
-            f"{axis_name}_bounds [{lo}, {hi}] km valid against model "
-            f"domain [{model_min:.3f}, {model_max:.3f}] km"
+            f"{key} [{lo}, {hi}] {unit} valid against model "
+            f"domain [{model_min:.4f}, {model_max:.4f}] {unit}"
         )
 
 
 def build_spatial_mask(
     df: pd.DataFrame,
-    x_bounds: BoundPair,
-    y_bounds: BoundPair,
-    z_bounds: Optional[BoundPair],
+    lon_bounds: BoundPair,
+    lat_bounds: BoundPair,
+    depth_bounds: Optional[BoundPair],
 ) -> np.ndarray:
     """
     Build a boolean mask selecting grid points within all spatial bounds.
@@ -273,10 +303,10 @@ def build_spatial_mask(
     A None bound value means "no restriction" on that side.
 
     Args:
-        df: Velocity model DataFrame with x, y, z.
-        x_bounds: (x_min, x_max).
-        y_bounds: (y_min, y_max).
-        z_bounds: (z_min, z_max) or None.
+        df: Velocity model DataFrame with lon, lat, depth.
+        lon_bounds: (lon_min, lon_max) in degrees.
+        lat_bounds: (lat_min, lat_max) in degrees.
+        depth_bounds: (depth_min, depth_max) in km, or None.
 
     Returns:
         Boolean numpy array of length len(df), True where point is inside bounds.
@@ -290,10 +320,10 @@ def build_spatial_mask(
         if hi is not None:
             mask &= (df[col].values <= hi)
 
-    _apply_bound('x', *x_bounds)
-    _apply_bound('y', *y_bounds)
-    if z_bounds is not None:
-        _apply_bound('z', *z_bounds)
+    _apply_bound('lon', *lon_bounds)
+    _apply_bound('lat', *lat_bounds)
+    if depth_bounds is not None:
+        _apply_bound('depth', *depth_bounds)
 
     n_selected = int(mask.sum())
     logger.debug(f"Spatial mask selects {n_selected} / {len(df)} grid points")
@@ -304,8 +334,8 @@ def build_depth_layer_mask(
     df: pd.DataFrame,
     depth_km: float,
     depth_tolerance_km: float,
-    x_bounds: BoundPair,
-    y_bounds: BoundPair,
+    lon_bounds: BoundPair,
+    lat_bounds: BoundPair,
 ) -> np.ndarray:
     """
     Build mask for points within tolerance of a specific depth layer.
@@ -314,41 +344,31 @@ def build_depth_layer_mask(
         df: Velocity model DataFrame.
         depth_km: Target depth in km.
         depth_tolerance_km: Half-window tolerance around target depth.
-        x_bounds: (x_min, x_max) optional horizontal bounds.
-        y_bounds: (y_min, y_max) optional horizontal bounds.
+        lon_bounds: (lon_min, lon_max) optional longitude bounds (degrees).
+        lat_bounds: (lat_min, lat_max) optional latitude bounds (degrees).
 
     Returns:
         Boolean numpy array of length len(df).
     """
-    depth_mask = np.abs(df['z'].values - depth_km) <= depth_tolerance_km
+    depth_mask = np.abs(df['depth'].values - depth_km) <= depth_tolerance_km
 
     # Apply horizontal bounds
-    xy_mask = np.ones(len(df), dtype=bool)
-    x_lo, x_hi = x_bounds
-    y_lo, y_hi = y_bounds
-    if x_lo is not None:
-        xy_mask &= (df['x'].values >= x_lo)
-    if x_hi is not None:
-        xy_mask &= (df['x'].values <= x_hi)
-    if y_lo is not None:
-        xy_mask &= (df['y'].values >= y_lo)
-    if y_hi is not None:
-        xy_mask &= (df['y'].values <= y_hi)
+    horizontal_mask = build_spatial_mask(df, lon_bounds, lat_bounds, depth_bounds=None)
 
-    combined = depth_mask & xy_mask
+    combined = depth_mask & horizontal_mask
     n_selected = int(combined.sum())
 
     if n_selected == 0:
-        available_z = np.sort(df['z'].unique())
-        nearest = available_z[np.argmin(np.abs(available_z - depth_km))]
+        available = np.sort(df['depth'].unique())
+        nearest = available[np.argmin(np.abs(available - depth_km))]
         logger.warning(
-            f"Depth layer mask at Z={depth_km:.2f} km (±{depth_tolerance_km:.2f} km) "
-            f"selected 0 points. Nearest available Z: {nearest:.3f} km. "
-            f"Available Z values: {available_z[:10].tolist()}{'...' if len(available_z) > 10 else ''}"
+            f"Depth layer mask at depth {depth_km:.2f} km (±{depth_tolerance_km:.2f} km) "
+            f"selected 0 points. Nearest available depth: {nearest:.3f} km. "
+            f"Available depths: {available[:10].tolist()}{'...' if len(available) > 10 else ''}"
         )
     else:
         logger.debug(
-            f"Depth layer mask at Z={depth_km:.2f} km: {n_selected} grid points selected"
+            f"Depth layer mask at depth {depth_km:.2f} km: {n_selected} grid points selected"
         )
 
     return combined
@@ -942,8 +962,8 @@ def write_general_report(
     # Derive plot title (mirrors create_all_tradeoff_plots logic)
     if region == 'full':
         region_label = "Full Model"
-    elif region == 'z_bounded':
-        region_label = "Z-bounded Region"
+    elif region == 'depth_bounded':
+        region_label = "Depth-bounded Region"
     else:
         region_label = "Depth Layer"
 
@@ -1018,18 +1038,18 @@ def write_general_report(
                 "nodes with |Δv| <= tolerance."
             )
 
-    if region == 'z_bounded':
-        lines.append(f"  Z bounds             : {mv_cfg.get('z_bounds')}")
+    if region == 'depth_bounded':
+        lines.append(f"  Depth bounds (km)    : {mv_cfg.get('depth_bounds')}")
     elif region == 'depth_layer':
         lines.append(f"  Depth layers (km)    : {mv_cfg.get('depth_layers')}")
         lines.append(f"  Depth tolerance (km) : {mv_cfg.get('depth_tolerance_km')}")
 
-    x_lo = mv_cfg.get('x_bounds', [None, None])
-    y_lo = mv_cfg.get('y_bounds', [None, None])
-    if any(b is not None for b in x_lo):
-        lines.append(f"  X bounds             : {x_lo}")
-    if any(b is not None for b in y_lo):
-        lines.append(f"  Y bounds             : {y_lo}")
+    lon_b = mv_cfg.get('lon_bounds', [None, None]) or [None, None]
+    lat_b = mv_cfg.get('lat_bounds', [None, None]) or [None, None]
+    if any(b is not None for b in lon_b):
+        lines.append(f"  Lon bounds (deg)     : {lon_b}")
+    if any(b is not None for b in lat_b):
+        lines.append(f"  Lat bounds (deg)     : {lat_b}")
 
     lines += [
         "",

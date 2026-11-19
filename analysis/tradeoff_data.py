@@ -27,7 +27,7 @@ _MC_REQUIRED_COLS = {'synthetic_tt', 'phase', 'event_id', 'station'}
 _MC_MERGE_KEYS = ['event_id', 'station', 'phase']
 
 # Required columns for velocity CSV
-_VEL_REQUIRED_COLS = {'x', 'y', 'z', 'vp', 'vs'}
+_VEL_REQUIRED_COLS = {'lon', 'lat', 'depth', 'vp', 'vs'}
 
 # Regex to extract iteration index from directory names
 _ITER_DIR_PATTERN = re.compile(r'^iteration_(\d+)$')
@@ -512,7 +512,7 @@ def load_velocity_model_for_iteration(
             non-model CSVs co-exist in the same iteration directory.
 
     Returns:
-        DataFrame with columns [x, y, z, vp, vs],
+        DataFrame with columns [lon, lat, depth, vp, vs],
         or None on failure.
     """
     hdf5_candidates = sorted(
@@ -646,9 +646,9 @@ def load_initial_velocity_model(
 
     logger.info(
         f"Initial model loaded: {len(df)} grid points, "
-        f"X=[{df['x'].min():.2f}, {df['x'].max():.2f}] km, "
-        f"Y=[{df['y'].min():.2f}, {df['y'].max():.2f}] km, "
-        f"Z=[{df['z'].min():.2f}, {df['z'].max():.2f}] km"
+        f"lon=[{df['lon'].min():.4f}, {df['lon'].max():.4f}] deg, "
+        f"lat=[{df['lat'].min():.4f}, {df['lat'].max():.4f}] deg, "
+        f"depth=[{df['depth'].min():.2f}, {df['depth'].max():.2f}] km"
     )
 
     return df

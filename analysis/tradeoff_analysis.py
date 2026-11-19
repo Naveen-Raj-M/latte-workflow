@@ -38,6 +38,7 @@ from .tradeoff_statistics import (
     validate_spatial_bounds,
     build_spatial_mask,
     build_depth_layer_mask,
+    check_model_variance_config,
     compute_model_variance_for_mask,
     assemble_tradeoff_table,
     assemble_parameter_tradeoff_table,
@@ -212,7 +213,7 @@ def _validate_grid_alignment(
         )
 
     # Soft coordinate drift check
-    for col in ('x', 'y', 'z'):
+    for col in ('lon', 'lat', 'depth'):
         if col not in df_inverted.columns:
             continue
         if not np.allclose(df_initial[col].values, df_inverted[col].values, atol=1e-4):
@@ -236,7 +237,7 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
 
     Returns:
         Results dictionary with keys:
-            'tradeoff_table': DataFrame (for region in {full, z_bounded})
+            'tradeoff_table': DataFrame (for region in {full, depth_bounded})
             'by_depth': Dict[float, DataFrame] (for region == depth_layer)
             'config': module config sub-dict
     """
@@ -261,6 +262,7 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
     phase_mode = tcfg.get('phase_mode', 'both')
     rms_comparison_mode = tcfg.get('rms_comparison_mode', 'ground_truth')
     mv_cfg = tcfg.get('model_variance', {})
+    check_model_variance_config(mv_cfg)
     region = mv_cfg.get('region', 'full')
     velocity_dataset = tcfg.get('velocity_dataset', 'velocity')
     velocity_csv_pattern = tcfg.get('velocity_csv_pattern', '*.csv')
@@ -317,15 +319,15 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
     # ------------------------------------------------------------------ #
     # PHASE 2 – VALIDATE BOUNDS                                           #
     # ------------------------------------------------------------------ #
-    x_bounds = _parse_bound_pair(mv_cfg.get('x_bounds', [None, None]))
-    y_bounds = _parse_bound_pair(mv_cfg.get('y_bounds', [None, None]))
+    lon_bounds = _parse_bound_pair(mv_cfg.get('lon_bounds', [None, None]))
+    lat_bounds = _parse_bound_pair(mv_cfg.get('lat_bounds', [None, None]))
 
-    z_bounds: Optional[Tuple[Optional[float], Optional[float]]] = None
-    if region == 'z_bounded':
-        z_bounds = _parse_bound_pair(mv_cfg.get('z_bounds', [None, None]))
+    depth_bounds: Optional[Tuple[Optional[float], Optional[float]]] = None
+    if region == 'depth_bounded':
+        depth_bounds = _parse_bound_pair(mv_cfg.get('depth_bounds', [None, None]))
 
     # validate_spatial_bounds raises ValueError on no-overlap
-    validate_spatial_bounds(df_initial, x_bounds, y_bounds, z_bounds)
+    validate_spatial_bounds(df_initial, lon_bounds, lat_bounds, depth_bounds)
 
     # ------------------------------------------------------------------ #
     # PHASE 3 – PRECOMPUTE MASKS                                          #
@@ -335,14 +337,14 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
 
     if region == 'full':
         mask_main = np.ones(len(df_initial), dtype=bool)
-        # Still apply optional x/y bounds if specified
-        if any(b is not None for b in (*x_bounds, *y_bounds)):
-            mask_main = build_spatial_mask(df_initial, x_bounds, y_bounds, z_bounds=None)
+        # Still apply optional lon/lat bounds if specified
+        if any(b is not None for b in (*lon_bounds, *lat_bounds)):
+            mask_main = build_spatial_mask(df_initial, lon_bounds, lat_bounds, depth_bounds=None)
         logger.info(f"Full-model mask: {mask_main.sum()} / {len(df_initial)} grid points")
 
-    elif region == 'z_bounded':
-        mask_main = build_spatial_mask(df_initial, x_bounds, y_bounds, z_bounds)
-        logger.info(f"Z-bounded mask: {mask_main.sum()} / {len(df_initial)} grid points")
+    elif region == 'depth_bounded':
+        mask_main = build_spatial_mask(df_initial, lon_bounds, lat_bounds, depth_bounds)
+        logger.info(f"Depth-bounded mask: {mask_main.sum()} / {len(df_initial)} grid points")
 
     elif region == 'depth_layer':
         raw_layers = mv_cfg.get('depth_layers', [])
@@ -359,17 +361,17 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
 
         for depth_km in depth_layers:
             m = build_depth_layer_mask(
-                df_initial, depth_km, depth_tolerance, x_bounds, y_bounds
+                df_initial, depth_km, depth_tolerance, lon_bounds, lat_bounds
             )
             if m.sum() == 0:
                 logger.warning(
-                    f"Depth layer Z={depth_km:.2f} km mask selected 0 points. "
+                    f"Depth layer {depth_km:.2f} km mask selected 0 points. "
                     "This depth will be skipped."
                 )
             else:
                 masks[depth_km] = m
                 logger.info(
-                    f"Depth layer Z={depth_km:.2f} km mask: {m.sum()} grid points"
+                    f"Depth layer {depth_km:.2f} km mask: {m.sum()} grid points"
                 )
 
         if not masks:
@@ -381,7 +383,7 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
     else:
         raise ValueError(
             f"Unknown model_variance.region: '{region}'. "
-            "Valid options: 'full', 'z_bounded', 'depth_layer'"
+            "Valid options: 'full', 'depth_bounded', 'depth_layer'"
         )
 
     # ------------------------------------------------------------------ #
@@ -399,7 +401,7 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
         if region == 'depth_layer':
             raise ValueError(
                 "x_axis_mode='parameter' does not support "
-                "model_variance.region='depth_layer'. Use 'full' or 'z_bounded'."
+                "model_variance.region='depth_layer'. Use 'full' or 'depth_bounded'."
             )
 
         pm_cfg = tcfg.get('parameter_mode', {})
@@ -690,7 +692,7 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
     if 0 in y_dict:
         _z_vp = 0.0 if phase_mode in ('p', 'both', 'separate') else None
         _z_vs = 0.0 if phase_mode in ('s', 'both', 'separate') else None
-        if region in ('full', 'z_bounded'):
+        if region in ('full', 'depth_bounded'):
             vp_variances[0]       = _z_vp
             vs_variances[0]       = _z_vs
             combined_variances[0] = 0.0
@@ -733,7 +735,7 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
                 logger.error(str(e))
                 continue
 
-            if region in ('full', 'z_bounded'):
+            if region in ('full', 'depth_bounded'):
                 try:
                     var = compute_model_variance_for_mask(
                         df_initial, df_inverted, mask_main,
@@ -829,7 +831,7 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
 
     all_indices = sorted(set(vp_variances.keys()) & set(vs_variances.keys()))
 
-    if region in ('full', 'z_bounded'):
+    if region in ('full', 'depth_bounded'):
         df_tradeoff = assemble_tradeoff_table(
             iteration_indices=all_indices,
             vp_variances=vp_variances,
@@ -861,7 +863,7 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
     # ------------------------------------------------------------------ #
     # PHASE 7 – SAVE STATISTICS CSV                                       #
     # ------------------------------------------------------------------ #
-    if region in ('full', 'z_bounded'):
+    if region in ('full', 'depth_bounded'):
         stats_file = stats_dir / "tradeoff_statistics.csv"
         write_statistics_csv(results['tradeoff_table'], stats_file)
 
@@ -891,7 +893,7 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
     _x_col = _cols['x']
     _y_col = _cols['y'] or _cols['y_p']  # y_p for separate mode
 
-    if region in ('full', 'z_bounded'):
+    if region in ('full', 'depth_bounded'):
         df_out = results.get('tradeoff_table', pd.DataFrame())
         if not df_out.empty:
             logger.info(f"Iterations processed: {len(df_out)}")
@@ -926,7 +928,7 @@ def analyze_tradeoff(config: Dict[str, Any]) -> Dict[str, Any]:
                     if _x_col in df_d.columns else "n/a"
                 )
                 logger.info(
-                    f"Z={depth_km:.2f} km: {len(df_d)} iterations, "
+                    f"Depth {depth_km:.2f} km: {len(df_d)} iterations, "
                     f"{_x_col} range {x_range}"
                 )
 

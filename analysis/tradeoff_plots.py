@@ -126,7 +126,7 @@ def create_tradeoff_plot(
         config: Full configuration dictionary.
         output_path: Full path including filename (extension added if missing).
         title: Plot title.
-        depth_label: Optional string like "Z = 15.0 km" for depth_layer mode.
+        depth_label: Optional string like "Depth = 15.00 km" for depth_layer mode.
         single_phase: If 'p' or 's', force a single-axis plot for that phase only
             (used when phase_mode='separate' to generate individual P/S files).
             None (default) uses phase_mode from config.
@@ -652,13 +652,13 @@ def create_all_tradeoff_plots(
     """
     Create all tradeoff plots based on region mode and depth layers.
 
-    For region in {full, z_bounded}: one plot saved as tradeoff_curve.{fmt}
+    For region in {full, depth_bounded}: one plot saved as tradeoff_curve.{fmt}
     For region == depth_layer: one plot per depth saved as
         tradeoff_curve_depth_{d:.2f}km.{fmt}
 
     Args:
         tradeoff_results: Dict returned by the main orchestration loop.
-            Keys: 'tradeoff_table' (for full/z_bounded) OR
+            Keys: 'tradeoff_table' (for full/depth_bounded) OR
                   'by_depth' (dict of depth_km → DataFrame)
             Plus 'config' (the module sub-config).
         config: Full configuration dictionary.
@@ -685,13 +685,13 @@ def create_all_tradeoff_plots(
     cols = _build_col_names(aggregation, use_pct, phase_mode, y_axis_mode, use_normalized)
     has_separate = phase_mode == 'separate' and cols['x_vs'] is not None
 
-    if region in ('full', 'z_bounded'):
+    if region in ('full', 'depth_bounded'):
         df = tradeoff_results.get('tradeoff_table')
         if df is None or df.empty:
             logger.warning("No tradeoff data available for plotting")
             return saved_paths
 
-        region_label = "Full Model" if region == 'full' else "Z-bounded Region"
+        region_label = "Full Model" if region == 'full' else "Depth-bounded Region"
 
         if has_separate:
             for phase_char, phase_label in (('p', 'P'), ('s', 'S')):
@@ -719,10 +719,10 @@ def create_all_tradeoff_plots(
 
         for depth_km, df in sorted(by_depth.items()):
             if df is None or df.empty:
-                logger.warning(f"No data for depth layer Z={depth_km:.2f} km, skipping plot")
+                logger.warning(f"No data for depth layer {depth_km:.2f} km, skipping plot")
                 continue
 
-            depth_label = f"Z = {depth_km:.2f} km"
+            depth_label = f"Depth = {depth_km:.2f} km"
 
             if has_separate:
                 for phase_char, phase_label in (('p', 'P'), ('s', 'S')):

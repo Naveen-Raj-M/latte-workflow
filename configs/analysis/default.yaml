@@ -355,12 +355,12 @@ tradeoff_analysis:
   # For data_misfit mode with P+S combined: X = max(vp_variance, vs_variance)
   # For rms mode with phase_mode "separate": separate Vp and Vs curves are plotted
   model_variance:
-    region: "full"                      # full | z_bounded | depth_layer
-    z_bounds: [null, null]              # [z_min_km, z_max_km]; used when region = z_bounded
+    region: "full"                      # full | depth_bounded | depth_layer
+    depth_bounds: [null, null]          # [depth_min, depth_max] km below MSL; used when region = depth_bounded
     depth_layers: []                    # [d1, d2, ...] km; used when region = depth_layer
-    depth_tolerance_km: 0.5            # km; Z-matching tolerance for depth_layer mode
-    x_bounds: [null, null]             # [x_min, x_max] km; optional spatial clip before variance
-    y_bounds: [null, null]             # [y_min, y_max] km; optional spatial clip before variance
+    depth_tolerance_km: 0.5            # km; depth-matching tolerance for depth_layer mode
+    lon_bounds: [null, null]           # [lon_min, lon_max] degrees; optional clip before variance
+    lat_bounds: [null, null]           # [lat_min, lat_max] degrees; optional clip before variance
     use_percentage_change: false       # true = mean(|Δv| / |v_initial|) × 100  (%)
     aggregation: "mean"                # mean | max | model_variance | rms_variation — aggregation over selected grid points
 
