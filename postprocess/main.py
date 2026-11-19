@@ -15,7 +15,6 @@ from omegaconf import DictConfig, OmegaConf
 
 from utils.io_utils import ensure_directory_exists
 from utils.logging_utils import setup_logging
-from utils.velocity_io import resolve_reference_grid
 
 from .postprocess_velocity import create_velocity_csv_from_binaries
 from .postprocess_traveltime import (
@@ -23,15 +22,6 @@ from .postprocess_traveltime import (
     create_synthetic_travel_time_csv_with_exchange
 )
 from .postprocess_source import process_source_updates
-from .postprocess_dws import compute_dws_from_precomputed_rays
-from .compute_ray_paths import (
-    compute_all_ray_paths,
-    load_event_id_list_and_convert_to_shot_ids,
-    get_cache_path,
-    get_cache_stats,
-    is_cache_valid,
-)
-from .simplify_ray_paths import simplify_ray_paths_main
 
 
 def postprocess_latte_outputs(config: DictConfig) -> None:
@@ -113,9 +103,9 @@ def postprocess_latte_outputs(config: DictConfig) -> None:
         try:
             # Base configuration
             source_cfg_dict = {
-                "sx_file": config.source_processing.sx_file,
-                "sy_file": config.source_processing.sy_file,
-                "sz_file": config.source_processing.sz_file,
+                "slon_file": config.source_processing.slon_file,
+                "slat_file": config.source_processing.slat_file,
+                "sdepth_file": config.source_processing.sdepth_file,
                 "st0_file": config.source_processing.st0_file,
                 "initial_geometry_csv": config.source_processing.get("initial_geometry_csv", None),
                 "filtered_shot_ids": list(config.source_processing.get("filtered_shot_ids", None) or []),
@@ -131,7 +121,7 @@ def postprocess_latte_outputs(config: DictConfig) -> None:
                 source_cfg_dict['process_search'] = config.source_processing.get('process_search', False)
 
                 # Add gradient and search files if specified
-                for param in ['sx', 'sy', 'sz', 'st0']:
+                for param in ['slon', 'slat', 'sdepth', 'st0']:
                     grad_key = f'grad_{param}_file'
                     if hasattr(config.source_processing, grad_key):
                         source_cfg_dict[grad_key] = getattr(config.source_processing, grad_key)
@@ -152,128 +142,6 @@ def postprocess_latte_outputs(config: DictConfig) -> None:
                 raise
     else:
         print(f"\nSource parameter processing: DISABLED")
-
-    # Process ray paths (generates ray path cache and DWS files)
-    # Visualization is handled in the analysis module
-    if hasattr(config, "ray_path_processing") and config.ray_path_processing.enabled:
-        print(f"\nRay path processing: ENABLED")
-        try:
-            diag_config = config.ray_path_processing
-
-            # Grid: from the reference velocity model; the configured grid is only a check
-            # (or the grid itself when no reference model is set)
-            ref_file = diag_config.get('reference_velocity_file', None)
-            cfg_grid = diag_config.get('grid', None)
-            grid = resolve_reference_grid(
-                reference_file=ref_file or None,
-                config_grid=OmegaConf.to_container(cfg_grid) if cfg_grid else None,
-                source="ray_path_processing",
-            )
-            OmegaConf.set_struct(diag_config, False)
-            diag_config.grid = OmegaConf.create(grid)
-            OmegaConf.set_struct(diag_config, True)
-            print(f"  Grid: {grid['nx']}x{grid['ny']}x{grid['nz']}, "
-                  f"d=({grid['dx']}, {grid['dy']}, {grid['dz']}) km")
-
-            # Check if DWS computation is requested
-            compute_dws = getattr(diag_config, 'compute_dws', False)
-
-            # Get cache settings (caching is always enabled)
-            force_recompute = getattr(diag_config, 'force_recompute', False)
-
-            # Print cache status
-            cache_path = get_cache_path(diag_config)
-            print(f"\n  Cache settings:")
-            print(f"    Ray path cache: {cache_path}")
-            print(f"    Force recompute: {force_recompute}")
-
-            if is_cache_valid(cache_path, diag_config):
-                cache_stats = get_cache_stats(cache_path)
-                print(f"    Cache status: VALID")
-                print(f"    Cached rays: P={cache_stats['p_wave_rays']}, S={cache_stats['s_wave_rays']}")
-                print(f"    Cache size: {cache_stats['file_size_mb']:.2f} MB")
-            else:
-                print(f"    Cache status: INVALID or NOT FOUND")
-
-            if compute_dws:
-                print(f"  Outputs: Ray path cache + DWS file")
-                print(f"  DWS output: {diag_config.dws_output_file}")
-            else:
-                print(f"  Outputs: Ray path cache only")
-
-            print(f"\n  NOTE: Visualizations have been moved to the analysis module")
-            print(f"        Run analysis/main.py with raypath_analysis and dws_analysis enabled")
-
-            # Event filtering/subsampling (optimization when DWS is disabled)
-            event_id_list_file = getattr(diag_config, 'event_id_list_file', None)
-            subsample_fraction = getattr(diag_config, 'subsample_fraction', 1.0)
-            filter_shot_ids = None
-            subsample_during_computation = False
-
-            # Only apply filtering/subsampling if DWS is disabled (optimization)
-            if not compute_dws:
-                # Priority: event_id_list_file > subsample_fraction
-                if event_id_list_file and event_id_list_file != "null":
-                    shot_map_file = getattr(diag_config, 'shot_map_file', None)
-                    if shot_map_file:
-                        filter_shot_ids = load_event_id_list_and_convert_to_shot_ids(
-                            event_id_list_file, shot_map_file
-                        )
-                        if filter_shot_ids:
-                            subsample_during_computation = True
-                            print(f"\n  OPTIMIZATION: Computing rays for {len(filter_shot_ids)} selected events only")
-                    else:
-                        print(f"  WARNING: event_id_list_file provided but shot_map_file not found")
-                elif subsample_fraction < 1.0:
-                    subsample_during_computation = True
-                    print(f"\n  OPTIMIZATION: Computing {subsample_fraction*100:.1f}% of ray paths")
-
-            if compute_dws or (not subsample_during_computation):
-                print(f"\n  Computing ALL ray paths for complete cache...")
-
-            # Set load_cache_for_downstream automatically based on DWS requirement
-            OmegaConf.set_struct(diag_config, False)
-            diag_config.load_cache_for_downstream = compute_dws
-            OmegaConf.set_struct(diag_config, True)
-
-            precomputed_rays = compute_all_ray_paths(
-                diag_config,
-                subsample_during_computation,
-                filter_shot_ids
-            )
-
-            # Compute DWS if requested
-            if compute_dws:
-                compute_dws_from_precomputed_rays(diag_config, precomputed_rays)
-
-            # Clear precomputed rays from memory
-            del precomputed_rays
-            import gc
-            gc.collect()
-
-            print(f"\n  Ray path cache saved: {cache_path}")
-            if compute_dws:
-                print(f"  DWS file saved: {diag_config.dws_output_file}")
-
-        except Exception as e:
-            print(f"Error in ray path processing: {e}")
-            if config.general.strict_mode:
-                raise
-    else:
-        print(f"\nRay path processing: DISABLED")
-
-    # Ray path simplification (optional, for reducing memory in analysis); can run on an existing cache
-    simp_cfg = config.get("ray_path_processing", {}).get("simplification", None)
-    if simp_cfg is not None and simp_cfg.get("enabled", False):
-        print(f"\nRay path simplification: ENABLED")
-        try:
-            simplify_ray_paths_main(config.ray_path_processing)
-        except Exception as e:
-            print(f"Error in ray path simplification: {e}")
-            if config.general.strict_mode:
-                raise
-    else:
-        print(f"\nRay path simplification: DISABLED")
 
     print("\n=== POST-PROCESSING COMPLETE ===")
 

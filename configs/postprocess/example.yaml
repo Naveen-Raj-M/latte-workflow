@@ -19,7 +19,3 @@ travel_time_processing:
 
 source_processing:
   enabled: true
-
-ray_path_processing:
-  enabled: true
-  raypath_binary_dir: "/path/to/raypath/binaries"

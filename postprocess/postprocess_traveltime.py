@@ -14,7 +14,8 @@ from tqdm import tqdm
 
 from utils.io_utils import ensure_directory_exists, resolve_csv_path
 from utils.traveltime_io import read_traveltime_csv, write_traveltime_csv
-from utils.exchange import resolve_layout, match_stations, station_coordinates, check_binary_counts, check_array_size
+from utils.exchange import (resolve_layout, match_stations, station_coordinates, check_binary_counts,
+                            check_array_size, earth_radius_km)
 
 
 def load_shot_mapping(shot_map_file: str) -> Dict[int, str]:
@@ -244,19 +245,13 @@ def create_synthetic_travel_time_csv(config: DictConfig) -> None:
                     # Metadata (from ground truth)
                     'weight': gt_row['weight'],
                     
-                    # Coordinates (from ground truth; Cartesian coordinates in metres)
+                    # Coordinates (from ground truth; degrees and km below mean sea level)
                     'event_longitude': gt_row.get('event_longitude', np.nan),
                     'event_latitude': gt_row.get('event_latitude', np.nan),
                     'event_depth_km': gt_row.get('event_depth_km', np.nan),
                     'station_longitude': gt_row.get('station_longitude', np.nan),
                     'station_latitude': gt_row.get('station_latitude', np.nan),
                     'station_depth_km': gt_row.get('station_depth_km', np.nan),
-                    'event_x': gt_row.get('event_x', np.nan),
-                    'event_y': gt_row.get('event_y', np.nan),
-                    'event_z': gt_row.get('event_z', np.nan),
-                    'station_x': gt_row.get('station_x', np.nan),
-                    'station_y': gt_row.get('station_y', np.nan),
-                    'station_z': gt_row.get('station_z', np.nan),
                     'origin_time_s': gt_row.get('origin_time_s', np.nan),
                 }
                 
@@ -276,7 +271,8 @@ def create_synthetic_travel_time_csv(config: DictConfig) -> None:
         df_synthetic = pd.DataFrame(csv_data)
 
         ensure_directory_exists(os.path.dirname(config.synthetic_tt_output_csv))
-        write_traveltime_csv(df_synthetic, config.synthetic_tt_output_csv, data_type='synthetic_traveltime')
+        write_traveltime_csv(df_synthetic, config.synthetic_tt_output_csv, data_type='synthetic_traveltime',
+                             metadata={'earth_radius_km': earth_radius_km(df_ground_truth)})
 
         print(f"\nSynthetic travel time CSV written: {config.synthetic_tt_output_csv}")
         print(f"  Total records: {len(df_synthetic)}")
@@ -471,12 +467,6 @@ def create_synthetic_travel_time_csv_with_exchange(config: DictConfig) -> None:
                         'station_longitude': gt_row['station_longitude'],
                         'station_latitude': gt_row['station_latitude'],
                         'station_depth_km': gt_row['station_depth_km'],
-                        'event_x': gt_row['event_x'],
-                        'event_y': gt_row['event_y'],
-                        'event_z': gt_row['event_z'],
-                        'station_x': gt_row['station_x'],
-                        'station_y': gt_row['station_y'],
-                        'station_z': gt_row['station_z'],
                         'origin_time_s': gt_row['origin_time_s'],
                     }
 
@@ -500,7 +490,8 @@ def create_synthetic_travel_time_csv_with_exchange(config: DictConfig) -> None:
 
         # Save output
         ensure_directory_exists(os.path.dirname(config.synthetic_tt_output_csv))
-        write_traveltime_csv(df_output, config.synthetic_tt_output_csv, data_type='synthetic_traveltime')
+        write_traveltime_csv(df_output, config.synthetic_tt_output_csv, data_type='synthetic_traveltime',
+                             metadata={'earth_radius_km': earth_radius_km(df_ground_truth)})
         
         print(f"\n=== OUTPUT SUMMARY ===")
         print(f"Synthetic travel time CSV written: {config.synthetic_tt_output_csv}")

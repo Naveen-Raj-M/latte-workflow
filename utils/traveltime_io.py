@@ -131,22 +131,3 @@ def event_station_distance_m(df: pd.DataFrame, kind: str = 'hypocentral') -> pd.
     else:
         raise ValueError(f"Unknown distance kind: {kind!r}")
     return pd.Series(km * 1000.0, index=df.index)
-
-
-def convert_coordinates_to_km(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Return a copy with the Cartesian coordinate columns converted to km.
-
-    The conversion uses the units of the columns (``units.*`` header metadata, metres for
-    legacy files). Ray tracing, DWS and ray density work in km internally, so this is called
-    once, right after reading the table.
-    """
-    df = df.copy()
-    columns = [f'{prefix}_{axis}' for prefix in ('event', 'station', 'corrected_event')
-               for axis in ('x', 'y', 'z') if f'{prefix}_{axis}' in df.columns]
-    for column in columns:
-        df[column] = df[column] * km_per_unit(df, column)
-    metadata = dict(df.attrs.get('metadata') or {})
-    metadata.update({f'units.{column}': 'km' for column in columns})
-    df.attrs['metadata'] = metadata
-    return df

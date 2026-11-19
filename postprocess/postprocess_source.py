@@ -1,8 +1,9 @@
 """
 Post-processing functions for LATTE source parameter updates.
-Reads updated source coordinates (sx, sy, sz) and origin times (st0) from binary files
-and merges them with travel time CSV output to create corrected event parameters.
-Optionally includes gradient and search direction fields.
+Reads updated source positions (slon, slat in degrees; sdepth in m below mean sea level) and
+origin times (st0) from the binary files of the spherical LATTE branch and merges them with the
+travel time CSV output to create corrected event parameters (longitude, latitude, depth in km,
+origin time). Optionally includes gradient and search direction fields (raw LATTE values).
 """
 
 import logging
@@ -13,23 +14,27 @@ from typing import Dict, List, Optional, Tuple
 from omegaconf import DictConfig
 
 from utils.io_utils import resolve_csv_path
+from utils.spherical import EARTH_RADIUS_KM, east_north_down_km
 from utils.traveltime_io import read_traveltime_csv, write_traveltime_csv
 
 logger = logging.getLogger(__name__)
 
 _PARAM_FILE_KEY = {
-    'sx': 'sx_file',
-    'sy': 'sy_file',
-    'sz': 'sz_file',
+    'slon': 'slon_file',
+    'slat': 'slat_file',
+    'sdepth': 'sdepth_file',
     'st0': 'st0_file',
 }
 
 _PARAM_COLUMN = {
-    'sx': 'corrected_event_x',
-    'sy': 'corrected_event_y',
-    'sz': 'corrected_event_z',
+    'slon': 'corrected_event_longitude',
+    'slat': 'corrected_event_latitude',
+    'sdepth': 'corrected_event_depth_km',
     'st0': 'corrected_origin_time_s',
 }
+
+# Factor from the binary values to the column units (sdepth is in m, the column in km)
+_PARAM_SCALE = {'slon': 1.0, 'slat': 1.0, 'sdepth': 1e-3, 'st0': 1.0}
 
 
 def read_binary_file(path: str, count: int, dtype=np.float32) -> np.ndarray:
@@ -50,7 +55,7 @@ def read_binary_file(path: str, count: int, dtype=np.float32) -> np.ndarray:
     return data
 
 
-INITIAL_COLUMNS = ['shot_id', 'event_x', 'event_y', 'event_z', 'origin_time_s']
+INITIAL_COLUMNS = ['shot_id', 'event_longitude', 'event_latitude', 'event_depth_km', 'origin_time_s']
 
 
 def resolve_kept_shots(cfg: DictConfig, params, dtype=np.float32) -> Tuple[List[int], pd.DataFrame]:
@@ -168,7 +173,7 @@ def process_source_updates(cfg: DictConfig) -> pd.DataFrame:
     """
     Process updated source parameters and merge with travel time CSV.
 
-    Reads binary files containing updated source coordinates (sx, sy, sz) and
+    Reads binary files containing updated source positions (slon, slat, sdepth) and
     origin times (st0), then merges them with the travel time CSV output.
     Optionally includes gradient and search direction fields.
     Binary array index k holds the k-th shot of ``initial_geometry_csv`` (ascending shot id)
@@ -231,7 +236,7 @@ def process_source_updates(cfg: DictConfig) -> pd.DataFrame:
     # Create source corrections lookup (array index k -> kept shot id; filtered shots have none)
     source_corrections = {}
     for idx, shot_id in enumerate(kept_shots):
-        correction_dict = {_PARAM_COLUMN[p]: base_data[p][idx] for p in base_data}
+        correction_dict = {_PARAM_COLUMN[p]: float(base_data[p][idx]) * _PARAM_SCALE[p] for p in base_data}
         for param in base_data:
             if auxiliary_fields[param]['gradient'] is not None:
                 correction_dict[f'grad_{param}'] = auxiliary_fields[param]['gradient'][idx]
@@ -309,28 +314,33 @@ def process_source_updates(cfg: DictConfig) -> pd.DataFrame:
     if optional_cols:
         logger.info(f"  Optional fields added: {', '.join(optional_cols)}")
 
-    # Calculate correction magnitudes (only when all spatial and temporal params were processed)
-    spatial_out = ['corrected_event_x', 'corrected_event_y', 'corrected_event_z']
-    spatial_orig = ['event_x', 'event_y', 'event_z']
+    # Correction magnitudes (only when all spatial and temporal params were processed): the
+    # straight-line shift resolved along east, north and down at the initial position
+    radius = float((df.attrs.get('metadata') or {}).get('earth_radius_km', EARTH_RADIUS_KM))
+    spatial_out = ['corrected_event_longitude', 'corrected_event_latitude', 'corrected_event_depth_km']
+    spatial_orig = ['event_longitude', 'event_latitude', 'event_depth_km']
     if (all(c in df.columns for c in spatial_out + spatial_orig) and
             'corrected_origin_time_s' in df.columns and 'origin_time_s' in df.columns):
-        dx = df['corrected_event_x'] - df['event_x']
-        dy = df['corrected_event_y'] - df['event_y']
-        dz = df['corrected_event_z'] - df['event_z']
-        dt = df['corrected_origin_time_s'] - df['origin_time_s']
-        spatial_change = np.sqrt(dx**2 + dy**2 + dz**2)
+        shots = df.drop_duplicates('shot_id').dropna(subset=spatial_out)
+        if not shots.empty:
+            east, north, down = (1000.0 * c for c in east_north_down_km(
+                *(shots[c].to_numpy(float) for c in spatial_orig),
+                *(shots[c].to_numpy(float) for c in spatial_out), radius))
+            dt = (shots['corrected_origin_time_s'] - shots['origin_time_s']).to_numpy(float)
+            spatial_change = np.sqrt(east**2 + north**2 + down**2)
 
-        logger.info(f"\nCorrection magnitudes:")
-        logger.info(f"  X shift: mean={dx.mean():.3f} m, std={dx.std():.3f} m, range=[{dx.min():.3f}, {dx.max():.3f}] m")
-        logger.info(f"  Y shift: mean={dy.mean():.3f} m, std={dy.std():.3f} m, range=[{dy.min():.3f}, {dy.max():.3f}] m")
-        logger.info(f"  Z shift: mean={dz.mean():.3f} m, std={dz.std():.3f} m, range=[{dz.min():.3f}, {dz.max():.3f}] m")
-        logger.info(f"  3D spatial shift: mean={spatial_change.mean():.3f} m, max={spatial_change.max():.3f} m")
-        logger.info(f"  Origin time shift: mean={dt.mean():.6f} s, std={dt.std():.6f} s, range=[{dt.min():.6f}, {dt.max():.6f}]")
+            logger.info(f"\nCorrection magnitudes ({len(shots)} shots):")
+            for label, d in (('East', east), ('North', north), ('Down', down)):
+                logger.info(f"  {label} shift: mean={d.mean():.3f} m, std={d.std():.3f} m, "
+                            f"range=[{d.min():.3f}, {d.max():.3f}] m")
+            logger.info(f"  3D spatial shift: mean={spatial_change.mean():.3f} m, max={spatial_change.max():.3f} m")
+            logger.info(f"  Origin time shift: mean={dt.mean():.6f} s, std={dt.std():.6f} s, "
+                        f"range=[{dt.min():.6f}, {dt.max():.6f}]")
 
     # Save output CSV
     out_path = Path(str(cfg["output_csv"]))
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    write_traveltime_csv(df, out_path, data_type='source_relocation')
+    write_traveltime_csv(df, out_path, data_type='source_relocation', metadata={'earth_radius_km': radius})
 
     logger.info(f"\n=== OUTPUT SUMMARY ===")
     logger.info(f"Source-corrected travel time CSV written: {out_path}")

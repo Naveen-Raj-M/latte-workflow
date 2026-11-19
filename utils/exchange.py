@@ -10,8 +10,12 @@ receiver into a virtual source and every kept shot into a virtual receiver:
   shots in order and keeping the first appearance (flit ``unique``, exact single-precision equality).
 - ``shot_<i>_traveltime_{p,s}.bin`` holds one float32 per kept shot, in the same order.
 
-``exchange_geometry.txt`` (virtual id, x, y, z) written by LATTE is optional: when given it is used as
-the virtual-source table and the geometry-derived table is only compared against it.
+Positions are those of the geometry files: longitude and WGS84 geodetic latitude (degrees) and depth
+below mean sea level (m). Distances between positions (tolerances, matching to stations) are
+straight-line distances in metres between the Earth-centred positions on the spherical Earth.
+
+``exchange_geometry.txt`` (virtual id, lon, lat, depth_m) written by LATTE is optional: when given it is
+used as the virtual-source table and the geometry-derived table is only compared against it.
 """
 
 import logging
@@ -21,7 +25,11 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 import numpy as np
 import pandas as pd
 
+from utils.spherical import EARTH_RADIUS_KM, to_ecef
+
 logger = logging.getLogger(__name__)
+
+STATION_COLUMNS = ["station_longitude", "station_latitude", "station_depth_km"]
 
 FILTER_HINT = (
     "If LATTE dropped shots or receivers (e.g. sid_select/sid_exclude, no valid receivers), list them "
@@ -34,14 +42,18 @@ class ExchangeLayout:
 
     def __init__(self, shot_ids: List[int], virtual_coords: np.ndarray, source: str):
         self.shot_ids = list(shot_ids)  # array index -> shot id
-        self.virtual_coords = np.asarray(virtual_coords, dtype=np.float64)  # row i -> virtual id i + 1
+        # row i -> virtual id i + 1: lon (deg), lat (deg), depth (m)
+        self.virtual_coords = np.asarray(virtual_coords, dtype=np.float64)
         self.source = source  # 'geometry' | 'exchange_geometry'
         # True when virtual_coords came from LATTE's own exchange_geometry.txt
         self.from_exchange_geometry = source == "exchange_geometry"
 
     def matching_tolerance(self, tolerance: float) -> float:
-        """Station-matching tolerance; exchange_geometry.txt is float32 printed with 3 decimals (~0.03 m at 1e6 m)."""
-        return max(tolerance, 0.1) if self.from_exchange_geometry else tolerance
+        """Station-matching tolerance (m). exchange_geometry.txt holds LATTE's single-precision
+        positions, which differ from the stations by up to the float32 resolution."""
+        if self.from_exchange_geometry:
+            return max(tolerance, float(float32_resolution_m(self.virtual_coords).max()))
+        return tolerance
 
     @property
     def n_virtual(self) -> int:
@@ -56,7 +68,8 @@ class ExchangeLayout:
 # Reading
 # --------------------------------------------------------------------------- #
 def read_shot_geometry(path) -> Tuple[int, np.ndarray]:
-    """Return (shot_id, receivers[n, 3] float64) from one shot_<n>_geometry.txt (4 or 5 columns)."""
+    """Return (shot_id, receivers[n, 3] float64: lon deg, lat deg, depth m) from one
+    shot_<n>_geometry.txt (4 or 5 columns)."""
     tokens = Path(path).read_text().split()
     shot_id, n_sources = int(tokens[0]), int(tokens[1])
     n_receivers = int(tokens[2 + 4 * n_sources])
@@ -77,7 +90,7 @@ def read_geometry(geometry_dir, geometry_file: str = "geometry.txt") -> Tuple[Li
 
 
 def read_exchange_geometry(path) -> Dict[int, Tuple[float, float, float]]:
-    """Read exchange_geometry.txt: ``virtual_id x y z`` per line, '#' comments."""
+    """Read exchange_geometry.txt: ``virtual_id lon lat depth_m`` per line, '#' comments."""
     table: Dict[int, Tuple[float, float, float]] = {}
     with open(path, "r") as f:
         for line in f:
@@ -90,6 +103,34 @@ def read_exchange_geometry(path) -> Dict[int, Tuple[float, float, float]]:
 
 
 # --------------------------------------------------------------------------- #
+# Positions
+# --------------------------------------------------------------------------- #
+def earth_radius_km(df: pd.DataFrame) -> float:
+    """Earth radius (km) of a travel-time table: its ``earth_radius_km`` metadata, or 6371 km."""
+    return float((df.attrs.get("metadata") or {}).get("earth_radius_km", EARTH_RADIUS_KM))
+
+
+def ecef_m(coords: np.ndarray, radius_km: float = EARTH_RADIUS_KM) -> np.ndarray:
+    """Earth-centred positions (m) of rows (lon deg, lat deg, depth m)."""
+    coords = np.asarray(coords, dtype=np.float64).reshape(-1, 3)
+    return 1000.0 * to_ecef(coords[:, 0], coords[:, 1], coords[:, 2] / 1000.0, radius_km)
+
+
+def float32_resolution_m(coords: np.ndarray) -> np.ndarray:
+    """Upper bound (m) per row of the distance between neighbouring single-precision positions:
+    the float32 spacing of lon and lat (at most 111.2 km per degree on the 6371 km sphere,
+    1.1 % margin for a larger radius) plus that of the depth."""
+    c = np.abs(np.asarray(coords, dtype=np.float64).reshape(-1, 3)).astype("<f4")
+    spacing = np.spacing(c).astype(np.float64)
+    return 112.5e3 * (spacing[:, 0] + spacing[:, 1]) + spacing[:, 2]
+
+
+def distances_m(a: np.ndarray, b: np.ndarray, radius_km: float = EARTH_RADIUS_KM) -> np.ndarray:
+    """Straight-line distances (m) between every row of ``a`` and every row of ``b``: shape [len(a), len(b)]."""
+    return np.linalg.norm(ecef_m(a, radius_km)[:, None, :] - ecef_m(b, radius_km)[None, :, :], axis=2)
+
+
+# --------------------------------------------------------------------------- #
 # The exchange itself
 # --------------------------------------------------------------------------- #
 def first_appearance_unique(coords: np.ndarray) -> np.ndarray:
@@ -99,8 +140,17 @@ def first_appearance_unique(coords: np.ndarray) -> np.ndarray:
 
 
 def station_coordinates(df: pd.DataFrame) -> pd.DataFrame:
-    """One row per station name with station_x/y/z (m) from the ground-truth table."""
-    return df[["station", "station_x", "station_y", "station_z"]].drop_duplicates("station").reset_index(drop=True)
+    """One row per station name with station_longitude/latitude (deg) and station_depth_km from the
+    ground-truth table."""
+    stations = df[["station"] + STATION_COLUMNS].drop_duplicates("station").reset_index(drop=True)
+    stations.attrs["metadata"] = dict(df.attrs.get("metadata") or {})
+    return stations
+
+
+def station_positions(df: pd.DataFrame) -> np.ndarray:
+    """Station positions of a table as rows (lon deg, lat deg, depth m), the units of the geometry files."""
+    lon, lat, depth_km = (df[c].to_numpy(dtype=np.float64) for c in STATION_COLUMNS)
+    return np.column_stack([lon, lat, 1000.0 * depth_km])
 
 
 def compute_layout(
@@ -109,13 +159,15 @@ def compute_layout(
     filtered_shot_ids: Iterable[int] = (),
     filtered_receiver_coords: Optional[np.ndarray] = None,
     tolerance: float = 1.0,
+    radius_km: float = EARTH_RADIUS_KM,
 ) -> ExchangeLayout:
     """
     Reproduce LATTE's exchange from geometry shots (in geometry.txt order).
 
     Filtered shots are dropped before the unique-receiver scan, exactly as LATTE compacts ``gmtr``,
-    so they can change the virtual-source numbering. Filtered receivers (coordinates, matched within
-    ``tolerance`` metres) are removed from every shot; a shot left without receivers is dropped.
+    so they can change the virtual-source numbering. Filtered receivers (positions as rows lon, lat,
+    depth m, matched within ``tolerance`` metres) are removed from every shot; a shot left without
+    receivers is dropped.
     """
     drop_shots = set(int(s) for s in filtered_shot_ids)
     kept_ids, kept_rec = [], []
@@ -123,7 +175,7 @@ def compute_layout(
         if sid in drop_shots:
             continue
         if filtered_receiver_coords is not None and len(filtered_receiver_coords):
-            d = np.linalg.norm(rec[:, None, :] - filtered_receiver_coords[None, :, :], axis=2)
+            d = distances_m(rec, filtered_receiver_coords, radius_km)
             rec = rec[~(d <= tolerance).any(axis=1)]
         if len(rec) == 0:
             continue
@@ -137,14 +189,16 @@ def compute_layout(
 
 def match_stations(virtual_coords: np.ndarray, stations: pd.DataFrame, tolerance: float) -> Dict[int, List[str]]:
     """
-    Virtual id -> every station name within ``tolerance`` metres (co-located stations share a virtual
-    source). Unmatched virtual ids are absent from the result.
+    Virtual id -> every station name within ``tolerance`` metres (straight-line distance; co-located
+    stations share a virtual source). Unmatched virtual ids are absent from the result.
     """
-    xyz = stations[["station_x", "station_y", "station_z"]].to_numpy(dtype=np.float64)
+    radius = earth_radius_km(stations)
+    station_ecef = ecef_m(station_positions(stations), radius)
+    virtual_ecef = ecef_m(virtual_coords, radius)
     names = stations["station"].tolist()
     matched: Dict[int, List[str]] = {}
-    for i, v in enumerate(virtual_coords):
-        hit = np.where(np.linalg.norm(xyz - v, axis=1) <= tolerance)[0]
+    for i, v in enumerate(virtual_ecef):
+        hit = np.where(np.linalg.norm(station_ecef - v, axis=1) <= tolerance)[0]
         if hit.size:
             matched[i + 1] = [names[k] for k in hit]
     return matched
@@ -153,7 +207,8 @@ def match_stations(virtual_coords: np.ndarray, stations: pd.DataFrame, tolerance
 # --------------------------------------------------------------------------- #
 # Resolution and validation
 # --------------------------------------------------------------------------- #
-def _compare_virtual_tables(computed: np.ndarray, given: np.ndarray, tolerance: float) -> None:
+def _compare_virtual_tables(computed: np.ndarray, given: np.ndarray, tolerance: float,
+                            radius_km: float = EARTH_RADIUS_KM) -> None:
     """Warn if the geometry-derived virtual sources differ from exchange_geometry.txt."""
     if len(computed) != len(given):
         logger.warning(
@@ -161,9 +216,9 @@ def _compare_virtual_tables(computed: np.ndarray, given: np.ndarray, tolerance: 
             f"{len(given)}. Proceeding with exchange_geometry.txt. {FILTER_HINT}"
         )
         return
-    # LATTE stores coordinates in single precision, so allow for float32 resolution at these magnitudes
-    slack = tolerance + 2 * np.spacing(np.abs(given).max(axis=1).astype("<f4")).astype(np.float64)
-    dist = np.linalg.norm(computed - given, axis=1)
+    # LATTE stores positions in single precision, so allow for the float32 resolution
+    slack = tolerance + 2 * float32_resolution_m(given)
+    dist = np.linalg.norm(ecef_m(computed, radius_km) - ecef_m(given, radius_km), axis=1)
     bad = np.where(dist > slack)[0]
     if bad.size:
         logger.warning(
@@ -198,12 +253,12 @@ def resolve_layout(
     if geometry_dir is None and exchange_geometry_file is None:
         raise ValueError("Source-receiver exchange needs geometry_dir (preferred) or exchange_geometry_file")
 
+    radius = earth_radius_km(df_ground_truth)
     stations = station_coordinates(df_ground_truth)
     unknown = [s for s in filtered_receiver_ids if s not in set(stations["station"])]
     if unknown:
         logger.warning(f"filtered_receiver_ids not found in the ground truth: {unknown}")
-    filtered_xyz = stations[stations["station"].isin(filtered_receiver_ids)][
-        ["station_x", "station_y", "station_z"]].to_numpy(dtype=np.float64)
+    filtered_positions = station_positions(stations[stations["station"].isin(filtered_receiver_ids)])
 
     # Reference (ground truth) after the user's filters
     ref = df_ground_truth[~df_ground_truth["shot_id"].isin(filtered_shot_ids)
@@ -213,7 +268,7 @@ def resolve_layout(
     computed = None
     if geometry_dir is not None:
         shot_ids, receivers = read_geometry(geometry_dir, geometry_file)
-        computed = compute_layout(shot_ids, receivers, filtered_shot_ids, filtered_xyz, tolerance)
+        computed = compute_layout(shot_ids, receivers, filtered_shot_ids, filtered_positions, tolerance, radius)
 
     if exchange_geometry_file is not None:
         table = read_exchange_geometry(exchange_geometry_file)
@@ -221,7 +276,7 @@ def resolve_layout(
             raise ValueError(f"{exchange_geometry_file}: virtual ids are not 1..{len(table)}")
         given = np.array([table[i] for i in range(1, len(table) + 1)], dtype=np.float64)
         if computed is not None:
-            _compare_virtual_tables(computed.virtual_coords, given, tolerance)
+            _compare_virtual_tables(computed.virtual_coords, given, tolerance, radius)
             layout = ExchangeLayout(computed.shot_ids, given, "exchange_geometry")
         else:
             layout = ExchangeLayout(ref_shots, given, "exchange_geometry")
@@ -242,7 +297,7 @@ def resolve_layout(
             "using the geometry.txt order (this is the order of the LATTE binary arrays)."
         )
 
-    n_ref_locations = len(np.unique(ref[["station_x", "station_y", "station_z"]].to_numpy().astype("<f4"), axis=0))
+    n_ref_locations = len(np.unique(station_positions(ref).astype("<f4"), axis=0))
     if n_ref_locations != layout.n_virtual:
         msg = (f"Reference ground truth has {n_ref_locations} distinct receiver locations but the exchange has "
                f"{layout.n_virtual} virtual sources ({layout.source}). {FILTER_HINT}")
