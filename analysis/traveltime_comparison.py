@@ -66,6 +66,12 @@ def prepare_comparison_data(df1: pd.DataFrame, df2: pd.DataFrame,
     if 'observed_tt_method1' in df_merged.columns:
         df_merged['ground_truth_tt'] = df_merged['observed_tt_method1']
     
+    # Weights: use Method 1 (the reference) so weighted statistics work downstream
+    if 'weight_method1' in df_merged.columns:
+        df_merged['weight'] = df_merged['weight_method1']
+    elif 'weight' not in df_merged.columns:
+        raise ValueError("Missing 'weight' column in Method 1 data")
+
     # Clean up intermediate columns to avoid confusion
     drop_cols = [col for col in df_merged.columns 
                  if col.endswith('_method1') or col.endswith('_method2')]
